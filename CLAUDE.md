@@ -17,3 +17,7 @@ Test-driven development:
 - Tautological tests considered harmful.
 - Change-detector tests considered harmful.
 - Do not create regression tests for bug fixes without a genuine gap in behavior testing.
+
+## Subagents
+
+For an audit, a migration, or a review across a large codebase, delegate the work to subagents. When a subagent reports back, check its evidence before you accept it.
