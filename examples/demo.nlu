@@ -1,0 +1,31 @@
+# nlu_script demo. Try it with:
+#   ./build/nlu_script_cli examples/demo.nlu
+# and type sentences, one per line.
+
+# Domain entity: each value may carry attributes for the auto-created slot.
+@메뉴: 치킨{value=chicken}, 피자{value=pizza}, [햄버거|버거]{value=burger}
+
+# Regex variable: inlined where referenced, no slot.
+@var.hour_word:
+    [one{hour=1}|two{hour=2}|three{hour=3}|four{hour=4}|five{hour=5}|six{hour=6}]
+    [seven{hour=7}|eight{hour=8}|nine{hour=9}|ten{hour=10}|eleven{hour=11}|twelve{hour=12}]
+
+control:up:volume
+    turn up (the) volume
+    volume up
+    볼륨 [올려|키워] (줘|주세요)
+
+alarm:set:datetime
+    wake me up at <cons_datetime>@var.{hour_word} o'clock (in the [morning{part_of_day=MORNING}|evening{part_of_day=EVENING}])</cons_datetime>
+
+translation:request:translation
+    translate <cons_translation><?>+?</cons_translation> [in|into] [japanese{cons_translation.target=ja}|korean{cons_translation.target=ko}]
+
+order:food
+    @{메뉴}::(을|를) [주문|배달] (해줘|해주세요)
+
+call:phone
+    `@{TELNUM}::(으로|로) 전화 (걸어줘)
+
+music:play:mood
+    <artist>\[김철수|홍길동] <?>*?</artist> [슬픈|좋은|즐거운] 노래 틀어줘
