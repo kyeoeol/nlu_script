@@ -9,3 +9,11 @@ Everything in this project is done in English, even when the request is written 
 - Commit messages and PR titles/descriptions
 
 Conversation replies match the language of the request.
+
+## Testing
+
+Test-driven development:
+
+- Tautological tests considered harmful.
+- Change-detector tests considered harmful.
+- Do not create regression tests for bug fixes without a genuine gap in behavior testing.
