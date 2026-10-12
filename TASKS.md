@@ -15,6 +15,10 @@
 - [x] Tests: C++ behavior tests, C API test, Python tests (all run by `ctest`)
 - [x] Pike VM cost bounded to the matched rule's states (match time no longer
       grows with total rule count)
+- [x] Examples, demo and tests use this project's own data (customer-support
+      inquiries to banking and payment apps) instead of the guide's, and cover
+      Korean and English side by side
+- [x] README credits the NCP chatbot guide and the talk the project started from
 
 ## Next
 
@@ -22,6 +26,11 @@
       normalizer (relative days like `day="+1"`, `minute`, `part_of_day`), with
       a short how-to
 - [ ] More system entities (dates, times, currency, ordinals, Korean numerals)
+- [ ] `TELNUM` for non-Korean formats (e.g. `+1 555-123-4567`,
+      `(555) 123-4567`); English sentences work today, but only with Korean
+      numbers
+- [ ] Optionally ignore trailing punctuation in input (`are you there?`)
+      instead of requiring `"?"` in every pattern
 - [ ] Unicode case folding beyond ASCII; optional full-width/half-width folding
 - [ ] Save and load compiled scripts so large rule sets don't need recompiling
 - [ ] Bound the lazy DFA cache by memory as well as by state count, and expose
@@ -36,10 +45,11 @@
 
 ## Open questions
 
-- [x] Exclusion semantics: the guide's second example (`홍길동이나 아이유 …` rejected
-      by `\[<?>*? 홍길동] <?>*? …`) contradicted its first example. Decided:
-      the implemented behavior is the spec. A wildcard is rejected only when
-      the exclusion matches its whole text. Use `\[<?>*? X <?>*?]` to exclude
+- [x] Exclusion semantics: the guide's second exclusion example (text that
+      only starts with the excluded name, rejected by `\[<?>*? X] <?>*? …`)
+      contradicted its first example. Decided: the implemented behavior is
+      the spec. A wildcard is rejected only when the exclusion matches its
+      whole text. Use `\[<?>*? X <?>*?]` to exclude
       text that contains `X`.
 - [ ] Should `#{form}` and `${action.method}` (answer templates in the chatbot
       builder) be part of this library, or stay with the response layer?

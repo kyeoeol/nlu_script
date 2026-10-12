@@ -1,4 +1,4 @@
-// Behavior of the pattern language, mostly taken from the language guide.
+// Behavior of the pattern language, checked with Korean and English input.
 #include "harness.hpp"
 #include "nlu_script/nlu_script.hpp"
 
@@ -20,72 +20,117 @@ bool matches(const std::string& pattern, const std::string& text) {
 }  // namespace
 
 TEST(space_in_pattern_is_optional_in_input) {
-  CHECK(matches("안녕 하세요", "안녕하세요"));
-  CHECK(matches("안녕 하세요", "안녕 하세요"));
+  CHECK(matches("잔액 조회", "잔액조회"));
+  CHECK(matches("잔액 조회", "잔액 조회"));
+  CHECK(matches("log in", "login"));
+  CHECK(matches("log in", "log in"));
 }
 
 TEST(no_space_in_pattern_forbids_space_in_input) {
-  CHECK(matches("안녕하세요", "안녕하세요"));
-  CHECK(!matches("안녕하세요", "안녕 하세요"));
+  CHECK(matches("잔액조회", "잔액조회"));
+  CHECK(!matches("잔액조회", "잔액 조회"));
+  CHECK(matches("login", "login"));
+  CHECK(!matches("login", "log in"));
 }
 
 TEST(required_group_matches_every_combination) {
-  nlu::Script s = rule("[주문|배달|배송] [해줘|해주세요|해줘요]");
-  for (const char* verb : {"주문", "배달", "배송"})
-    for (const char* ending : {"해줘", "해주세요", "해줘요"})
-      CHECK(matches(s, std::string(verb) + ending));
-  CHECK(!matches(s, "주문"));
-  CHECK(!matches(s, "해줘"));
+  nlu::Script ko = rule("[송금|이체|결제] [취소해줘|취소해주세요|취소하고 싶어요]");
+  for (const char* verb : {"송금", "이체", "결제"})
+    for (const char* ending : {"취소해줘", "취소해주세요", "취소하고 싶어요"})
+      CHECK(matches(ko, std::string(verb) + ending));
+  CHECK(!matches(ko, "송금"));
+  CHECK(!matches(ko, "취소해주세요"));
+
+  nlu::Script en = rule("[cancel|refund] [my order|my payment]");
+  for (const char* verb : {"cancel", "refund"})
+    for (const char* object : {"my order", "my payment"})
+      CHECK(matches(en, std::string(verb) + " " + object));
+  CHECK(!matches(en, "cancel"));
+  CHECK(!matches(en, "my payment"));
 }
 
 TEST(optional_group_may_be_omitted) {
-  nlu::Script s = rule("안녕(하세요|하신가|하냐)");
-  for (const char* text : {"안녕", "안녕하세요", "안녕하신가", "안녕하냐"})
-    CHECK(matches(s, text));
-  CHECK(!matches(s, "안녕하십니까"));
+  nlu::Script ko = rule("환불(해줘|해주세요)");
+  for (const char* text : {"환불", "환불해줘", "환불해주세요"}) CHECK(matches(ko, text));
+  CHECK(!matches(ko, "환불했어요"));
+
+  nlu::Script en = rule("check my balance (please|now)");
+  for (const char* text : {"check my balance", "check my balance please", "check my balance now"})
+    CHECK(matches(en, text));
+  CHECK(!matches(en, "check my balance later"));
 }
 
 TEST(groups_nest) {
-  nlu::Script s = rule("[불 (좀)|조명] [꺼(줘)|켜(줘)]");
-  CHECK(matches(s, "불 좀 꺼줘"));
-  CHECK(matches(s, "불 켜"));
-  CHECK(matches(s, "조명 꺼줘"));
-  CHECK(!matches(s, "조명 좀 꺼줘"));
+  nlu::Script ko = rule("[카드 (좀)|계좌] [정지(해줘)|해지(해줘)]");
+  CHECK(matches(ko, "카드 좀 정지해줘"));
+  CHECK(matches(ko, "카드 해지"));
+  CHECK(matches(ko, "계좌 정지해줘"));
+  CHECK(!matches(ko, "계좌 좀 정지해줘"));
+
+  nlu::Script en = rule("[freeze|unfreeze] [(my) card|my account]");
+  CHECK(matches(en, "freeze my card"));
+  CHECK(matches(en, "unfreeze card"));
+  CHECK(matches(en, "freeze my account"));
+  CHECK(!matches(en, "freeze account"));
 }
 
 TEST(adjacent_group_allows_space) {
-  nlu::Script s = rule("주[라|세요]");
-  for (const char* text : {"주라", "주 라", "주세요", "주 세요"}) CHECK(matches(s, text));
-  CHECK(matches("[칼로리|열량]알려줘", "칼로리 알려줘"));
+  nlu::Script ko = rule("환불[해줘|해주세요]");
+  for (const char* text : {"환불해줘", "환불 해줘", "환불해주세요", "환불 해주세요"})
+    CHECK(matches(ko, text));
+  CHECK(matches("[잔액|한도]알려줘", "잔액 알려줘"));
+
+  nlu::Script en = rule("sign[in|up]");
+  for (const char* text : {"signin", "sign in", "signup", "sign up"}) CHECK(matches(en, text));
+  CHECK(matches("[check|show]balance", "check balance"));
 }
 
 TEST(double_colon_joins_tokens_without_space) {
-  nlu::Script s = rule("주::[라|세요]");
-  CHECK(matches(s, "주라"));
-  CHECK(matches(s, "주세요"));
-  CHECK(!matches(s, "주 라"));
-  CHECK(!matches(s, "주 세요"));
+  nlu::Script ko = rule("환불::[해줘|해주세요]");
+  CHECK(matches(ko, "환불해줘"));
+  CHECK(matches(ko, "환불해주세요"));
+  CHECK(!matches(ko, "환불 해줘"));
+  CHECK(!matches(ko, "환불 해주세요"));
+
+  nlu::Script en = rule("[account|card]::(s)");
+  CHECK(matches(en, "account"));
+  CHECK(matches(en, "cards"));
+  CHECK(!matches(en, "card s"));
 }
 
 TEST(double_colon_keeps_particle_attached) {
-  nlu::Script loose = rule("[아버지|어머니]가 방에 들어가신다");
-  CHECK(matches(loose, "아버지가 방에 들어가신다"));
-  CHECK(matches(loose, "아버지 가방에 들어가신다"));
-  nlu::Script strict = rule("[아버지|어머니]::가 방에 들어가신다");
-  CHECK(matches(strict, "아버지가 방에 들어가신다"));
-  CHECK(!matches(strict, "아버지 가방에 들어가신다"));
+  // 계좌가 압류됐어요 (account seized) vs. 계좌 가압류됐어요 (account provisionally seized).
+  nlu::Script loose = rule("[계좌|카드]가 압류됐어요");
+  CHECK(matches(loose, "계좌가 압류됐어요"));
+  CHECK(matches(loose, "계좌 가압류됐어요"));
+  nlu::Script strict = rule("[계좌|카드]::가 압류됐어요");
+  CHECK(matches(strict, "계좌가 압류됐어요"));
+  CHECK(!matches(strict, "계좌 가압류됐어요"));
+
+  // The noun "login" vs. the verb phrase "log in".
+  nlu::Script loose_en = rule("[log|sign]in page is down");
+  CHECK(matches(loose_en, "login page is down"));
+  CHECK(matches(loose_en, "log in page is down"));
+  nlu::Script strict_en = rule("[log|sign]::in page is down");
+  CHECK(matches(strict_en, "login page is down"));
+  CHECK(!matches(strict_en, "log in page is down"));
 }
 
 TEST(double_colon_must_not_touch_spaces) {
-  CHECK_THROWS(nlu::CompileError, rule("주 ::[라|세요]"));
-  CHECK_THROWS(nlu::CompileError, rule("주:: [라|세요]"));
+  CHECK_THROWS(nlu::CompileError, rule("환불 ::[해줘|해주세요]"));
+  CHECK_THROWS(nlu::CompileError, rule("sign:: [in|up]"));
 }
 
 TEST(quoted_special_symbol_is_literal) {
-  nlu::Script s = rule("잘지내(니|냐)\"?\"");
-  for (const char* text : {"잘지내?", "잘지내니?", "잘지내냐?"}) CHECK(matches(s, text));
-  CHECK(!matches(s, "잘지내니"));
-  CHECK(matches("1\"+\"1", "1+1"));
+  nlu::Script ko = rule("송금 됐나요\"?\"");
+  for (const char* text : {"송금됐나요?", "송금 됐나요?"}) CHECK(matches(ko, text));
+  CHECK(!matches(ko, "송금됐나요"));
+
+  nlu::Script en = rule("is my card blocked\"?\"");
+  CHECK(matches(en, "is my card blocked?"));
+  CHECK(!matches(en, "is my card blocked"));
+  CHECK(matches("pre\"-\"approval status", "pre-approval status"));
+  CHECK(matches("0\".\"5% 캐시백", "0.5% 캐시백"));
 }
 
 TEST(unquoted_special_symbol_is_an_error) {
@@ -99,10 +144,16 @@ TEST(unbalanced_brackets_are_errors) {
 }
 
 TEST(permutation_covers_every_order) {
-  nlu::Script s = rule("~[계정, 생성]~방법");
-  CHECK(matches(s, "계정 생성 방법"));
-  CHECK(matches(s, "생성 계정 방법"));
-  CHECK(!matches(s, "계정 방법"));
+  nlu::Script ko = rule("~[카드, 재발급]~ 신청");
+  CHECK(matches(ko, "카드 재발급 신청"));
+  CHECK(matches(ko, "재발급 카드 신청"));
+  CHECK(!matches(ko, "카드 신청"));
+
+  nlu::Script en = rule("~[reset, password]~");
+  CHECK(matches(en, "reset password"));
+  CHECK(matches(en, "password reset"));
+  CHECK(!matches(en, "reset"));
+
   nlu::Script three = rule("~[a, b, [c|d]]~");
   CHECK(matches(three, "b d a"));
   CHECK(matches(three, "c a b"));
@@ -115,26 +166,42 @@ TEST(permutation_is_limited_to_five_tokens) {
 }
 
 TEST(repetition_with_range) {
-  nlu::Script s = rule("[빨리]^(1,3)");
-  CHECK(matches(s, "빨리"));
-  CHECK(matches(s, "빨리빨리"));
-  CHECK(matches(s, "빨리빨리빨리"));
-  CHECK(!matches(s, "빨리빨리빨리빨리"));
+  nlu::Script ko = rule("[ㅠ]^(1,3)");
+  CHECK(matches(ko, "ㅠ"));
+  CHECK(matches(ko, "ㅠㅠ"));
+  CHECK(matches(ko, "ㅠㅠㅠ"));
+  CHECK(!matches(ko, "ㅠㅠㅠㅠ"));
+
+  nlu::Script en = rule("[help]^(1,3)");
+  CHECK(matches(en, "help"));
+  CHECK(matches(en, "help help"));
+  CHECK(matches(en, "help help help"));
+  CHECK(!matches(en, "help help help help"));
 }
 
 TEST(repetition_below) {
-  nlu::Script s = rule("[빨리]^<3");
-  CHECK(matches(s, "빨리"));
-  CHECK(matches(s, "빨리빨리"));
-  CHECK(!matches(s, "빨리빨리빨리"));
+  nlu::Script ko = rule("[정말]^<3 급해요");
+  CHECK(matches(ko, "정말 급해요"));
+  CHECK(matches(ko, "정말 정말 급해요"));
+  CHECK(!matches(ko, "정말 정말 정말 급해요"));
+
+  nlu::Script en = rule("[very]^<3 urgent");
+  CHECK(matches(en, "very urgent"));
+  CHECK(matches(en, "very very urgent"));
+  CHECK(!matches(en, "very very very urgent"));
 }
 
 TEST(repetition_above) {
-  nlu::Script s = rule("[빨리]^>2");
-  CHECK(!matches(s, "빨리"));
-  CHECK(!matches(s, "빨리빨리"));
-  CHECK(matches(s, "빨리빨리빨리"));
-  CHECK(matches(s, "빨리빨리빨리빨리빨리빨리"));
+  nlu::Script ko = rule("[제발]^>2");
+  CHECK(!matches(ko, "제발"));
+  CHECK(!matches(ko, "제발 제발"));
+  CHECK(matches(ko, "제발 제발 제발"));
+  CHECK(matches(ko, "제발제발제발제발"));
+
+  nlu::Script en = rule("[please]^>2");
+  CHECK(!matches(en, "please please"));
+  CHECK(matches(en, "please please please"));
+  CHECK(matches(en, "pleasepleasepleaseplease"));
 }
 
 TEST(repetition_rejects_empty_ranges) {
@@ -143,100 +210,150 @@ TEST(repetition_rejects_empty_ranges) {
 }
 
 TEST(single_wildcard_matches_one_character) {
-  nlu::Script s = rule("<?> 길동");
-  CHECK(matches(s, "홍길동"));
-  CHECK(!matches(s, "홍홍길동"));
-  CHECK(!matches(s, "길동"));
+  nlu::Script ko = rule("<?>월 명세서");
+  CHECK(matches(ko, "3월 명세서"));
+  CHECK(!matches(ko, "12월 명세서"));
+  CHECK(!matches(ko, "월 명세서"));
+
+  nlu::Script en = rule("credit grade <?>");
+  CHECK(matches(en, "credit grade A"));
+  CHECK(!matches(en, "credit grade AA"));
+  CHECK(!matches(en, "credit grade"));
 }
 
 TEST(star_wildcard_matches_anything_including_nothing) {
-  nlu::Script s = rule("[안녕] <?>*?");
-  CHECK(matches(s, "안녕 철수야"));
-  CHECK(matches(s, "안녕 철수야 반가워"));
-  CHECK(matches(s, "안녕"));
+  nlu::Script ko = rule("[문의] <?>*?");
+  CHECK(matches(ko, "문의 결제 오류가 나요"));
+  CHECK(matches(ko, "문의"));
+
+  nlu::Script en = rule("[complaint] <?>*?");
+  CHECK(matches(en, "complaint the app keeps crashing"));
+  CHECK(matches(en, "complaint"));
 }
 
 TEST(plus_wildcard_needs_at_least_one_character) {
-  nlu::Script s = rule("[안녕] <?>+?");
-  CHECK(matches(s, "안녕 철수야"));
-  CHECK(!matches(s, "안녕"));
+  nlu::Script ko = rule("[문의] <?>+?");
+  CHECK(matches(ko, "문의 결제 오류가 나요"));
+  CHECK(!matches(ko, "문의"));
+
+  nlu::Script en = rule("[complaint] <?>+?");
+  CHECK(matches(en, "complaint the app keeps crashing"));
+  CHECK(!matches(en, "complaint"));
 }
 
 TEST(exclusion_rejects_wildcard_text_equal_to_excluded_tokens) {
-  nlu::Script s = rule("\\[김철수|홍길동] <?>*? [슬픈|좋은|즐거운] 노래 틀어줘");
-  CHECK(matches(s, "아이유 슬픈 노래 틀어줘"));
-  CHECK(matches(s, "아이유나 이지은 슬픈 노래 틀어줘"));
-  CHECK(matches(s, "지금 아이유 슬픈 노래 틀어줘"));
-  CHECK(matches(s, "아이유나 홍길동 슬픈 노래 틀어줘"));
-  CHECK(matches(s, "홍길동이나 아이유 슬픈 노래 틀어줘"));
-  CHECK(!matches(s, "홍길동 슬픈 노래 틀어줘"));
-  CHECK(!matches(s, "김철수 슬픈 노래 틀어줘"));
+  nlu::Script ko = rule("\\[적금|예금] <?>+? 해지");
+  CHECK(matches(ko, "청약통장 해지"));
+  CHECK(matches(ko, "청약통장이랑 적금 해지"));
+  CHECK(matches(ko, "적금이랑 청약통장 해지"));
+  CHECK(!matches(ko, "적금 해지"));
+  CHECK(!matches(ko, "예금 해지"));
+
+  nlu::Script en = rule("close my \\[savings|checking] <?>+? account");
+  CHECK(matches(en, "close my brokerage account"));
+  CHECK(matches(en, "close my joint savings account"));
+  CHECK(matches(en, "close my savings and brokerage account"));
+  CHECK(!matches(en, "close my savings account"));
+  CHECK(!matches(en, "close my Checking account"));
 }
 
 TEST(exclusion_with_wildcards_inside) {
-  nlu::Script s = rule("\\[<?>*? 김철수|<?>*? 홍길동] <?>*? [슬픈|좋은|즐거운] 노래 틀어줘");
-  CHECK(matches(s, "아이유 슬픈 노래 틀어줘"));
-  CHECK(matches(s, "아이유나 이지은 슬픈 노래 틀어줘"));
-  CHECK(matches(s, "지금 아이유 슬픈 노래 틀어줘"));
-  CHECK(!matches(s, "아이유나 홍길동 슬픈 노래 틀어줘"));
-  CHECK(!matches(s, "홍길동 슬픈 노래 틀어줘"));
-  CHECK(!matches(s, "김철수 슬픈 노래 틀어줘"));
-  // The exclusion must match the whole wildcard text, which here does not end with 홍길동.
-  CHECK(matches(s, "홍길동이나 아이유 슬픈 노래 틀어줘"));
+  nlu::Script ko = rule("\\[<?>*? 적금|<?>*? 예금] <?>+? 해지");
+  CHECK(matches(ko, "청약통장 해지"));
+  CHECK(!matches(ko, "적금 해지"));
+  CHECK(!matches(ko, "청약통장이랑 적금 해지"));
+  // The exclusion must match the whole wildcard text, which here does not end with 적금.
+  CHECK(matches(ko, "적금이랑 청약통장 해지"));
+
+  nlu::Script en = rule("close my \\[<?>*? savings|<?>*? checking] <?>+? account");
+  CHECK(matches(en, "close my brokerage account"));
+  CHECK(!matches(en, "close my savings account"));
+  CHECK(!matches(en, "close my joint savings account"));
+  CHECK(matches(en, "close my savings and brokerage account"));
 }
 
 TEST(exclusion_surrounded_by_wildcards_rejects_text_containing_it) {
-  nlu::Script s = rule("\\[<?>*? 김철수 <?>*?|<?>*? 홍길동 <?>*?] <?>*? [슬픈|좋은|즐거운] 노래 틀어줘");
-  CHECK(matches(s, "아이유 슬픈 노래 틀어줘"));
-  CHECK(!matches(s, "아이유나 홍길동 슬픈 노래 틀어줘"));
-  CHECK(!matches(s, "홍길동이나 아이유 슬픈 노래 틀어줘"));
-  CHECK(!matches(s, "지금 김철수랑 아이유 슬픈 노래 틀어줘"));
+  nlu::Script ko = rule("\\[<?>*? 적금 <?>*?|<?>*? 예금 <?>*?] <?>+? 해지");
+  CHECK(matches(ko, "청약통장 해지"));
+  CHECK(!matches(ko, "청약통장이랑 적금 해지"));
+  CHECK(!matches(ko, "적금이랑 청약통장 해지"));
+  CHECK(!matches(ko, "정기예금 상품 해지"));
+
+  nlu::Script en = rule("close my \\[<?>*? savings <?>*?|<?>*? checking <?>*?] <?>+? account");
+  CHECK(matches(en, "close my brokerage account"));
+  CHECK(!matches(en, "close my joint savings account"));
+  CHECK(!matches(en, "close my savings and brokerage account"));
+  CHECK(!matches(en, "close my high yield checking account"));
 }
 
 TEST(exclusion_must_precede_a_wildcard) {
-  CHECK_THROWS(nlu::CompileError, rule("[\\김철수|\\홍길동] <?>*? [슬픈|좋은|즐거운] 노래 틀어줘"));
-  CHECK_THROWS(nlu::CompileError, rule("<?>*? [\\김철수|\\홍길동] [슬픈|좋은|즐거운] 노래 틀어줘"));
+  CHECK_THROWS(nlu::CompileError, rule("[\\적금|\\예금] <?>+? 해지"));
+  CHECK_THROWS(nlu::CompileError, rule("<?>+? [\\적금|\\예금] 해지"));
+  CHECK_THROWS(nlu::CompileError, rule("close my [\\savings|\\checking] <?>+? account"));
 }
 
 TEST(domain_entity_expands_to_its_values) {
-  nlu::Script s = rule("@{메뉴}[주문|배달]", "@메뉴: 치킨, 피자\n");
-  for (const char* text : {"치킨 주문", "치킨 배달", "피자 주문", "피자 배달"}) CHECK(matches(s, text));
-  CHECK(!matches(s, "햄버거 주문"));
+  const std::string cards = "@card: [credit card|신용카드], [debit card|체크카드]\n";
+  nlu::Script ko = rule("@{card} [분실|재발급]", cards);
+  for (const char* text : {"신용카드 분실", "신용카드 재발급", "체크카드 분실", "체크카드 재발급"})
+    CHECK(matches(ko, text));
+  CHECK(!matches(ko, "교통카드 분실"));
+
+  nlu::Script en = rule("[lost|replace] (my|a) @{card}", cards);
+  for (const char* text : {"lost my credit card", "replace a debit card", "lost debit card"})
+    CHECK(matches(en, text));
+  CHECK(!matches(en, "lost my gift card"));
 }
 
 TEST(entity_values_may_be_listed_on_indented_lines) {
-  nlu::Script s = rule("@{메뉴} 주문", "@메뉴:\n    치킨\n    [피자|핏자]\n");
-  CHECK(matches(s, "치킨 주문"));
-  CHECK(matches(s, "핏자 주문"));
+  const std::string cards = "@card:\n    [credit card|신용카드]\n    [debit card|체크카드|직불카드]\n";
+  nlu::Script s = rule("[@{card} 재발급|reissue (my) @{card}]", cards);
+  CHECK(matches(s, "직불카드 재발급"));
+  CHECK(matches(s, "reissue my debit card"));
+  CHECK(matches(s, "reissue credit card"));
 }
 
 TEST(variable_is_inlined) {
-  nlu::Script s = rule("@var.{숫자} @var.{숫자} [세|살] (입니다)",
-                       "@var.숫자: [1|2|3|4|5|6|7|8|9]\n");
-  CHECK(matches(s, "11세 입니다"));
-  CHECK(matches(s, "23살 입니다"));
-  CHECK(matches(s, "23살"));
-  CHECK(!matches(s, "203살"));
+  const std::string digit = "@var.digit: [0|1|2|3|4|5|6|7|8|9]\n";
+  const std::string last4 = "@var.{digit}@var.{digit}@var.{digit}@var.{digit}";
+  nlu::Script ko = rule("끝자리 " + last4 + " (카드)", digit);
+  CHECK(matches(ko, "끝자리 4821"));
+  CHECK(matches(ko, "끝자리 4821 카드"));
+  CHECK(!matches(ko, "끝자리 48210"));
+
+  nlu::Script en = rule("(my) card ending in " + last4, digit);
+  CHECK(matches(en, "card ending in 4821"));
+  CHECK(matches(en, "my card ending in 4821"));
+  CHECK(!matches(en, "card ending in 482"));
 }
 
 TEST(system_entity_telnum) {
-  nlu::Script s = rule("`@{TELNUM}[조회|확인]해줘");
-  CHECK(matches(s, "010-0000-0000 조회해줘"));
-  CHECK(matches(s, "010-1234-5678 확인해줘"));
-  CHECK(matches(s, "02-123-4567 조회해줘"));
-  CHECK(!matches(s, "010-12-5678 조회해줘"));
+  nlu::Script ko = rule("휴대폰 번호 `@{TELNUM}::(으로|로) 변경해주세요");
+  CHECK(matches(ko, "휴대폰 번호 010-9876-5432로 변경해주세요"));
+  CHECK(matches(ko, "휴대폰 번호 01098765432로 변경해주세요"));
+  CHECK(!matches(ko, "휴대폰 번호 010-98-5432로 변경해주세요"));
+
+  nlu::Script en = rule("change my phone number to `@{TELNUM}");
+  CHECK(matches(en, "change my phone number to 010 9876 5432"));
+  CHECK(matches(en, "change my phone number to 031-765-4321"));
+  CHECK(!matches(en, "change my phone number to 911"));
 }
 
 TEST(system_entity_number) {
-  nlu::Script s = rule("`@{NUMBER} 개");
-  CHECK(matches(s, "12개"));
-  CHECK(matches(s, "3 개"));
-  CHECK(!matches(s, "1 2개"));
+  nlu::Script ko = rule("`@{NUMBER} 개월 할부");
+  CHECK(matches(ko, "3개월 할부"));
+  CHECK(matches(ko, "12 개월 할부"));
+  CHECK(!matches(ko, "1 2개월 할부"));
+
+  nlu::Script en = rule("split into `@{NUMBER} (monthly) payments");
+  CHECK(matches(en, "split into 6 payments"));
+  CHECK(matches(en, "split into 12 monthly payments"));
+  CHECK(!matches(en, "split into six payments"));
 }
 
 TEST(undefined_references_are_errors) {
-  CHECK_THROWS(nlu::CompileError, rule("@{없음} 주문"));
-  CHECK_THROWS(nlu::CompileError, rule("@var.{없음} 주문"));
+  CHECK_THROWS(nlu::CompileError, rule("@{없음} 해지"));
+  CHECK_THROWS(nlu::CompileError, rule("@var.{missing} transfer"));
   CHECK_THROWS(nlu::CompileError, rule("`@{NO_SUCH_ENTITY}"));
 }
 
@@ -245,11 +362,12 @@ TEST(recursive_variables_are_errors) {
 }
 
 TEST(ascii_letters_match_case_insensitively) {
-  CHECK(matches("turn up (the) volume", "Turn up the VOLUME"));
-  CHECK(matches("Turn Up Volume", "turn up volume"));
+  CHECK(matches("reset (my) PIN", "Reset my pin"));
+  CHECK(matches("Check My Balance", "check my balance"));
+  CHECK(matches("[ATM|OTP] 오류", "otp 오류"));
 }
 
 TEST(whitespace_in_input_is_normalized) {
-  CHECK(matches("turn up volume", "  turn \t up\n volume  "));
-  CHECK(matches("안녕 하세요", "안녕　하세요"));
+  CHECK(matches("check my balance", "  check \t my\n balance  "));
+  CHECK(matches("잔액 조회", "잔액　조회"));
 }

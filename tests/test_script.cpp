@@ -1,4 +1,6 @@
 // Behavior of scripts: labels, slots, attributes and compile errors.
+#include <utility>
+
 #include "harness.hpp"
 #include "nlu_script/nlu_script.hpp"
 
@@ -26,89 +28,122 @@ std::string attribute(const nlu::Slot& slot, const std::string& key) {
 TEST(labels_are_reported_in_script_order) {
   nlu::Script s = nlu::Script::compile(
       "# comment line\n"
-      "control:up:volume\n"
-      "    turn up (the) volume\n"
-      "    volume up\n"
+      "card:lost\n"
+      "    report (a) lost card\n"
+      "    I lost my card\n"
+      "    카드 분실 신고 (할게요)\n"
       "\n"
-      "control:any\n"
-      "    turn up <?>+?\n"
+      "report:any\n"
+      "    report <?>+?\n"
       "\n"
-      "greeting\n"
-      "    hello\n");
-  CHECK_EQ(labels(s, "Turn up volume"), (std::vector<std::string>{"control:up:volume", "control:any"}));
-  CHECK_EQ(labels(s, "volume up"), (std::vector<std::string>{"control:up:volume"}));
-  CHECK_EQ(labels(s, "turn up the heat"), (std::vector<std::string>{"control:any"}));
-  CHECK_EQ(labels(s, "hello"), (std::vector<std::string>{"greeting"}));
-  CHECK(labels(s, "goodbye").empty());
-  CHECK_EQ(s.rule_count(), 4u);
+      "agent:connect\n"
+      "    talk to an agent\n"
+      "    상담원 연결 (해주세요)\n");
+  CHECK_EQ(labels(s, "Report a lost card"), (std::vector<std::string>{"card:lost", "report:any"}));
+  CHECK_EQ(labels(s, "I lost my card"), (std::vector<std::string>{"card:lost"}));
+  CHECK_EQ(labels(s, "report fraud"), (std::vector<std::string>{"report:any"}));
+  CHECK_EQ(labels(s, "카드 분실 신고할게요"), (std::vector<std::string>{"card:lost"}));
+  CHECK_EQ(labels(s, "talk to an agent"), (std::vector<std::string>{"agent:connect"}));
+  CHECK_EQ(labels(s, "상담원 연결해주세요"), (std::vector<std::string>{"agent:connect"}));
+  CHECK(labels(s, "thank you").empty());
+  CHECK_EQ(s.rule_count(), 6u);
 }
 
 TEST(label_without_slots_tags_plain_text) {
-  nlu::Script s = nlu::Script::compile("control:up:volume\n    turn up volume\n");
-  CHECK_EQ(tagged(s, "Turn up volume"), std::string("control:up:volume:Turn up volume"));
+  nlu::Script s = nlu::Script::compile("card:lost\n    report (a) lost card\n");
+  CHECK_EQ(tagged(s, "Report a lost card"), std::string("card:lost:Report a lost card"));
 }
 
 TEST(slot_captures_span_of_original_text) {
-  nlu::Script s = nlu::Script::compile("order\n    @{메뉴} [주문|배달] (해줘)\n@메뉴: 치킨, 피자\n");
-  std::vector<nlu::Match> found = s.match("피자 배달해줘");
+  nlu::Script s = nlu::Script::compile(
+      "card:lost\n"
+      "    @{카드} [분실|재발급] (신고)\n"
+      "    I lost my @{카드}\n"
+      "@카드: [신용카드|credit card], [체크카드|debit card]\n");
+  std::vector<nlu::Match> found = s.match("체크카드 분실 신고");
   CHECK_EQ(found.size(), 1u);
   CHECK_EQ(found[0].slots.size(), 1u);
-  CHECK_EQ(found[0].slots[0].name, std::string("메뉴"));
-  CHECK_EQ(found[0].slots[0].text, std::string("피자"));
+  CHECK_EQ(found[0].slots[0].name, std::string("카드"));
+  CHECK_EQ(found[0].slots[0].text, std::string("체크카드"));
   CHECK_EQ(found[0].slots[0].begin, 0u);
-  CHECK_EQ(found[0].slots[0].end, std::string("피자").size());
-  CHECK_EQ(found[0].tagged, std::string("<메뉴>피자</메뉴> 배달해줘"));
+  CHECK_EQ(found[0].slots[0].end, std::string("체크카드").size());
+  CHECK_EQ(found[0].tagged, std::string("<카드>체크카드</카드> 분실 신고"));
+
+  found = s.match("I lost my Debit Card");
+  CHECK_EQ(found.size(), 1u);
+  CHECK_EQ(found[0].slots[0].text, std::string("Debit Card"));
+  CHECK_EQ(found[0].slots[0].begin, 10u);
+  CHECK_EQ(found[0].slots[0].end, 20u);
+  CHECK_EQ(found[0].tagged, std::string("I lost my <카드>Debit Card</카드>"));
 }
 
 TEST(slot_text_keeps_original_case_and_spacing) {
-  nlu::Script s = nlu::Script::compile("play\n    play <song><?>+?</song>\n");
-  std::vector<nlu::Match> found = s.match("Play  Let It   Be");
+  nlu::Script s = nlu::Script::compile(
+      "payment:cancel\n    cancel payment at <merchant><?>+?</merchant>\n");
+  std::vector<nlu::Match> found = s.match("Cancel payment at  Corner   Bakery");
   CHECK_EQ(found.size(), 1u);
-  CHECK_EQ(found[0].slots[0].text, std::string("Let It   Be"));
-  CHECK_EQ(found[0].tagged, std::string("Play  <song>Let It   Be</song>"));
+  CHECK_EQ(found[0].slots[0].text, std::string("Corner   Bakery"));
+  CHECK_EQ(found[0].tagged, std::string("Cancel payment at  <merchant>Corner   Bakery</merchant>"));
 }
 
 TEST(wildcard_in_slot_is_lazy_and_optional_group_is_greedy) {
   nlu::Script s = nlu::Script::compile(
-      "play\n    play <song><?>+?</song> (by <artist><?>+?</artist>)\n");
-  CHECK_EQ(tagged(s, "play hello by adele"),
-           std::string("play:play <song>hello</song> by <artist>adele</artist>"));
-  CHECK_EQ(tagged(s, "play hello"), std::string("play:play <song>hello</song>"));
+      "transfer\n    send money to <recipient><?>+?</recipient> (for <memo><?>+?</memo>)\n");
+  CHECK_EQ(tagged(s, "send money to alex for rent"),
+           std::string("transfer:send money to <recipient>alex</recipient> for <memo>rent</memo>"));
+  CHECK_EQ(tagged(s, "send money to alex"),
+           std::string("transfer:send money to <recipient>alex</recipient>"));
 }
 
 TEST(attributes_normalize_slot_values) {
   nlu::Script s = nlu::Script::compile(
-      "alarm\n"
-      "    wake me up at <cons_datetime>[nine{hour=9}|ten{hour=10}] o'clock"
-      " (in the [morning{part_of_day=MORNING}|evening{part_of_day=EVENING}])</cons_datetime>\n");
-  CHECK_EQ(tagged(s, "Wake me up at nine o'clock in the morning"),
-           std::string("alarm:Wake me up at <cons_datetime hour=\"9\" part_of_day=\"MORNING\">"
-                       "nine o'clock in the morning</cons_datetime>"));
-  std::vector<nlu::Match> found = s.match("wake me up at ten o'clock");
-  CHECK_EQ(found.size(), 1u);
-  CHECK_EQ(attribute(found[0].slots[0], "hour"), std::string("10"));
-  CHECK_EQ(attribute(found[0].slots[0], "part_of_day"), std::string("<unset>"));
+      "card:lost\n"
+      "    report a lost <card>([visa{brand=VISA}|mastercard{brand=MASTERCARD}])"
+      " [credit{type=CREDIT}|debit{type=DEBIT}] card</card>\n"
+      "    <card>([비자{brand=VISA}|마스터{brand=MASTERCARD}])"
+      " [신용{type=CREDIT}|체크{type=DEBIT}]카드</card>::(를) 분실했어요\n");
+  CHECK_EQ(tagged(s, "Report a lost Visa credit card"),
+           std::string("card:lost:Report a lost <card brand=\"VISA\" type=\"CREDIT\">"
+                       "Visa credit card</card>"));
+  CHECK_EQ(tagged(s, "마스터 체크카드를 분실했어요"),
+           std::string("card:lost:<card brand=\"MASTERCARD\" type=\"DEBIT\">"
+                       "마스터 체크카드</card>를 분실했어요"));
+  for (const char* text : {"report a lost debit card", "체크카드 분실했어요"}) {
+    std::vector<nlu::Match> found = s.match(text);
+    CHECK_EQ(found.size(), 1u);
+    CHECK_EQ(attribute(found[0].slots[0], "type"), std::string("DEBIT"));
+    CHECK_EQ(attribute(found[0].slots[0], "brand"), std::string("<unset>"));
+  }
 }
 
 TEST(qualified_attribute_targets_named_slot_anywhere_in_rule) {
   nlu::Script s = nlu::Script::compile(
-      "translation:request:translation\n"
-      "    translate <cons_translation><?>+?</cons_translation> [in|into]"
-      " [japanese{cons_translation.target=ja}|korean{cons_translation.target=ko}]\n");
-  CHECK_EQ(tagged(s, "Translate good morning in Japanese"),
-           std::string("translation:request:translation:Translate "
-                       "<cons_translation target=\"ja\">good morning</cons_translation> in Japanese"));
+      "transfer:send\n"
+      "    send <amount><?>+?</amount> [dollars{amount.currency=USD}|won{amount.currency=KRW}]"
+      " to <recipient><?>+?</recipient>\n"
+      "    <recipient><?>+?</recipient>::[한테|에게] <amount><?>+?</amount>"
+      " [달러{amount.currency=USD}|원{amount.currency=KRW}] 보내줘\n");
+  CHECK_EQ(tagged(s, "Send 50 dollars to Alex"),
+           std::string("transfer:send:Send <amount currency=\"USD\">50</amount> dollars to "
+                       "<recipient>Alex</recipient>"));
+  CHECK_EQ(tagged(s, "엄마한테 3만 원 보내줘"),
+           std::string("transfer:send:<recipient>엄마</recipient>한테 "
+                       "<amount currency=\"KRW\">3만</amount> 원 보내줘"));
 }
 
 TEST(entity_values_can_carry_attributes) {
   nlu::Script s = nlu::Script::compile(
-      "@lang: [japanese|일본어]{code=ja}, [korean|한국어]{code=ko}\n"
-      "set_language\n"
-      "    @{lang}::[로|으로] 바꿔줘\n");
-  std::vector<nlu::Match> found = s.match("일본어로 바꿔줘");
-  CHECK_EQ(found.size(), 1u);
-  CHECK_EQ(found[0].slots[0].name, std::string("lang"));
-  CHECK_EQ(attribute(found[0].slots[0], "code"), std::string("ja"));
+      "@currency: [dollar|달러]{code=USD}, [yen|엔화]{code=JPY}\n"
+      "exchange:rate\n"
+      "    @{currency} 환율 (알려줘)\n"
+      "    @{currency} exchange rate\n");
+  for (const auto& text_code : {std::make_pair("엔화 환율 알려줘", "JPY"),
+                                std::make_pair("dollar exchange rate", "USD")}) {
+    std::vector<nlu::Match> found = s.match(text_code.first);
+    CHECK_EQ(found.size(), 1u);
+    CHECK_EQ(found[0].slots[0].name, std::string("currency"));
+    CHECK_EQ(attribute(found[0].slots[0], "code"), std::string(text_code.second));
+  }
 }
 
 TEST(later_assignment_overrides_earlier_one) {
@@ -142,7 +177,7 @@ TEST(mismatched_slot_tags_are_errors) {
 
 TEST(compile_error_reports_line_and_column) {
   try {
-    nlu::Script::compile("greeting\n    hello\n    good [morning|evening\n");
+    nlu::Script::compile("card:lost\n    report (a) lost card\n    [신용|체크카드 분실\n");
     CHECK(false);
   } catch (const nlu::CompileError& e) {
     CHECK_EQ(e.line(), 3);
@@ -151,7 +186,7 @@ TEST(compile_error_reports_line_and_column) {
 }
 
 TEST(pattern_line_outside_block_is_an_error) {
-  CHECK_THROWS(nlu::CompileError, nlu::Script::compile("    hello\n"));
+  CHECK_THROWS(nlu::CompileError, nlu::Script::compile("    잔액 조회\n"));
 }
 
 TEST(duplicate_definitions_are_errors) {
