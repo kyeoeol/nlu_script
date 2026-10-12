@@ -21,3 +21,7 @@ Test-driven development:
 ## Subagents
 
 For an audit, a migration, or a review across a large codebase, delegate the work to subagents. When a subagent reports back, check its evidence before you accept it.
+
+## Tasks
+
+Keep a checklist in `TASKS.md`. Tick each item when it's done, and add anything new you find.
