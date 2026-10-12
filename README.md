@@ -125,7 +125,13 @@ Groups nest. Repetition counts are capped at 100.
   -> 홍길동 노래 틀어줘 (no match)
 \[<?>*? 김철수|<?>*? 홍길동] <?>*? 노래 틀어줘
   -> 아이유나 홍길동 노래 틀어줘 (no match)
+  -> 홍길동이나 아이유 노래 틀어줘 (match: the text does not end with 홍길동)
+\[<?>*? 김철수 <?>*?|<?>*? 홍길동 <?>*?] <?>*? 노래 틀어줘
+  -> 아이유나 홍길동 노래 틀어줘, 홍길동이나 아이유 노래 틀어줘 (no match)
 ```
+
+The exclusion is tested against the wildcard's **whole** text. To exclude
+text that merely contains a token, surround the token with `<?>*?`.
 
 An exclusion must come right before a wildcard. Several exclusions may
 precede one wildcard (`\X \Y <?>*?`). Wildcard text never starts or ends with a

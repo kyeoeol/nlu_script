@@ -36,12 +36,11 @@
 
 ## Open questions
 
-- [ ] The guide's second exclusion example lists `홍길동이나 아이유 슬픈 노래 틀어줘`
-      as rejected by `\[<?>*? 김철수|<?>*? 홍길동] <?>*? …`. That contradicts
-      the first example, where the same sentence is accepted by `\[김철수|홍길동]`.
-      Currently a wildcard is rejected only when the exclusion matches its
-      whole text, so this sentence is accepted by both patterns. Confirm the
-      intended semantics.
+- [x] Exclusion semantics: the guide's second example (`홍길동이나 아이유 …` rejected
+      by `\[<?>*? 홍길동] <?>*? …`) contradicted its first example. Decided:
+      the implemented behavior is the spec. A wildcard is rejected only when
+      the exclusion matches its whole text. Use `\[<?>*? X <?>*?]` to exclude
+      text that contains `X`.
 - [ ] Should `#{form}` and `${action.method}` (answer templates in the chatbot
       builder) be part of this library, or stay with the response layer?
 - [ ] The original description mentions the OpenFst library. The automaton is

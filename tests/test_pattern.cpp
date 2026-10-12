@@ -181,6 +181,16 @@ TEST(exclusion_with_wildcards_inside) {
   CHECK(!matches(s, "아이유나 홍길동 슬픈 노래 틀어줘"));
   CHECK(!matches(s, "홍길동 슬픈 노래 틀어줘"));
   CHECK(!matches(s, "김철수 슬픈 노래 틀어줘"));
+  // The exclusion must match the whole wildcard text, which here does not end with 홍길동.
+  CHECK(matches(s, "홍길동이나 아이유 슬픈 노래 틀어줘"));
+}
+
+TEST(exclusion_surrounded_by_wildcards_rejects_text_containing_it) {
+  nlu::Script s = rule("\\[<?>*? 김철수 <?>*?|<?>*? 홍길동 <?>*?] <?>*? [슬픈|좋은|즐거운] 노래 틀어줘");
+  CHECK(matches(s, "아이유 슬픈 노래 틀어줘"));
+  CHECK(!matches(s, "아이유나 홍길동 슬픈 노래 틀어줘"));
+  CHECK(!matches(s, "홍길동이나 아이유 슬픈 노래 틀어줘"));
+  CHECK(!matches(s, "지금 김철수랑 아이유 슬픈 노래 틀어줘"));
 }
 
 TEST(exclusion_must_precede_a_wildcard) {
