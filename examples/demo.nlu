@@ -1,31 +1,76 @@
-# nlu_script demo. Try it with:
+# nlu_script demo: customer-support inquiries for a banking or payment app.
+# Try it with:
 #   ./build/nlu_script_cli examples/demo.nlu
-# and type sentences, one per line.
+# and type sentences in Korean or English, one per line.
 
-# Domain entity: each value may carry attributes for the auto-created slot.
-@메뉴: 치킨{value=chicken}, 피자{value=pizza}, [햄버거|버거]{value=burger}
+# Domain entities: each value may carry attributes for the auto-created slot.
+# One entity can list the Korean and English words for the same value.
+@currency:
+    [달러|dollar|USD]{code=USD}
+    [엔화|yen|JPY]{code=JPY}
+    [유로|euro|EUR]{code=EUR}
+
+@product:
+    [적금|정기적금|자유적금|savings]{value=savings}
+    [예금|정기예금|deposit|fixed deposit|term deposit]{value=deposit}
 
 # Regex variable: inlined where referenced, no slot.
-@var.hour_word:
-    [one{hour=1}|two{hour=2}|three{hour=3}|four{hour=4}|five{hour=5}|six{hour=6}]
-    [seven{hour=7}|eight{hour=8}|nine{hour=9}|ten{hour=10}|eleven{hour=11}|twelve{hour=12}]
+@var.digit: [0|1|2|3|4|5|6|7|8|9]
 
-control:up:volume
-    turn up (the) volume
-    volume up
-    볼륨 [올려|키워] (줘|주세요)
+card:lost
+    report a lost <card>([visa{brand=VISA}|mastercard{brand=MASTERCARD}]) [credit{type=CREDIT}|debit{type=DEBIT}] card</card>
+    I lost my <card>[credit{type=CREDIT}|debit{type=DEBIT}] card</card>
+    <card>([비자{brand=VISA}|마스터{brand=MASTERCARD}]) [신용{type=CREDIT}|체크{type=DEBIT}]카드</card>::(를) [분실했어요|잃어버렸어요]
 
-alarm:set:datetime
-    wake me up at <cons_datetime>@var.{hour_word} o'clock (in the [morning{part_of_day=MORNING}|evening{part_of_day=EVENING}])</cons_datetime>
+card:freeze
+    [freeze|lock] my card (ending in <last4>@var.{digit}@var.{digit}@var.{digit}@var.{digit}</last4>)
+    (끝자리 <last4>@var.{digit}@var.{digit}@var.{digit}@var.{digit}</last4>) 카드 [정지|잠금] (해주세요|해줘)
 
-translation:request:translation
-    translate <cons_translation><?>+?</cons_translation> [in|into] [japanese{cons_translation.target=ja}|korean{cons_translation.target=ko}]
+transfer:send
+    send <amount><?>+?</amount> [dollars{amount.currency=USD}|won{amount.currency=KRW}] to <recipient><?>+?</recipient>
+    <recipient><?>+?</recipient>::[한테|에게] <amount><?>+?</amount> [달러{amount.currency=USD}|원{amount.currency=KRW}] [보내줘|송금해줘]
 
-order:food
-    @{메뉴}::(을|를) [주문|배달] (해줘|해주세요)
+transfer:status
+    [송금|이체]::(이) [안 들어갔어요|됐나요]
+    [did my transfer go|has my transfer gone] through
 
-call:phone
-    `@{TELNUM}::(으로|로) 전화 (걸어줘)
+payment:refund
+    환불::[해줘|해주세요|받고 싶어요]
+    <merchant><?>+?</merchant> 결제 환불::[해줘|해주세요]
+    I want a refund
+    refund my payment (at <merchant><?>+?</merchant>)
 
-music:play:mood
-    <artist>\[김철수|홍길동] <?>*?</artist> [슬픈|좋은|즐거운] 노래 틀어줘
+payment:installment
+    `@{NUMBER} 개월 할부로 [바꿔주세요|변경해주세요]
+    split (it) into `@{NUMBER} (monthly) payments
+
+exchange:rate
+    (오늘) @{currency} 환율 (알려줘|얼마예요)
+    (what is the|today's) @{currency} exchange rate
+
+# Savings and deposits have their own label; the general rule skips any
+# account name that mentions them.
+account:close:product
+    @{product}::(을|를) 해지 (하고 싶어요|해주세요)
+    close my @{product} account
+
+account:close
+    <account>\[<?>*? 적금 <?>*?|<?>*? 예금 <?>*?] <?>+?</account>::(을|를) 해지 (하고 싶어요|해주세요)
+    close my <account>\[<?>*? savings <?>*?|<?>*? deposit <?>*?] <?>+?</account> account
+
+account:phone
+    휴대폰 번호 `@{TELNUM}::(으로|로) [변경해주세요|바꿔주세요]
+    change my phone number to `@{TELNUM}
+
+account:login
+    [로그인|접속]::(이) 안 [돼요|됩니다]
+    I can't [log in|sign in]
+
+account:password:reset
+    ~[비밀번호, 재설정]~ (하고 싶어요|해주세요)
+    ~[reset, password]~
+    (I) forgot my [password|PIN]
+
+agent:connect
+    [상담원|상담사] 연결 (해주세요|해줘)
+    [talk|speak] to [an agent|a human|a person]

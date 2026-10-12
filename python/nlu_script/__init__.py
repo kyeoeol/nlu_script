@@ -3,9 +3,9 @@
 Python binding over the nlu_script C interface (loaded with ctypes).
 
     >>> import nlu_script
-    >>> script = nlu_script.Script(u"greeting\\n    hello (there)\\n")
-    >>> [m.label for m in script.match(u"Hello there")]
-    ['greeting']
+    >>> script = nlu_script.Script(u"agent:connect\\n    talk to an agent (please)\\n")
+    >>> [m.label for m in script.match(u"Talk to an agent")]
+    ['agent:connect']
 
 The shared library is looked up in this order: the NLU_SCRIPT_LIBRARY
 environment variable, the package directory, then the system library path.

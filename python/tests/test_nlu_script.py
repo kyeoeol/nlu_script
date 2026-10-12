@@ -5,13 +5,15 @@ import unittest
 import nlu_script
 
 SCRIPT = u"""
-@메뉴: 치킨, 피자{value=pizza}
+@통화: [달러|dollar]{code=USD}, [엔화|yen]{code=JPY}
 
-order
-    @{메뉴} [주문|배달] (해줘)
+exchange:rate
+    @{통화} 환율 (알려줘)
+    @{통화} exchange rate
 
-alarm
-    wake me up at <time>[nine{hour=9}|ten{hour=10}] o'clock</time>
+card:lost
+    report a lost <card>[credit{type=CREDIT}|debit{type=DEBIT}] card</card>
+    <card>[신용{type=CREDIT}|체크{type=DEBIT}]카드</card> 분실 신고
 """
 
 
@@ -23,35 +25,38 @@ class ScriptTest(unittest.TestCase):
         self.script.close()
 
     def test_rule_count(self):
-        self.assertEqual(self.script.rule_count, 2)
+        self.assertEqual(self.script.rule_count, 4)
 
     def test_match_returns_label_and_tagged_text(self):
-        matches = self.script.match(u"Wake me up at ten o'clock")
-        self.assertEqual([m.label for m in matches], [u"alarm"])
-        self.assertEqual(matches[0].tagged, u"Wake me up at <time hour=\"10\">ten o'clock</time>")
+        matches = self.script.match(u"Report a lost debit card")
+        self.assertEqual([m.label for m in matches], [u"card:lost"])
+        self.assertEqual(matches[0].tagged, u"Report a lost <card type=\"DEBIT\">debit card</card>")
+        matches = self.script.match(u"체크카드 분실 신고")
+        self.assertEqual([m.label for m in matches], [u"card:lost"])
+        self.assertEqual(matches[0].tagged, u"<card type=\"DEBIT\">체크카드</card> 분실 신고")
 
     def test_no_match_returns_empty_list(self):
-        self.assertEqual(self.script.match(u"good night"), [])
+        self.assertEqual(self.script.match(u"thank you"), [])
 
     def test_slot_offsets_are_character_offsets(self):
-        text = u"피자 배달해줘"
-        slot = self.script.match(text)[0].slots[0]
-        self.assertEqual(slot.name, u"메뉴")
-        self.assertEqual(slot.text, u"피자")
-        self.assertEqual(text[slot.begin:slot.end], u"피자")
-        self.assertEqual(slot.attributes, {u"value": u"pizza"})
+        for text, currency in [(u"엔화 환율 알려줘", u"엔화"), (u"yen exchange rate", u"yen")]:
+            slot = self.script.match(text)[0].slots[0]
+            self.assertEqual(slot.name, u"통화")
+            self.assertEqual(slot.text, currency)
+            self.assertEqual(text[slot.begin:slot.end], currency)
+            self.assertEqual(slot.attributes, {u"code": u"JPY"})
 
     def test_context_manager_closes_script(self):
-        with nlu_script.Script(u"t\n    hi\n") as script:
-            self.assertEqual(len(script.match(u"hi")), 1)
+        with nlu_script.Script(u"t\n    잔액 조회\n") as script:
+            self.assertEqual(len(script.match(u"잔액조회")), 1)
         with self.assertRaises(ValueError):
-            script.match(u"hi")
+            script.match(u"잔액조회")
 
 
 class CompileTest(unittest.TestCase):
     def test_compile_error_has_location(self):
         with self.assertRaises(nlu_script.CompileError) as caught:
-            nlu_script.Script(u"greeting\n    hello [world\n")
+            nlu_script.Script(u"card:lost\n    [신용|체크카드 분실\n")
         self.assertEqual(caught.exception.line, 2)
         self.assertGreater(caught.exception.column, 0)
 
@@ -61,7 +66,7 @@ class CompileTest(unittest.TestCase):
             with os.fdopen(handle, "wb") as f:
                 f.write(SCRIPT.encode("utf-8"))
             with nlu_script.Script.from_file(path) as script:
-                self.assertEqual([m.label for m in script.match(u"치킨 주문")], [u"order"])
+                self.assertEqual([m.label for m in script.match(u"달러 환율")], [u"exchange:rate"])
         finally:
             os.remove(path)
 
