@@ -33,6 +33,9 @@
       Windows (MSVC) for every pull request and every push to `main`
 - [x] Windows build: MSVC compiles with `/utf-8` so UTF-8 string literals
       survive; README notes `--config` / `-C` for multi-config generators
+- [x] Python wheels in CI (cibuildwheel): `py3-none` wheels for Linux
+      (manylinux x86_64), macOS (arm64) and Windows (x64, static C++
+      runtime), each tested on CPython 3.9 to 3.15
 
 ## Next
 
@@ -57,7 +60,8 @@
 - [ ] Search mode: find slots inside free text without `<?>*?` padding
 - [ ] Let an exclusion reach a wildcard inside a following slot
       (`\X <slot><?>*?</slot>`); today the exclusion has to go inside the slot
-- [ ] Python wheels for Linux, macOS, Windows
+- [ ] More wheel platforms: Linux aarch64, macOS x86_64, musllinux
+- [ ] Publish wheels to PyPI (e.g. on a version tag)
 
 ## Open questions
 
