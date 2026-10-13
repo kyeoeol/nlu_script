@@ -241,11 +241,13 @@ nlu_script_free(script);
 pip install ./python        # builds the shared library with CMake
 ```
 
-CI also builds wheels for Linux (manylinux x86_64), macOS (arm64) and
-Windows (x64) and tests each one on every supported CPython. A wheel is
-tagged `py3-none-<platform>` because the library is loaded with ctypes, so
-one wheel serves every Python 3 version. Download them from the `wheels-*`
-artifacts of a CI run.
+The `Wheels` workflow builds wheels for Linux (manylinux and musllinux, x86_64
+and aarch64), macOS (arm64) and Windows (x64), and tests each one on every
+supported CPython. It runs on demand (Actions > Wheels > Run workflow) and on
+pull requests that change the packaging. A wheel is tagged
+`py3-none-<platform>` because the library is loaded with ctypes, so one wheel
+serves every Python 3 version. Download them from the run's `wheels-*`
+artifacts, which are kept for 7 days.
 
 ```python
 import nlu_script
