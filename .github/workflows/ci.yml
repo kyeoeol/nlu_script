@@ -1,18 +1,21 @@
 name: CI
 
-# Runs on pull requests only: the merge into main is the commit a pull
-# request already tested, so re-running on push to main would double the
-# Actions minutes this private repository uses.
+# Runs on pull requests and again on main once they merge, so every commit
+# on main shows its own result.
 on:
   pull_request:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
 
-# A new push to the same pull request cancels the run it replaces.
+# A new push to the same pull request cancels the run it replaces. Runs on
+# main are grouped by commit, so a later merge never cancels (or replaces
+# the queued run of) an earlier one.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: true
 
 jobs:
