@@ -7,3 +7,10 @@ build-backend = "setuptools.build_meta"
 # tests it on every supported CPython.
 archs = ["auto64"]
 test-command = "python -m unittest discover -s {project}/python/tests -t {project}/python/tests"
+
+# The library uses std::shared_mutex, which macOS's libc++ ships from 10.12
+# on; cibuildwheel's x86_64 default (10.9) would tag wheels for systems that
+# can't load them. CMake and the wheel tag both read this variable.
+[[tool.cibuildwheel.overrides]]
+select = "*-macosx_x86_64"
+environment = { MACOSX_DEPLOYMENT_TARGET = "10.13" }
