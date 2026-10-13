@@ -1,0 +1,12 @@
+# Weekly pull requests that bump the GitHub Actions the workflows use,
+# grouped into one pull request. Security updates are enabled separately in
+# the repository settings and arrive as soon as an advisory is published.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]

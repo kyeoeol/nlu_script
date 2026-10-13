@@ -52,6 +52,14 @@
       deletions, no bypass. Checked on a throwaway PR (#11) with a failing
       test: `CI passed` failed rather than being skipped, and the merge was
       blocked
+- [x] Repository settings: auto-merge allowed, merged branches deleted,
+      workflows from every external contributor's pull request wait for
+      approval, workflow token read-only
+- [x] Security: private vulnerability reporting, Dependabot alerts and
+      security updates, secret scanning with push protection, CodeQL default
+      setup (C/C++, Python, Actions; first scan found nothing)
+- [x] Dependabot version updates for GitHub Actions, weekly and grouped
+      (`.github/dependabot.yml`)
 
 ## Next
 
@@ -80,11 +88,9 @@
       Rosetta 2; needs `ARCHFLAGS` passed to CMake as
       `CMAKE_OSX_ARCHITECTURES`). Left out for now: macOS minutes count 10x
       against the private repository's free Actions minutes
-- [ ] Publish wheels to PyPI (e.g. on a version tag). Only after the
-      repository goes public: publishing makes the code public
-- [ ] Enable "Allow auto-merge" in the repository settings
-- [ ] When the repository goes public: standard runners no longer use paid
-      minutes, so revisit what was cut to save them (CI on push to `main`,
+- [ ] Publish wheels to PyPI (e.g. on a version tag)
+- [ ] The repository is public, so standard runners no longer use paid
+      minutes: revisit what was cut to save them (CI on push to `main`,
       macOS x86_64 wheels) and drop "private repository" from the workflow
       comments
 
