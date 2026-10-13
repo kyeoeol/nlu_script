@@ -97,25 +97,11 @@ bool class_matches(const Nfa& nfa, const Edge& e, std::size_t cls,
   return nfa.matches(e, chars[cls - 2]);
 }
 
-std::vector<int> closure(const Nfa& nfa, std::vector<int> stack) {
-  std::vector<int> seen;
-  std::vector<bool> visited(nfa.states.size(), false);
-  while (!stack.empty()) {
-    int s = stack.back();
-    stack.pop_back();
-    if (visited[s]) continue;
-    visited[s] = true;
-    seen.push_back(s);
-    for (const Edge& e : nfa.states[s].edges)
-      if (!e.consumes()) stack.push_back(e.to);
-  }
-  std::sort(seen.begin(), seen.end());
-  return seen;
-}
-
-Dfa determinize(const Nfa& nfa, int start, int accept, const std::vector<char32_t>& chars,
+// Accepting states are the NFA states with an accept_rule.
+Dfa determinize(const Nfa& nfa, int start, const std::vector<char32_t>& chars,
                 const SourcePos& pos) {
   const std::size_t classes = chars.size() + 2;
+  Closure closure(nfa);
   Dfa dfa;
   std::map<std::vector<int>, int> index;
   std::vector<std::vector<int>> sets;
@@ -125,12 +111,13 @@ Dfa determinize(const Nfa& nfa, int start, int accept, const std::vector<char32_
     if (sets.size() >= kMaxExclusionStates) fail(pos, "exclusion is too complex to compile");
     int id = static_cast<int>(sets.size());
     index.emplace(set, id);
-    dfa.accept.push_back(std::binary_search(set.begin(), set.end(), accept));
+    dfa.accept.push_back(std::any_of(set.begin(), set.end(),
+                                     [&](int s) { return nfa.states[s].accept_rule >= 0; }));
     dfa.next.emplace_back(classes, -1);
     sets.push_back(std::move(set));
     return id;
   };
-  intern(closure(nfa, {start}));
+  intern(closure({start}));
   for (std::size_t d = 0; d < sets.size(); ++d) {
     for (std::size_t cls = 0; cls < classes; ++cls) {
       std::vector<int> targets;
@@ -138,7 +125,7 @@ Dfa determinize(const Nfa& nfa, int start, int accept, const std::vector<char32_
         for (const Edge& e : nfa.states[s].edges)
           if (e.consumes() && class_matches(nfa, e, cls, chars)) targets.push_back(e.to);
       if (targets.empty()) continue;
-      int target = intern(closure(nfa, std::move(targets)));
+      int target = intern(closure(std::move(targets)));
       dfa.next[d][cls] = target;
     }
   }
@@ -304,14 +291,10 @@ class Compiler {
     int in = nfa_.add_state();
     int out = nfa_.add_state();
     int cur = in;
-    bool first = true;
+    bool first = true;  // no space before the first repetition
     for (int i = 0; i < n.min; ++i) {
       Frag f = compile(body);
-      if (first) {
-        nfa_.epsilon(cur, f.in);
-      } else {
-        join(cur, f.in, hard);
-      }
+      join(cur, f.in, hard || first);
       first = false;
       cur = f.out;
     }
@@ -331,11 +314,7 @@ class Compiler {
     }
     for (int i = n.min; i < n.max; ++i) {
       Frag f = compile(body);
-      if (first) {
-        nfa_.epsilon(cur, f.in);
-      } else {
-        join(cur, f.in, hard);
-      }
+      join(cur, f.in, hard || first);
       nfa_.epsilon(cur, out);
       first = false;
       cur = f.out;
@@ -390,6 +369,8 @@ class Compiler {
     sub.var_stack_ = var_stack_;
     Frag x = sub.compile(*n.exclusion);
     Frag w = sub.compile_wildcard(n.wild);
+    scratch.states[x.out].accept_rule = 0;
+    scratch.states[w.out].accept_rule = 0;
 
     std::vector<char32_t> chars;
     for (const State& s : scratch.states) {
@@ -403,8 +384,8 @@ class Compiler {
     chars.erase(std::unique(chars.begin(), chars.end()), chars.end());
     const std::size_t classes = chars.size() + 2;
 
-    Dfa dx = determinize(scratch, x.in, x.out, chars, n.pos);
-    Dfa dw = determinize(scratch, w.in, w.out, chars, n.pos);
+    Dfa dx = determinize(scratch, x.in, chars, n.pos);
+    Dfa dw = determinize(scratch, w.in, chars, n.pos);
 
     // Product states: (exclusion state or -1 once it can no longer match, wildcard state).
     std::map<std::pair<int, int>, int> index;

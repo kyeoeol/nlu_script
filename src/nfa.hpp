@@ -77,6 +77,45 @@ struct Nfa {
   }
 };
 
+// Epsilon closures for subset construction. A closure keeps only the states
+// that consume input or accept, so sets that behave alike compare equal.
+class Closure {
+ public:
+  explicit Closure(const Nfa& nfa) : nfa_(nfa), mark_(nfa.states.size(), 0) {}
+
+  // Returns the sorted closure of `stack`.
+  std::vector<int> operator()(std::vector<int> stack) {
+    if (++generation_ == 0) {
+      std::fill(mark_.begin(), mark_.end(), 0);
+      generation_ = 1;
+    }
+    std::vector<int> out;
+    while (!stack.empty()) {
+      int s = stack.back();
+      stack.pop_back();
+      if (mark_[s] == generation_) continue;
+      mark_[s] = generation_;
+      const State& st = nfa_.states[s];
+      bool important = st.accept_rule >= 0;
+      for (const Edge& e : st.edges) {
+        if (e.consumes()) {
+          important = true;
+        } else {
+          stack.push_back(e.to);
+        }
+      }
+      if (important) out.push_back(s);
+    }
+    std::sort(out.begin(), out.end());
+    return out;
+  }
+
+ private:
+  const Nfa& nfa_;
+  std::vector<unsigned> mark_;
+  unsigned generation_ = 0;
+};
+
 }  // namespace detail
 }  // namespace nlu
 

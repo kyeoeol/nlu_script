@@ -69,6 +69,22 @@ ParsedScript parse_script(const std::string& source) {
   Block block = Block::None;
   std::string current;
 
+  // A variable takes one pattern per line, an entity a comma-separated list
+  // of values. `column` locates text[0].
+  auto add_values = [&](const std::u32string& text, int line_no, int column) {
+    if (block == Block::Variable) {
+      variable_values[current].push_back(parse_pattern(text, line_no, column));
+      return;
+    }
+    for (const auto& part : split_top_level_commas(text)) {
+      std::size_t lead = 0;
+      std::u32string value = trim(part.second, &lead);
+      int at = column + static_cast<int>(part.first + lead);
+      if (value.empty()) throw CompileError("empty entity value", line_no, at);
+      entity_values[current].push_back(parse_pattern(value, line_no, at));
+    }
+  };
+
   std::istringstream lines(source);
   std::string raw;
   int line_no = 0;
@@ -84,24 +100,12 @@ ParsedScript parse_script(const std::string& source) {
 
     if (first > 0) {
       std::u32string content = trim(line);
-      switch (block) {
-        case Block::None:
-          throw CompileError("indented pattern outside of a label or definition", line_no, column);
-        case Block::Label:
-          out.rules.push_back({current, parse_pattern(content, line_no, column)});
-          break;
-        case Block::Variable:
-          variable_values[current].push_back(parse_pattern(content, line_no, column));
-          break;
-        case Block::Entity:
-          for (const auto& part : split_top_level_commas(content)) {
-            std::size_t lead = 0;
-            std::u32string value = trim(part.second, &lead);
-            int at = column + static_cast<int>(part.first + lead);
-            if (value.empty()) throw CompileError("empty entity value", line_no, at);
-            entity_values[current].push_back(parse_pattern(value, line_no, at));
-          }
-          break;
+      if (block == Block::None)
+        throw CompileError("indented pattern outside of a label or definition", line_no, column);
+      if (block == Block::Label) {
+        out.rules.push_back({current, parse_pattern(content, line_no, column)});
+      } else {
+        add_values(content, line_no, column);
       }
       continue;
     }
@@ -124,23 +128,9 @@ ParsedScript parse_script(const std::string& source) {
                            line_no, column);
       table[current].pos = SourcePos{line_no, column};
       block = is_var ? Block::Variable : Block::Entity;
-      auto& values = is_var ? variable_values[current] : entity_values[current];
-      std::u32string rest = line.substr(colon + 1);
       std::size_t lead = 0;
-      std::u32string body = trim(rest, &lead);
-      int body_column = static_cast<int>(colon + 2 + lead);
-      if (body.empty()) continue;
-      if (is_var) {
-        values.push_back(parse_pattern(body, line_no, body_column));
-      } else {
-        for (const auto& part : split_top_level_commas(body)) {
-          std::size_t part_lead = 0;
-          std::u32string value = trim(part.second, &part_lead);
-          int at = body_column + static_cast<int>(part.first + part_lead);
-          if (value.empty()) throw CompileError("empty entity value", line_no, at);
-          values.push_back(parse_pattern(value, line_no, at));
-        }
-      }
+      std::u32string body = trim(line.substr(colon + 1), &lead);
+      if (!body.empty()) add_values(body, line_no, static_cast<int>(colon + 2 + lead));
       continue;
     }
 
@@ -180,7 +170,7 @@ ParsedScript parse_script(const std::string& source) {
 
 class LazyDfa {
  public:
-  LazyDfa(const Nfa& nfa, int start) : nfa_(nfa), start_nfa_(start) { reset(); }
+  LazyDfa(const Nfa& nfa, int start) : nfa_(nfa), closure_(nfa), start_nfa_(start) { reset(); }
 
   // Returns the ids of the rules accepting the whole text, ascending.
   std::vector<int> accepted_rules(const std::u32string& text) {
@@ -194,7 +184,7 @@ class LazyDfa {
         for (int s : states_[d].set)
           for (const Edge& e : nfa_.states[s].edges)
             if (e.consumes() && nfa_.matches(e, c)) targets.push_back(e.to);
-        std::vector<int> set = closure(std::move(targets));
+        std::vector<int> set = closure_(std::move(targets));
         if (states_.size() >= kMaxStates) {
           reset();
           d = intern(std::move(set));
@@ -219,44 +209,16 @@ class LazyDfa {
   };
 
   const Nfa& nfa_;
+  Closure closure_;
   int start_nfa_;
   int start_ = 0;
   std::vector<DState> states_;
   std::map<std::vector<int>, int> index_;
-  std::vector<int> mark_;
-  int generation_ = 0;
 
   void reset() {
     states_.clear();
     index_.clear();
-    start_ = intern(closure({start_nfa_}));
-  }
-
-  std::vector<int> closure(std::vector<int> stack) {
-    if (mark_.size() != nfa_.states.size()) mark_.assign(nfa_.states.size(), 0);
-    if (++generation_ == 0) {
-      std::fill(mark_.begin(), mark_.end(), 0);
-      generation_ = 1;
-    }
-    std::vector<int> out;
-    while (!stack.empty()) {
-      int s = stack.back();
-      stack.pop_back();
-      if (mark_[s] == generation_) continue;
-      mark_[s] = generation_;
-      const State& st = nfa_.states[s];
-      bool important = st.accept_rule >= 0;
-      for (const Edge& e : st.edges) {
-        if (e.consumes()) {
-          important = true;
-        } else {
-          stack.push_back(e.to);
-        }
-      }
-      if (important) out.push_back(s);
-    }
-    std::sort(out.begin(), out.end());
-    return out;
+    start_ = intern(closure_({start_nfa_}));
   }
 
   int intern(std::vector<int> set) {
@@ -494,11 +456,16 @@ Match build_match(const Nfa& nfa, const std::string& label, const std::vector<Ev
 
 // --- Script -----------------------------------------------------------------
 
+struct CompiledRule {
+  std::string label;
+  int start;  // start state
+  int first;  // the rule's states occupy the id range [first, last)
+  int last;
+};
+
 struct Script::Impl {
   Nfa nfa;
-  std::vector<std::string> labels;  // per rule
-  std::vector<int> starts;          // per rule
-  std::vector<int> ends;            // per rule: one past its last state
+  std::vector<CompiledRule> rules;
   int start = 0;
   mutable std::mutex mutex;
   mutable std::unique_ptr<LazyDfa> dfa;
@@ -513,13 +480,16 @@ Script Script::compile(const std::string& source) {
   ParsedScript parsed = parse_script(source);
   auto impl = std::make_unique<Impl>();
   impl->start = impl->nfa.add_state();
-  for (std::size_t i = 0; i < parsed.rules.size(); ++i) {
-    int s = compile_rule(impl->nfa, parsed.defs, *parsed.rules[i].pattern, static_cast<int>(i));
-    impl->labels.push_back(parsed.rules[i].label);
-    impl->starts.push_back(s);
-    impl->ends.push_back(static_cast<int>(impl->nfa.states.size()));
+  for (const Rule& rule : parsed.rules) {
+    CompiledRule r;
+    r.label = rule.label;
+    r.first = static_cast<int>(impl->nfa.states.size());
+    r.start = compile_rule(impl->nfa, parsed.defs, *rule.pattern,
+                           static_cast<int>(impl->rules.size()));
+    r.last = static_cast<int>(impl->nfa.states.size());
+    impl->nfa.epsilon(impl->start, r.start);
+    impl->rules.push_back(std::move(r));
   }
-  for (int s : impl->starts) impl->nfa.epsilon(impl->start, s);
   impl->dfa = std::make_unique<LazyDfa>(impl->nfa, impl->start);
   return Script(std::move(impl));
 }
@@ -532,7 +502,7 @@ Script Script::compile_file(const std::string& path) {
   return compile(buffer.str());
 }
 
-std::size_t Script::rule_count() const { return impl_->labels.size(); }
+std::size_t Script::rule_count() const { return impl_->rules.size(); }
 
 std::vector<Match> Script::match(const std::string& text) const {
   NormalizedText norm = normalize(text);
@@ -545,14 +515,13 @@ std::vector<Match> Script::match(const std::string& text) const {
   if (rules.empty()) return out;
   std::set<std::string> seen;
   std::vector<Event> events;
-  for (int r : rules) {
-    const std::string& label = impl_->labels[r];
-    if (seen.count(label)) continue;
-    int first = r == 0 ? impl_->start + 1 : impl_->ends[r - 1];
-    PikeVm vm(impl_->nfa, first, impl_->ends[r]);
-    if (!vm.run(impl_->starts[r], norm.text, events)) continue;
-    seen.insert(label);
-    out.push_back(build_match(impl_->nfa, label, events, text, norm));
+  for (int id : rules) {
+    const CompiledRule& r = impl_->rules[id];
+    if (seen.count(r.label)) continue;
+    PikeVm vm(impl_->nfa, r.first, r.last);
+    if (!vm.run(r.start, norm.text, events)) continue;
+    seen.insert(r.label);
+    out.push_back(build_match(impl_->nfa, r.label, events, text, norm));
   }
   return out;
 }
