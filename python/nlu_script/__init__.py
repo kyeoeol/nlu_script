@@ -3,13 +3,14 @@
 Python binding over the nlu_script C interface (loaded with ctypes).
 
     >>> import nlu_script
-    >>> script = nlu_script.Script(u"agent:connect\\n    talk to an agent (please)\\n")
-    >>> [m.label for m in script.match(u"Talk to an agent")]
+    >>> script = nlu_script.Script("agent:connect\\n    talk to an agent (please)\\n")
+    >>> [m.label for m in script.match("Talk to an agent")]
     ['agent:connect']
 
 The shared library is looked up in this order: the NLU_SCRIPT_LIBRARY
 environment variable, the package directory, then the system library path.
 """
+import collections
 import ctypes
 import ctypes.util
 import os
@@ -19,20 +20,19 @@ __all__ = ["CompileError", "Match", "Script", "Slot"]
 __version__ = "0.1.0"
 
 
-def _library_names():
+def _library_name():
     if sys.platform == "win32":
-        return ["nlu_script.dll"]
+        return "nlu_script.dll"
     if sys.platform == "darwin":
-        return ["libnlu_script.dylib"]
-    return ["libnlu_script.so"]
+        return "libnlu_script.dylib"
+    return "libnlu_script.so"
 
 
 def _load_library():
     candidates = []
     if os.environ.get("NLU_SCRIPT_LIBRARY"):
         candidates.append(os.environ["NLU_SCRIPT_LIBRARY"])
-    here = os.path.dirname(os.path.abspath(__file__))
-    candidates.extend(os.path.join(here, name) for name in _library_names())
+    candidates.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), _library_name()))
     found = ctypes.util.find_library("nlu_script")
     if found:
         candidates.append(found)
@@ -49,7 +49,6 @@ def _load_library():
 
 
 _lib = _load_library()
-_c_char_pp = ctypes.POINTER(ctypes.c_char_p)
 _c_int_p = ctypes.POINTER(ctypes.c_int)
 
 
@@ -62,9 +61,9 @@ def _declare(name, restype, *argtypes):
 
 _size = ctypes.c_size_t
 _ptr = ctypes.c_void_p
-_compile = _declare("nlu_script_compile", _ptr, ctypes.c_char_p, ctypes.c_void_p, _c_int_p, _c_int_p)
-_compile_file = _declare("nlu_script_compile_file", _ptr, ctypes.c_char_p, ctypes.c_void_p,
-                         _c_int_p, _c_int_p)
+_compile = _declare("nlu_script_compile", _ptr, ctypes.c_char_p, _ptr, _c_int_p, _c_int_p)
+_compile_file = _declare("nlu_script_compile_file", _ptr, ctypes.c_char_p, _ptr, _c_int_p,
+                         _c_int_p)
 _script_free = _declare("nlu_script_free", None, _ptr)
 _rule_count = _declare("nlu_script_rule_count", _size, _ptr)
 _match = _declare("nlu_script_match", _ptr, _ptr, ctypes.c_char_p)
@@ -74,14 +73,14 @@ _result_label = _declare("nlu_result_label", ctypes.c_char_p, _ptr, _size)
 _result_tagged = _declare("nlu_result_tagged", ctypes.c_char_p, _ptr, _size)
 _slot_count = _declare("nlu_result_slot_count", _size, _ptr, _size)
 _slot_name = _declare("nlu_result_slot_name", ctypes.c_char_p, _ptr, _size, _size)
+_slot_text = _declare("nlu_result_slot_text", ctypes.c_char_p, _ptr, _size, _size)
 _slot_begin = _declare("nlu_result_slot_begin", _size, _ptr, _size, _size)
-_slot_end = _declare("nlu_result_slot_end", _size, _ptr, _size, _size)
 _attribute_count = _declare("nlu_result_slot_attribute_count", _size, _ptr, _size, _size)
 _attribute_key = _declare("nlu_result_slot_attribute_key", ctypes.c_char_p, _ptr, _size, _size,
                           _size)
 _attribute_value = _declare("nlu_result_slot_attribute_value", ctypes.c_char_p, _ptr, _size,
                             _size, _size)
-_string_free = _declare("nlu_string_free", None, ctypes.c_void_p)
+_string_free = _declare("nlu_string_free", None, _ptr)
 
 
 def _decode(data):
@@ -92,39 +91,19 @@ class CompileError(ValueError):
     """Raised for syntax and reference errors; `line` and `column` are 1-based."""
 
     def __init__(self, message, line, column):
-        ValueError.__init__(self, message)
+        super().__init__(message)
         self.message = message
         self.line = line
         self.column = column
 
 
-class Slot(object):
+class Slot(collections.namedtuple("Slot", "name text begin end attributes")):
     """A captured span. `begin` and `end` are character offsets into the input."""
 
-    __slots__ = ("name", "text", "begin", "end", "attributes")
-
-    def __init__(self, name, text, begin, end, attributes):
-        self.name = name
-        self.text = text
-        self.begin = begin
-        self.end = end
-        self.attributes = attributes
-
-    def __repr__(self):
-        return "Slot(name=%r, text=%r, begin=%d, end=%d, attributes=%r)" % (
-            self.name, self.text, self.begin, self.end, self.attributes)
+    __slots__ = ()
 
 
-class Match(object):
-    __slots__ = ("label", "slots", "tagged")
-
-    def __init__(self, label, slots, tagged):
-        self.label = label
-        self.slots = slots
-        self.tagged = tagged
-
-    def __repr__(self):
-        return "Match(label=%r, tagged=%r, slots=%r)" % (self.label, self.tagged, self.slots)
+Match = collections.namedtuple("Match", "label slots tagged")
 
 
 def _compile_with(function, argument):
@@ -141,7 +120,7 @@ def _compile_with(function, argument):
     raise OSError(message)
 
 
-class Script(object):
+class Script:
     """A compiled script. Matching is thread-safe."""
 
     def __init__(self, source):
@@ -191,13 +170,11 @@ class Script(object):
     def _read_match(result, i, data):
         slots = []
         for j in range(_slot_count(result, i)):
-            begin = _slot_begin(result, i, j)
-            end = _slot_end(result, i, j)
-            attributes = {}
-            for k in range(_attribute_count(result, i, j)):
-                attributes[_decode(_attribute_key(result, i, j, k))] = _decode(
-                    _attribute_value(result, i, j, k))
-            char_begin = len(_decode(data[:begin]))
-            slots.append(Slot(_decode(_slot_name(result, i, j)), _decode(data[begin:end]),
-                              char_begin, char_begin + len(_decode(data[begin:end])), attributes))
+            attributes = {_decode(_attribute_key(result, i, j, k)):
+                          _decode(_attribute_value(result, i, j, k))
+                          for k in range(_attribute_count(result, i, j))}
+            text = _decode(_slot_text(result, i, j))
+            begin = len(_decode(data[:_slot_begin(result, i, j)]))
+            slots.append(Slot(_decode(_slot_name(result, i, j)), text, begin, begin + len(text),
+                              attributes))
         return Match(_decode(_result_label(result, i)), slots, _decode(_result_tagged(result, i)))

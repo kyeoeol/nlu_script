@@ -13,11 +13,13 @@ namespace {
 constexpr int kMaxRepeat = 100;
 constexpr std::size_t kMaxPermuteTokens = 5;
 
-std::string quote(char32_t c) {
-  std::string out = "'";
+std::string utf8(char32_t c) {
+  std::string out;
   append_utf8(c, out);
-  return out + "'";
+  return out;
 }
+
+std::string quote(char32_t c) { return "'" + utf8(c) + "'"; }
 
 class Parser {
  public:
@@ -61,8 +63,8 @@ class Parser {
     char32_t c = peek();
     if (c == U']' || c == U')') error("unmatched " + quote(c));
     if (is_special(c))
-      error("unexpected special symbol " + quote(c) + "; quote it as \"" +
-            quote(c).substr(1, quote(c).size() - 2) + "\" to match it literally");
+      error("unexpected special symbol " + quote(c) + "; quote it as \"" + utf8(c) +
+            "\" to match it literally");
     error("unexpected " + quote(c));
   }
   void expect(char32_t c, const char* what) {
@@ -112,15 +114,15 @@ class Parser {
   // alternation := sequence ('|' sequence)*
   std::shared_ptr<Node> parse_alternation(bool in_permute) {
     std::size_t start = i_;
-    std::vector<NodePtr> options;
+    std::vector<std::shared_ptr<Node>> options;
     options.push_back(parse_sequence(in_permute));
     while (peek() == U'|') {
       ++i_;
       options.push_back(parse_sequence(in_permute));
     }
-    if (options.size() == 1) return std::const_pointer_cast<Node>(options[0]);
+    if (options.size() == 1) return options[0];
     auto choice = make(Node::Kind::Choice, start);
-    choice->children = std::move(options);
+    choice->children.assign(options.begin(), options.end());
     return choice;
   }
 

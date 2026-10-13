@@ -239,7 +239,7 @@ pip install ./python        # builds the shared library with CMake
 import nlu_script
 
 script = nlu_script.Script.from_file("rules.nlu")   # or nlu_script.Script(source)
-for m in script.match(u"엄마한테 3만 원 보내줘"):
+for m in script.match("엄마한테 3만 원 보내줘"):
     print(m.label, m.tagged)
     for slot in m.slots:
         print(slot.name, slot.text, slot.begin, slot.end, slot.attributes)

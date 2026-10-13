@@ -19,6 +19,10 @@
       inquiries to banking and payment apps) instead of the guide's, and cover
       Korean and English side by side
 - [x] README credits the NCP chatbot guide and the talk the project started from
+- [x] Simplification pass: one epsilon-closure implementation shared by the
+      lazy DFA and exclusion compilation (its visit counter is now unsigned,
+      so it can't overflow), definition values parsed in one place, per-rule
+      data kept in one struct, Python `Slot`/`Match` as namedtuples
 
 ## Next
 
@@ -37,6 +41,10 @@
       stats for it
 - [ ] Profile full-match time at 50k+ rules (about 33 µs vs about 5 µs at 10
       rules; classification alone stays flat at about 1.3 µs)
+- [ ] Concurrent `match()` calls share one mutex around the lazy DFA, so
+      classification runs one thread at a time; consider per-thread caches
+- [ ] Static and shared libraries compile every source twice; a CMake
+      `OBJECT` library would build them once
 - [ ] Search mode: find slots inside free text without `<?>*?` padding
 - [ ] Let an exclusion reach a wildcard inside a following slot
       (`\X <slot><?>*?</slot>`); today the exclusion has to go inside the slot
