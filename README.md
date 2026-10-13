@@ -213,7 +213,9 @@ for (const nlu::Match& m : script.match("I lost my debit card")) {
 }
 ```
 
-`Script::match` is thread-safe.
+`Script::match` is thread-safe, and concurrent calls run in parallel. A call
+waits only while another thread adds a state to the shared DFA cache, which
+mostly happens while the cache warms up.
 
 ## C API
 
@@ -255,7 +257,9 @@ yourself, set `NLU_SCRIPT_LIBRARY=/path/to/libnlu_script.so`.
    the product of the wildcard's DFA with the complement of the excluded
    pattern's DFA.
 2. All rules share one NFA. A lazily built DFA (subset construction, cached
-   per state and character) decides which rules accept the input.
+   per state and character) decides which rules accept the input. Threads
+   share the cache: following cached transitions takes a shared lock, and
+   only adding a new transition takes the exclusive lock.
 3. For each accepting rule, a Pike VM replays the input over that rule's
    states. Groups are greedy and wildcards are lazy. The VM records slot
    boundaries and attribute assignments on the winning path.

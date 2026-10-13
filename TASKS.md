@@ -23,6 +23,12 @@
       lazy DFA and exclusion compilation (its visit counter is now unsigned,
       so it can't overflow), definition values parsed in one place, per-rule
       data kept in one struct, Python `Slot`/`Match` as namedtuples
+- [x] Concurrent `match()` calls classify in parallel: cached DFA transitions
+      are read under a shared lock, and only new transitions take the
+      exclusive lock (classification on 4 threads: about 3x one thread's
+      throughput, up from about 1.6x)
+- [x] Static and shared libraries are built from one CMake `OBJECT` library,
+      so each source compiles once
 
 ## Next
 
@@ -41,10 +47,9 @@
       stats for it
 - [ ] Profile full-match time at 50k+ rules (about 33 µs vs about 5 µs at 10
       rules; classification alone stays flat at about 1.3 µs)
-- [ ] Concurrent `match()` calls share one mutex around the lazy DFA, so
-      classification runs one thread at a time; consider per-thread caches
-- [ ] Static and shared libraries compile every source twice; a CMake
-      `OBJECT` library would build them once
+- [ ] Concurrent classification still contends on the shared lock's cache
+      line; per-thread DFA caches would remove it at the cost of memory per
+      thread
 - [ ] Search mode: find slots inside free text without `<?>*?` padding
 - [ ] Let an exclusion reach a wildcard inside a following slot
       (`\X <slot><?>*?</slot>`); today the exclusion has to go inside the slot
