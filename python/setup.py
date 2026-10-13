@@ -41,6 +41,8 @@ class BuildPyWithLibrary(build_py):
         target = os.path.join(self.build_lib, "nlu_script")
         os.makedirs(target, exist_ok=True)
         shutil.copy(built[0], target)
+        # The MIT license asks for its notice in every copy, wheels included.
+        shutil.copy(os.path.join(ROOT, "LICENSE"), target)
 
 
 class BinaryDistribution(Distribution):
@@ -62,6 +64,7 @@ setup(
     name="nlu_script",
     version="0.1.0",
     description="Regex script for natural language understanding",
+    license="MIT",
     packages=["nlu_script"],
     python_requires=">=3.5",
     cmdclass={"build_py": BuildPyWithLibrary, "bdist_wheel": BdistWheelAnyPython},

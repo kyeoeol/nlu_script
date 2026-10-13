@@ -45,6 +45,8 @@
       replaces, wheels move to their own workflow (on demand, or when the
       packaging changes) with artifacts kept 7 days, and the workflow token
       is read-only
+- [x] MIT license: `LICENSE` at the root, `license="MIT"` in `setup.py`, and
+      the license file copied into the Python package so wheels carry it
 
 ## Next
 
@@ -79,6 +81,10 @@
       confirm `CI passed` fails (rather than being skipped); then enable
       "Allow auto-merge" and add a `main` ruleset requiring `CI passed`
       (GitHub Free has no rulesets for private repositories)
+- [ ] When the repository goes public: standard runners no longer use paid
+      minutes, so revisit what was cut to save them (CI on push to `main`,
+      macOS x86_64 wheels) and drop "private repository" from the workflow
+      comments
 
 ## Open questions
 

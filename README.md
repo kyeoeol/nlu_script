@@ -286,3 +286,7 @@ and from the talk
 This is an independent implementation. The examples and tests use this
 project's own Korean and English data, modeled on customer-support inquiries
 to banking and payment apps.
+
+## License
+
+[MIT](LICENSE)
