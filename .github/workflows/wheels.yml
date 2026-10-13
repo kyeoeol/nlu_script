@@ -1,0 +1,39 @@
+name: Wheels
+
+# Wheel builds are the most expensive CI run (macOS minutes count 10x in a
+# private repository), so they run on demand (Actions > Wheels > Run
+# workflow) and on pull requests that change the packaging itself.
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/wheels.yml
+      - python/pyproject.toml
+      - python/setup.py
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  wheels:
+    name: wheels (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build and test wheels
+        uses: pypa/cibuildwheel@v4.2.1
+        with:
+          package-dir: python
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: wheels-${{ matrix.os }}
+          path: wheelhouse/*.whl
+          retention-days: 7

@@ -30,7 +30,7 @@
 - [x] Static and shared libraries are built from one CMake `OBJECT` library,
       so each source compiles once
 - [x] CI (GitHub Actions): CMake build and `ctest` on Linux, macOS and
-      Windows (MSVC) for every pull request and every push to `main`
+      Windows (MSVC) for every pull request
 - [x] Windows build: MSVC compiles with `/utf-8` so UTF-8 string literals
       survive; README notes `--config` / `-C` for multi-config generators
 - [x] Python wheels in CI (cibuildwheel): `py3-none` wheels for Linux
@@ -38,6 +38,13 @@
       runtime), each tested on CPython 3.9 to 3.15
 - [x] One `CI passed` check that summarizes every CI job, to require before
       merging into `main` (and to auto-merge on)
+- [x] Wheel platforms: Linux aarch64 (native arm64 runner) and musllinux
+      (x86_64 and aarch64)
+- [x] CI stays within the free Actions minutes: CI runs on pull requests
+      only (not again on push to `main`), a new push cancels the run it
+      replaces, wheels move to their own workflow (on demand, or when the
+      packaging changes) with artifacts kept 7 days, and the workflow token
+      is read-only
 
 ## Next
 
@@ -62,8 +69,16 @@
 - [ ] Search mode: find slots inside free text without `<?>*?` padding
 - [ ] Let an exclusion reach a wildcard inside a following slot
       (`\X <slot><?>*?</slot>`); today the exclusion has to go inside the slot
-- [ ] More wheel platforms: Linux aarch64, macOS x86_64, musllinux
-- [ ] Publish wheels to PyPI (e.g. on a version tag)
+- [ ] macOS x86_64 wheels (cross-compile on the arm64 runner and test under
+      Rosetta 2; needs `ARCHFLAGS` passed to CMake as
+      `CMAKE_OSX_ARCHITECTURES`). Left out for now: macOS minutes count 10x
+      against the private repository's free Actions minutes
+- [ ] Publish wheels to PyPI (e.g. on a version tag). Only after the
+      repository goes public: publishing makes the code public
+- [ ] When the repository goes public: on a throwaway PR with a failing test,
+      confirm `CI passed` fails (rather than being skipped); then enable
+      "Allow auto-merge" and add a `main` ruleset requiring `CI passed`
+      (GitHub Free has no rulesets for private repositories)
 
 ## Open questions
 

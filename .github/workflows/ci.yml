@@ -1,9 +1,19 @@
 name: CI
 
+# Runs on pull requests only: the merge into main is the commit a pull
+# request already tested, so re-running on push to main would double the
+# Actions minutes this private repository uses.
 on:
-  push:
-    branches: [main]
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A new push to the same pull request cancels the run it replaces.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build-and-test:
@@ -22,31 +32,13 @@ jobs:
       - name: Test
         run: ctest --test-dir build -C Release --output-on-failure
 
-  wheels:
-    name: wheels (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    steps:
-      - uses: actions/checkout@v5
-      - name: Build and test wheels
-        uses: pypa/cibuildwheel@v4.2.1
-        with:
-          package-dir: python
-      - uses: actions/upload-artifact@v7.0.1
-        with:
-          name: wheels-${{ matrix.os }}
-          path: wheelhouse/*.whl
-
   # The one check to mark as required for merging into main, so the branch
   # rule doesn't have to list (and track) every matrix job. It runs even when
   # a job it needs fails, because a skipped required check counts as passing.
   ci-passed:
     name: CI passed
     if: always()
-    needs: [build-and-test, wheels]
+    needs: [build-and-test]
     runs-on: ubuntu-latest
     steps:
       - name: Fail unless every job succeeded
