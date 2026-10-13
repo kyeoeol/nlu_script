@@ -14,6 +14,12 @@ option(NLU_SCRIPT_BUILD_TESTS "Build the test suite" ON)
 
 find_package(Threads REQUIRED)
 
+# Sources and tests contain UTF-8 string literals. Without /utf-8, MSVC reads
+# them in the system code page and mangles them.
+if(MSVC)
+  add_compile_options(/utf-8)
+endif()
+
 set(NLU_SCRIPT_SOURCES
   src/c_api.cpp
   src/compiler.cpp
