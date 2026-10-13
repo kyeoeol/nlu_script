@@ -27,6 +27,10 @@ cmake --build build
 cd build && ctest --output-on-failure
 ```
 
+With a multi-config generator such as Visual Studio, pick the configuration
+when building and testing: `cmake --build build --config Release` and
+`ctest -C Release --output-on-failure`.
+
 Targets: `nlu_script` (shared library, C API), `nlu_script_static` (static
 library, C++ API), `nlu_script_cli`, and the tests.
 

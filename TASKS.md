@@ -29,8 +29,10 @@
       throughput, up from about 1.6x)
 - [x] Static and shared libraries are built from one CMake `OBJECT` library,
       so each source compiles once
-- [x] CI (GitHub Actions): CMake build and `ctest` on Linux and macOS for
-      every pull request and every push to `main`
+- [x] CI (GitHub Actions): CMake build and `ctest` on Linux, macOS and
+      Windows (MSVC) for every pull request and every push to `main`
+- [x] Windows build: MSVC compiles with `/utf-8` so UTF-8 string literals
+      survive; README notes `--config` / `-C` for multi-config generators
 
 ## Next
 
@@ -56,8 +58,6 @@
 - [ ] Let an exclusion reach a wildcard inside a following slot
       (`\X <slot><?>*?</slot>`); today the exclusion has to go inside the slot
 - [ ] Python wheels for Linux, macOS, Windows
-- [ ] Windows build check (C API export macros are in place but untested),
-      then add Windows to the CI matrix
 
 ## Open questions
 
