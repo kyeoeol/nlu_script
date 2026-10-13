@@ -47,6 +47,11 @@
       is read-only
 - [x] MIT license: `LICENSE` at the root, `license="MIT"` in `setup.py`, and
       the license file copied into the Python package so wheels carry it
+- [x] `main` ruleset (the repository is public now): pull request required,
+      `CI passed` required and branch up to date, no force pushes or
+      deletions, no bypass. Checked on a throwaway PR (#11) with a failing
+      test: `CI passed` failed rather than being skipped, and the merge was
+      blocked
 
 ## Next
 
@@ -77,10 +82,7 @@
       against the private repository's free Actions minutes
 - [ ] Publish wheels to PyPI (e.g. on a version tag). Only after the
       repository goes public: publishing makes the code public
-- [ ] When the repository goes public: on a throwaway PR with a failing test,
-      confirm `CI passed` fails (rather than being skipped); then enable
-      "Allow auto-merge" and add a `main` ruleset requiring `CI passed`
-      (GitHub Free has no rulesets for private repositories)
+- [ ] Enable "Allow auto-merge" in the repository settings
 - [ ] When the repository goes public: standard runners no longer use paid
       minutes, so revisit what was cut to save them (CI on push to `main`,
       macOS x86_64 wheels) and drop "private repository" from the workflow
