@@ -29,6 +29,8 @@
       throughput, up from about 1.6x)
 - [x] Static and shared libraries are built from one CMake `OBJECT` library,
       so each source compiles once
+- [x] CI (GitHub Actions): CMake build and `ctest` on Linux and macOS for
+      every pull request and every push to `main`
 
 ## Next
 
@@ -53,8 +55,9 @@
 - [ ] Search mode: find slots inside free text without `<?>*?` padding
 - [ ] Let an exclusion reach a wildcard inside a following slot
       (`\X <slot><?>*?</slot>`); today the exclusion has to go inside the slot
-- [ ] Python wheels / CI (GitHub Actions) for Linux, macOS, Windows
-- [ ] Windows build check (C API export macros are in place but untested)
+- [ ] Python wheels for Linux, macOS, Windows
+- [ ] Windows build check (C API export macros are in place but untested),
+      then add Windows to the CI matrix
 
 ## Open questions
 
