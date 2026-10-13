@@ -39,3 +39,17 @@ jobs:
         with:
           name: wheels-${{ matrix.os }}
           path: wheelhouse/*.whl
+
+  # The one check to mark as required for merging into main, so the branch
+  # rule doesn't have to list (and track) every matrix job. It runs even when
+  # a job it needs fails, because a skipped required check counts as passing.
+  ci-passed:
+    name: CI passed
+    if: always()
+    needs: [build-and-test, wheels]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail unless every job succeeded
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped')
+        run: exit 1
+      - run: echo "All CI jobs succeeded"
