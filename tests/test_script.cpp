@@ -240,3 +240,6 @@ TEST(concurrent_matches_agree_with_the_script) {
   for (int w : wrong) total += w;
   CHECK_EQ(total, 0);
 }
+
+// Throwaway: fails on purpose to check that `CI passed` fails and blocks the merge.
+TEST(deliberately_failing_check) { CHECK(false); }
