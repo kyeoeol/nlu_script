@@ -1,5 +1,8 @@
 // Behavior of scripts: labels, slots, attributes and compile errors.
+#include <string>
+#include <thread>
 #include <utility>
+#include <vector>
 
 #include "harness.hpp"
 #include "nlu_script/nlu_script.hpp"
@@ -204,4 +207,36 @@ TEST(many_rules_classify_correctly) {
   CHECK_EQ(labels(s, "command number 1234 please"), (std::vector<std::string>{"label1234"}));
   CHECK_EQ(labels(s, "command number 7"), (std::vector<std::string>{"label7"}));
   CHECK(labels(s, "command number 20000").empty());
+}
+
+TEST(concurrent_matches_agree_with_the_script) {
+  // Enough distinct rule text that the lazy DFA outgrows its cache and resets
+  // while other threads are still matching.
+  const int kRules = 3000;
+  std::string source;
+  for (int i = 0; i < kRules; ++i) {
+    source += "label" + std::to_string(i) + "\n    order " + std::to_string(i * 7919) +
+              " for customer " + std::to_string(i) + "\n";
+  }
+  nlu::Script s = nlu::Script::compile(source);
+  auto input = [](int i) {
+    return "order " + std::to_string(i * 7919) + " for customer " + std::to_string(i);
+  };
+  const int kThreads = 4;
+  std::vector<int> wrong(kThreads, 0);
+  std::vector<std::thread> threads;
+  for (int t = 0; t < kThreads; ++t) {
+    threads.emplace_back([&, t] {
+      for (int k = 0; k < kRules; ++k) {
+        int i = (k * (2 * t + 1) + t * 997) % kRules;
+        if (labels(s, input(i)) != std::vector<std::string>{"label" + std::to_string(i)})
+          ++wrong[t];
+        if (!labels(s, input(i) + "0").empty()) ++wrong[t];
+      }
+    });
+  }
+  for (std::thread& t : threads) t.join();
+  int total = 0;
+  for (int w : wrong) total += w;
+  CHECK_EQ(total, 0);
 }

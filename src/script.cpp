@@ -11,6 +11,7 @@
 #include <fstream>
 #include <map>
 #include <mutex>
+#include <shared_mutex>
 #include <set>
 #include <sstream>
 #include <unordered_map>
@@ -168,14 +169,37 @@ ParsedScript parse_script(const std::string& source) {
 
 // --- phase 1: lazy DFA ------------------------------------------------------
 
+// Threads share one cache. Lookups of cached transitions run under a shared
+// lock; a thread that needs a new transition switches to the exclusive lock
+// for the rest of its input.
 class LazyDfa {
  public:
   LazyDfa(const Nfa& nfa, int start) : nfa_(nfa), closure_(nfa), start_nfa_(start) { reset(); }
 
   // Returns the ids of the rules accepting the whole text, ascending.
   std::vector<int> accepted_rules(const std::u32string& text) {
-    int d = start_;
-    for (char32_t c : text) {
+    int d;
+    std::size_t i = 0;
+    unsigned epoch;
+    {
+      std::shared_lock<std::shared_mutex> lock(mutex_);
+      d = start_;
+      for (; i < text.size(); ++i) {
+        auto it = states_[d].next.find(text[i]);
+        if (it == states_[d].next.end()) break;
+        d = it->second;
+        if (states_[d].set.empty()) return {};
+      }
+      if (i == text.size()) return states_[d].accepts;
+      epoch = epoch_;
+    }
+    std::lock_guard<std::shared_mutex> lock(mutex_);
+    if (epoch != epoch_) {  // the cache was reset, so `d` is stale
+      d = start_;
+      i = 0;
+    }
+    for (; i < text.size(); ++i) {
+      char32_t c = text[i];
       auto it = states_[d].next.find(c);
       if (it != states_[d].next.end()) {
         d = it->second;
@@ -209,15 +233,19 @@ class LazyDfa {
   };
 
   const Nfa& nfa_;
+  std::shared_mutex mutex_;
+  // Everything below is guarded by mutex_.
   Closure closure_;
   int start_nfa_;
   int start_ = 0;
+  unsigned epoch_ = 0;  // bumped by reset(), which invalidates state ids
   std::vector<DState> states_;
   std::map<std::vector<int>, int> index_;
 
   void reset() {
     states_.clear();
     index_.clear();
+    ++epoch_;
     start_ = intern(closure_({start_nfa_}));
   }
 
@@ -467,7 +495,6 @@ struct Script::Impl {
   Nfa nfa;
   std::vector<CompiledRule> rules;
   int start = 0;
-  mutable std::mutex mutex;
   mutable std::unique_ptr<LazyDfa> dfa;
 };
 
@@ -506,11 +533,7 @@ std::size_t Script::rule_count() const { return impl_->rules.size(); }
 
 std::vector<Match> Script::match(const std::string& text) const {
   NormalizedText norm = normalize(text);
-  std::vector<int> rules;
-  {
-    std::lock_guard<std::mutex> lock(impl_->mutex);
-    rules = impl_->dfa->accepted_rules(norm.text);
-  }
+  std::vector<int> rules = impl_->dfa->accepted_rules(norm.text);
   std::vector<Match> out;
   if (rules.empty()) return out;
   std::set<std::string> seen;

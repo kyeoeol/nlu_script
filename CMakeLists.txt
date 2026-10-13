@@ -12,6 +12,8 @@ endif()
 
 option(NLU_SCRIPT_BUILD_TESTS "Build the test suite" ON)
 
+find_package(Threads REQUIRED)
+
 set(NLU_SCRIPT_SOURCES
   src/c_api.cpp
   src/compiler.cpp
@@ -19,22 +21,29 @@ set(NLU_SCRIPT_SOURCES
   src/script.cpp
   src/unicode.cpp)
 
-# Static library for C++ users and the tools; shared library for the C API
-# and the Python package.
-add_library(nlu_script_static STATIC ${NLU_SCRIPT_SOURCES})
-add_library(nlu_script SHARED ${NLU_SCRIPT_SOURCES})
+# The sources compile once into an object library shared by the static
+# library (C++ users and the tools) and the shared library (the C API and the
+# Python package). Only the C API is exported from the shared library; hidden
+# visibility does not affect static linking.
+add_library(nlu_script_objects OBJECT ${NLU_SCRIPT_SOURCES})
+target_include_directories(nlu_script_objects PRIVATE
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
+if(MSVC)
+  target_compile_options(nlu_script_objects PRIVATE /W4)
+else()
+  target_compile_options(nlu_script_objects PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+target_compile_definitions(nlu_script_objects PRIVATE NLU_SCRIPT_BUILDING_DLL)
+set_target_properties(nlu_script_objects PROPERTIES CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON)
+
+add_library(nlu_script_static STATIC $<TARGET_OBJECTS:nlu_script_objects>)
+add_library(nlu_script SHARED $<TARGET_OBJECTS:nlu_script_objects>)
 foreach(target nlu_script_static nlu_script)
   target_include_directories(${target} PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>)
-  if(MSVC)
-    target_compile_options(${target} PRIVATE /W4)
-  else()
-    target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
-  endif()
+  target_link_libraries(${target} PUBLIC Threads::Threads)
 endforeach()
-target_compile_definitions(nlu_script PRIVATE NLU_SCRIPT_BUILDING_DLL)
-set_target_properties(nlu_script PROPERTIES CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON)
 
 add_executable(nlu_script_cli tools/nlu_script_cli.cpp)
 target_link_libraries(nlu_script_cli PRIVATE nlu_script_static)
