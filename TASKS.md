@@ -36,6 +36,8 @@
 - [x] Python wheels in CI (cibuildwheel): `py3-none` wheels for Linux
       (manylinux x86_64), macOS (arm64) and Windows (x64, static C++
       runtime), each tested on CPython 3.9 to 3.15
+- [x] One `CI passed` check that summarizes every CI job, to require before
+      merging into `main` (and to auto-merge on)
 
 ## Next
 
