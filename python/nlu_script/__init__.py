@@ -14,6 +14,7 @@ import collections
 import ctypes
 import ctypes.util
 import os
+import re
 import sys
 
 __all__ = ["CompileError", "Match", "Script", "Slot"]
@@ -91,13 +92,16 @@ def _decode(data):
 
 
 class CompileError(ValueError):
-    """Raised for syntax and reference errors; `line` and `column` are 1-based."""
+    """Raised for syntax and reference errors. `errors` lists every error as
+    (line, column, message), ordered by position; `line` and `column` (1-based)
+    locate the first."""
 
-    def __init__(self, message, line, column):
+    def __init__(self, message, line, column, errors=None):
         super().__init__(message)
         self.message = message
         self.line = line
         self.column = column
+        self.errors = errors if errors is not None else [(line, column, message)]
 
 
 class Slot(collections.namedtuple("Slot", "name text begin end attributes")):
@@ -114,6 +118,10 @@ class Match(collections.namedtuple("Match", "label slots tagged line specificity
     __slots__ = ()
 
 
+# The C library reports each error as "line L, column C: message".
+_ERROR_LINE = re.compile(r"^line (\d+), column (\d+): (.*)$")
+
+
 def _compile_with(function, argument):
     error = ctypes.c_void_p()
     line = ctypes.c_int()
@@ -124,7 +132,14 @@ def _compile_with(function, argument):
     message = _decode(ctypes.string_at(error.value)) if error.value else "unknown error"
     _string_free(error)
     if line.value > 0:
-        raise CompileError(message, line.value, column.value)
+        errors = []
+        for text in message.split("\n"):
+            found = _ERROR_LINE.match(text)
+            if found:
+                errors.append((int(found.group(1)), int(found.group(2)), found.group(3)))
+            else:
+                errors.append((0, 0, text))
+        raise CompileError(message, line.value, column.value, errors)
     raise OSError(message)
 
 

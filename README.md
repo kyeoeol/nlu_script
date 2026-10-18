@@ -379,6 +379,13 @@ for (const nlu::Match& m : script.match("I lost my debit card")) {
 `Script::lint()` returns the same checks as `--lint` as an `nlu::LintReport`
 (overlaps, unused definitions, and whether the search was complete).
 
+Compiling reports every error in the script at once: `CompileError::errors()`
+lists them by position (`line`, `column`, `message`), and `what()` has one per
+line. A broken label or definition line hides the lines indented under it, so
+one mistake is reported once. The C API returns the same lines in its error
+message, Python's `CompileError.errors` as `(line, column, message)` tuples,
+and the CLI prints each as `rules.nlu:3:5: message`.
+
 `Script::match` is thread-safe, and concurrent calls run in parallel. A call
 waits only while another thread adds a state to the shared DFA cache, which
 mostly happens while the cache warms up.

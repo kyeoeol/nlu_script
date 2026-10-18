@@ -89,6 +89,15 @@ static void test_compile_error(void) {
   CHECK(line == 2);
   CHECK(column > 0);
   nlu_string_free(error);
+
+  /* Every error, one per line; `line` and `column` locate the first. */
+  script = nlu_script_compile("card:lost\n    [신용|체크카드 분실\n    I lost my @{card}\n",
+                              &error, &line, &column);
+  CHECK(script == NULL);
+  CHECK(line == 2);
+  CHECK(error != NULL && strstr(error, "line 2,") == error);
+  CHECK(error != NULL && strstr(error, "\nline 3,") != NULL);
+  nlu_string_free(error);
 }
 
 static void test_missing_file(void) {

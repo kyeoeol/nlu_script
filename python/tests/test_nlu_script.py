@@ -80,6 +80,13 @@ class CompileTest(unittest.TestCase):
         self.assertEqual(caught.exception.line, 2)
         self.assertGreater(caught.exception.column, 0)
 
+    def test_compile_error_lists_every_error(self):
+        with self.assertRaises(nlu_script.CompileError) as caught:
+            nlu_script.Script("card:lost\n    [신용|체크카드 분실\n    I lost my @{card}\n")
+        self.assertEqual([line for line, _, _ in caught.exception.errors], [2, 3])
+        self.assertEqual(caught.exception.line, 2)
+        self.assertIn("@{card}", caught.exception.errors[1][2])
+
     def test_from_file(self):
         handle, path = tempfile.mkstemp(suffix=".nlu")
         try:

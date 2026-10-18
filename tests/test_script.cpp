@@ -228,6 +228,54 @@ TEST(compile_error_reports_line_and_column) {
   }
 }
 
+namespace {
+
+// The lines of every error compiling `source` reports, or "ok".
+std::string error_lines(const std::string& source) {
+  try {
+    nlu::Script::compile(source);
+  } catch (const nlu::CompileError& e) {
+    std::string out;
+    for (const nlu::Diagnostic& d : e.errors())
+      out += (out.empty() ? "" : " ") + std::to_string(d.line);
+    return out;
+  }
+  return "ok";
+}
+
+}  // namespace
+
+TEST(compile_reports_every_error_at_once) {
+  const std::string source =
+      "card:lost\n"
+      "    [신용|체크카드 분실\n"      // 2: unclosed group
+      "    I lost my @{card}\n"       // 3: undefined entity
+      "agent:connect\n"
+      "    talk to (an agent\n"       // 5: unclosed group
+      "    상담원 @var.{polite}\n"     // 6: undefined variable
+      "@empty:\n";                     // 7: entity without values
+  CHECK_EQ(error_lines(source), std::string("2 3 5 6 7"));
+  try {
+    nlu::Script::compile(source);
+  } catch (const nlu::CompileError& e) {
+    // The first error stays available on its own; what() lists them all.
+    CHECK_EQ(e.line(), 2);
+    CHECK_EQ(e.errors().size(), 5u);
+    CHECK_EQ(std::string(e.what()).find("line 2,"), 0u);
+    CHECK(std::string(e.what()).find("\nline 7,") != std::string::npos);
+  }
+}
+
+TEST(compile_errors_do_not_cascade) {
+  // A broken label or definition line hides the lines indented under it.
+  CHECK_EQ(error_lines("card lost\n    I lost my card\n    lost card\n"), std::string("1"));
+  CHECK_EQ(error_lines("@bad name: x\n    y\n"), std::string("1"));
+  CHECK_EQ(error_lines("    stray\n    lines\nok\n    fine\n"), std::string("1"));
+  // An error inside a definition is reported once, not once per use.
+  CHECK_EQ(error_lines("@card: [credit|debit\na\n    @{card}\nb\n    my @{card}\n"),
+           std::string("1"));
+}
+
 TEST(pattern_line_outside_block_is_an_error) {
   CHECK_THROWS(nlu::CompileError, nlu::Script::compile("    잔액 조회\n"));
 }

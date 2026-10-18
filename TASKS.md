@@ -105,6 +105,11 @@
       `minute` and more; digits are range-checked by the grammar. System
       entity grammars moved to `src/system_entities.cpp`. The demo has an
       `agent:callback` label that uses it
+- [x] Compile errors: every error is reported at once (`CompileError::errors()`,
+      all lines in `what()` and the C error message, Python
+      `CompileError.errors`, `path:line:column:` lines from the CLI). Broken
+      label and definition lines don't cascade, and rules using a broken
+      definition are skipped
 
 ## Next
 
@@ -146,7 +151,6 @@
 - [ ] A wildcard before an optional particle swallows a wrong particle
       (`<?>+?(을/를)` matches `청약통장를` with `를` in the wildcard); consider
       keeping particle syllables out of a wildcard's last character
-- [ ] Report all compile errors at once instead of stopping at the first
 - [ ] `include` directive to split large rule sets across files
 - [ ] Explain mode for a non-matching input: the rule that consumed the
       longest prefix and where it stopped
