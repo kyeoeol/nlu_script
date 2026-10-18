@@ -10,8 +10,10 @@ namespace nlu {
 namespace detail {
 
 // Parses one pattern. `start` locates text[0] in the script, for error
-// messages. Throws CompileError.
-NodePtr parse_pattern(const std::u32string& text, const SourcePos& start);
+// messages. With `width_folding`, literal text is width-folded (Ａ -> A).
+// Throws CompileError.
+NodePtr parse_pattern(const std::u32string& text, const SourcePos& start,
+                      bool width_folding = false);
 
 // Splits on commas that are not nested in brackets, braces or quotes.
 // Returns the start index and the text of each part.

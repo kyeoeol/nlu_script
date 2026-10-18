@@ -463,13 +463,27 @@ class Compiler {
 
 }  // namespace
 
-int compile_rule(Nfa& nfa, const Definitions& defs, const Node& pattern, int rule) {
+int compile_rule(Nfa& nfa, const Definitions& defs, const Node& pattern, int rule,
+                 bool trailing_punctuation) {
   Compiler compiler(nfa, defs, true);
   Frag f = compiler.compile(pattern);
   compiler.check_qualified_assignments();
   int accept = nfa.add_state();
   nfa.states[accept].accept_rule = rule;
   nfa.epsilon(f.out, accept);
+  if (trailing_punctuation) {
+    // [space] punctuation+ before the end: "are you there ?!", "거기 계세요~~".
+    static const char32_t kPunctuation[] = U".?!~,;:\u2026\uFF0E\uFF1F\uFF01\uFF5E\u3002\u3001\uFF0C";
+    int before = nfa.add_state();
+    int marks = nfa.add_state();
+    nfa.add_edge(f.out, Edge::Kind::Space, before);
+    nfa.epsilon(f.out, before);
+    for (const char32_t* p = kPunctuation; *p; ++p) {
+      nfa.add_edge(before, Edge::Kind::Char, marks, *p);
+      nfa.add_edge(marks, Edge::Kind::Char, marks, *p);
+    }
+    nfa.epsilon(marks, accept);
+  }
   return f.in;
 }
 

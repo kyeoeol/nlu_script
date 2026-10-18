@@ -208,14 +208,33 @@ harmless. Errors, matches (`Match::file`, `nlu_result_file`, Python
 
 A pattern must match the **whole** input. Before matching, the input is
 normalized: whitespace runs collapse to one space, leading and trailing
-whitespace is dropped, and ASCII letters are matched case-insensitively.
-Decomposed Hangul (NFD, as in text copied from macOS file names) is composed
-into syllables first, in the input and in scripts alike, so it matches the
-precomposed form. Slot text and offsets always refer to the original input.
+whitespace is dropped, and letters are matched case-insensitively (simple
+Unicode case folding: `Ä`, `Σ`, `П` as well as ASCII). Text is put in
+Unicode NFC first, in the input and in scripts alike, so precomposed and
+decomposed forms match: `café` with `cafe` + U+0301, and Hangul syllables
+with conjoining jamo (NFD, as in text copied from macOS file names). Slot
+text and offsets always refer to the original input.
 
 Matching is language-neutral: Korean, English and mixed input (`OTP 재발급`)
 follow the same rules. Punctuation in the input is not stripped, so
-`is my card blocked?` only matches a pattern that ends in `"?"`.
+`is my card blocked?` only matches a pattern that ends in `"?"`, unless the
+script says otherwise:
+
+```
+option ignore-trailing-punctuation
+option fold-width
+```
+
+`option` lines go at the top of the main script, before rules and
+definitions:
+
+- `ignore-trailing-punctuation` lets every rule end with punctuation
+  (`. ? ! ~ , ; : …` and their full-width forms, any number of them, after an
+  optional space): `are you there` matches `are you there?!` and
+  `거기 계세요~~`. The punctuation stays outside slots.
+- `fold-width` reads full-width and half-width forms as their usual ones, in
+  the input and in patterns: `ＯＴＰ` matches `OTP`, `１２` is digits, and
+  half-width katakana and Hangul become full-width.
 
 `match()` returns one result per matching label, in the order the label's
 first matching rule appears in the script. Each result carries the script

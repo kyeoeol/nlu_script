@@ -8,7 +8,8 @@
 
 namespace {
 
-const char* const kScript = R"(
+const char* const kScript = R"(option ignore-trailing-punctuation
+option fold-width
 @product: [적금|savings]{value=savings}, [예금|deposit]{value=deposit}
 @var.digit: [0|1|2|3|4|5|6|7|8|9]
 # lint: allow-overlap any:text *

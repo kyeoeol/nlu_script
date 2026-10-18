@@ -21,8 +21,11 @@ struct Definitions {
 };
 
 // Compiles `pattern` into `nfa` and returns the id of its start state. The
-// pattern's final state gets accept_rule = `rule`. Throws CompileError.
-int compile_rule(Nfa& nfa, const Definitions& defs, const Node& pattern, int rule);
+// pattern's final state gets accept_rule = `rule`. With
+// `trailing_punctuation`, the rule also accepts punctuation after its end
+// ("are you there?!"). Throws CompileError.
+int compile_rule(Nfa& nfa, const Definitions& defs, const Node& pattern, int rule,
+                 bool trailing_punctuation = false);
 
 }  // namespace detail
 }  // namespace nlu

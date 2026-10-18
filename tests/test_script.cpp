@@ -439,3 +439,43 @@ TEST(korean_number_slot_covers_only_the_number) {
            std::string("transfer:send:<recipient>엄마</recipient>한테 <amount>"
                        "<KO_NUMBER value=\"35000\">3만 5천</KO_NUMBER> 원</amount> 보내줘"));
 }
+
+TEST(option_ignore_trailing_punctuation) {
+  const std::string rules =
+      "agent:check\n"
+      "    are you there\n"
+      "    거기 계세요\n"
+      "card:blocked\n"
+      "    is my card blocked \"?\"\n";
+  nlu::Script strict = nlu::Script::compile(rules);
+  CHECK(labels(strict, "are you there?").empty());
+  nlu::Script lenient = nlu::Script::compile("option ignore-trailing-punctuation\n" + rules);
+  for (const char* text : {"are you there", "are you there?", "are you there ?!", "are you there...",
+                           "거기 계세요？", "거기 계세요~~"})
+    CHECK_EQ(labels(lenient, text), (std::vector<std::string>{"agent:check"}));
+  CHECK_EQ(labels(lenient, "is my card blocked?"), (std::vector<std::string>{"card:blocked"}));
+  CHECK(labels(lenient, "are you? there").empty());
+  // The punctuation stays in the tagged text, outside any slot.
+  nlu::Script slots = nlu::Script::compile(
+      "option ignore-trailing-punctuation\ncall\n    call <who><?>+?</who>\n");
+  CHECK_EQ(tagged(slots, "call mom!"), std::string("call:call <who>mom</who>!"));
+}
+
+TEST(option_fold_width) {
+  const std::string rules = "card:reissue\n    [OTP|ATM 카드] 재발급\n";
+  CHECK(labels(nlu::Script::compile(rules), "ＯＴＰ 재발급").empty());
+  nlu::Script s = nlu::Script::compile("option fold-width\n" + rules);
+  CHECK_EQ(labels(s, "ＯＴＰ 재발급"), (std::vector<std::string>{"card:reissue"}));
+  CHECK_EQ(labels(s, "ａｔｍ 카드 재발급"), (std::vector<std::string>{"card:reissue"}));
+  // Patterns are folded too, and system entities see folded digits.
+  nlu::Script wide = nlu::Script::compile(
+      "option fold-width\nt\n    ＯＴＰ `@{NUMBER}개\n");
+  std::vector<nlu::Match> found = wide.match("otp １２개");
+  CHECK_EQ(found.size(), 1u);
+  if (found.size() == 1) CHECK_EQ(found[0].slots[0].text, std::string("１２"));
+}
+
+TEST(unknown_or_misplaced_options_are_errors) {
+  CHECK_THROWS(nlu::CompileError, nlu::Script::compile("option fold-everything\n"));
+  CHECK_THROWS(nlu::CompileError, nlu::Script::compile("a\n    x\noption fold-width\n"));
+}

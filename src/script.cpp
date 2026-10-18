@@ -69,7 +69,14 @@ struct LintDirective {
   std::vector<std::string> args;
 };
 
+// Set by `option` lines at the top of the main script.
+struct ScriptOptions {
+  bool ignore_trailing_punctuation = false;
+  bool fold_width = false;
+};
+
 struct ParsedScript {
+  ScriptOptions options;
   // Script file names, the main script first, then included files in the
   // order they are read. Positions point into this; a deque keeps them put.
   std::deque<std::string> files;
@@ -188,6 +195,7 @@ class ScriptParser {
   ParsedScript parse(const std::string& source, const std::string& main_file) {
     out_.files.push_back(main_file);
     if (!main_file.empty()) read_.insert(path_key(resolve("", main_file)));
+    read_options(source, &out_.files.back());
     parse_file(source, &out_.files.back());
     finish(out_.defs.entities, entity_values_, out_.broken_entities, "entity @");
     finish(out_.defs.variables, variable_values_, out_.broken_variables, "variable @var.");
@@ -196,6 +204,41 @@ class ScriptParser {
 
  private:
   enum class Block { None, Label, Entity, Variable, Broken };
+
+  // `option name` lines come before everything else in the main script, since
+  // they change how the patterns after them are read.
+  void read_options(const std::string& source, const std::string* name) {
+    std::istringstream lines(source);
+    std::string raw;
+    int line_no = 0;
+    bool content = false;  // a line other than an option, a comment or a blank
+    while (std::getline(lines, raw)) {
+      ++line_no;
+      if (!raw.empty() && raw.back() == '\r') raw.pop_back();
+      std::istringstream words(raw);
+      std::string first, option, extra;
+      if (!(words >> first) || first[0] == '#') continue;
+      if (first != "option" || raw.compare(0, 7, "option ") != 0) {
+        content = true;
+        continue;
+      }
+      const SourcePos pos{line_no, 1, name};
+      words >> option;
+      if (content) {
+        out_.errors.push_back({line_no, 1, "option lines must come before rules and definitions",
+                               file_name(pos)});
+      } else if (option == "ignore-trailing-punctuation" && !(words >> extra)) {
+        out_.options.ignore_trailing_punctuation = true;
+      } else if (option == "fold-width" && !(words >> extra)) {
+        out_.options.fold_width = true;
+      } else {
+        out_.errors.push_back(
+            {line_no, 8, "unknown option '" + option +
+                             "'; available: ignore-trailing-punctuation, fold-width",
+             file_name(pos)});
+      }
+    }
+  }
 
   ParsedScript out_;
   std::map<std::string, std::vector<NodePtr>> entity_values_;
@@ -218,7 +261,7 @@ class ScriptParser {
       ++line_no;
       if (!raw.empty() && raw.back() == '\r') raw.pop_back();
       std::vector<DecodedChar> chars = decode_utf8(raw);
-      compose_hangul(chars);
+      normalize_nfc(chars);
       std::u32string line;
       for (const DecodedChar& d : chars) line += d.code;
       std::size_t first = 0;
@@ -251,7 +294,7 @@ class ScriptParser {
       if (f.block == Block::None)
         throw_at(pos, "indented pattern outside of a label or definition");
       if (f.block == Block::Label) {
-        out_.rules.push_back({f.current, pos, parse_pattern(content, pos)});
+        out_.rules.push_back({f.current, pos, parse_pattern(content, pos, out_.options.fold_width)});
       } else {
         add_values(f, content, pos);
       }
@@ -259,6 +302,13 @@ class ScriptParser {
     }
 
     f.block = Block::Broken;
+    if (starts_with(line, U"option") && line.size() > 6 && is_space(line[6])) {
+      // Read by read_options() for the main script.
+      if (pos.file != &out_.files.front())
+        throw_at(pos, "option lines belong in the main script, not an included file");
+      f.block = Block::None;
+      return;
+    }
     if (starts_with(line, U"include") && line.size() > 7 && is_space(line[7])) {
       std::size_t lead = 0;
       std::u32string path = trim(line.substr(7), &lead);
@@ -305,7 +355,7 @@ class ScriptParser {
   // of values. `pos` locates text[0].
   void add_values(const File& f, const std::u32string& text, const SourcePos& pos) {
     if (f.block == Block::Variable) {
-      variable_values_[f.current].push_back(parse_pattern(text, pos));
+      variable_values_[f.current].push_back(parse_pattern(text, pos, out_.options.fold_width));
       return;
     }
     for (const auto& part : split_top_level_commas(text)) {
@@ -313,7 +363,7 @@ class ScriptParser {
       std::u32string value = trim(part.second, &lead);
       const SourcePos at{pos.line, pos.column + static_cast<int>(part.first + lead), pos.file};
       if (value.empty()) throw_at(at, "empty entity value");
-      entity_values_[f.current].push_back(parse_pattern(value, at));
+      entity_values_[f.current].push_back(parse_pattern(value, at, out_.options.fold_width));
     }
   }
 
@@ -777,6 +827,7 @@ struct CompiledRule {
 
 struct Script::Impl {
   Nfa nfa;
+  bool fold_width = false;  // `option fold-width`: input is width-folded too
   std::vector<CompiledRule> rules;
   std::vector<UnusedDefinition> unused;
   std::deque<std::string> files;  // what lint_directives' positions point into
@@ -820,7 +871,8 @@ std::unique_ptr<Script::Impl> compile_source(const std::string& source, const st
     r.first = static_cast<int>(impl->nfa.states.size());
     try {
       r.start = compile_rule(impl->nfa, parsed.defs, *rule.pattern,
-                             static_cast<int>(impl->rules.size()));
+                             static_cast<int>(impl->rules.size()),
+                             parsed.options.ignore_trailing_punctuation);
     } catch (const CompileError& e) {
       errors.push_back(diagnostic(e));
       continue;
@@ -846,6 +898,7 @@ std::unique_ptr<Script::Impl> compile_source(const std::string& source, const st
                  errors.end());
     throw CompileError(std::move(errors));
   }
+  impl->fold_width = parsed.options.fold_width;
   impl->unused = unused_definitions(parsed);
   // Moving a deque keeps its elements in place, so the directives' file
   // pointers stay valid.
@@ -869,7 +922,7 @@ std::size_t Script::rule_count() const { return impl_->rules.size(); }
 
 std::vector<Explanation> Script::explain(const std::string& text, std::size_t limit) const {
   const Impl& impl = *impl_;
-  const NormalizedText norm = normalize(text);
+  const NormalizedText norm = normalize(text, impl.fold_width);
   // The rule owning each NFA state: rules occupy contiguous, ascending ranges.
   auto rule_of = [&](int state) {
     auto it = std::upper_bound(impl.rules.begin(), impl.rules.end(), state,
@@ -1054,7 +1107,7 @@ std::vector<Match> Script::match_best(const std::string& text) const {
 // Picks one rule per matching label: its first matching rule, or with `best`
 // its most specific one. Labels keep the order of their first matching rule.
 std::vector<Match> Script::Impl::match(const std::string& text, bool best) const {
-  NormalizedText norm = normalize(text);
+  NormalizedText norm = normalize(text, fold_width);
   std::vector<int> accepted = dfa->accepted_rules(norm.text);
   if (accepted.empty()) return {};
   const int letters = static_cast<int>(

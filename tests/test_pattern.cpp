@@ -468,3 +468,21 @@ TEST(unknown_or_misplaced_particle_pairs_are_errors) {
   CHECK_THROWS(nlu::CompileError, rule("카드 /를 분실"));
   CHECK_THROWS(nlu::CompileError, rule("\\[적금을/를] <?>+? 해지"));
 }
+
+TEST(letters_beyond_ascii_match_case_insensitively) {
+  CHECK(matches("ärger mit der karte", "ÄRGER mit der Karte"));
+  CHECK(matches("ΚΑΡΤΑ", "κάρτα") == false);  // accents still count
+  CHECK(matches("κάρτα", "ΚΆΡΤΑ"));
+  CHECK(matches("οδος", "ΟΔΟΣ"));             // final sigma folds like sigma
+  CHECK(matches("привет", "ПРИВЕТ"));
+}
+
+TEST(canonically_equivalent_text_matches) {
+  // NFC: precomposed and decomposed forms are the same text.
+  CHECK(matches("café", "café"));
+  CHECK(matches("café", "café"));
+  CHECK(matches("Ångström", "Ångström"));  // ANGSTROM SIGN
+  // Combining marks in either order.
+  CHECK(matches("ậ", "ậ"));
+  CHECK(matches("ậ", "ậ"));
+}

@@ -53,8 +53,12 @@ bool ends_with(const std::u32string& s, const std::u32string& suffix) {
 
 class Parser {
  public:
-  Parser(const std::u32string& text, const SourcePos& start)
-      : text_(text), line_(start.line), column_(start.column), file_(start.file) {}
+  Parser(const std::u32string& text, const SourcePos& start, bool width_folding)
+      : text_(text),
+        line_(start.line),
+        column_(start.column),
+        file_(start.file),
+        width_folding_(width_folding) {}
 
   NodePtr parse() {
     std::shared_ptr<Node> node = parse_alternation(false);
@@ -68,6 +72,7 @@ class Parser {
   int line_;
   int column_;
   const std::string* file_;
+  bool width_folding_;
   std::size_t i_ = 0;
   int depth_ = 0;  // groups open around the current position
 
@@ -245,6 +250,8 @@ class Parser {
     unexpected();
   }
 
+  char32_t fold(char32_t c) const { return fold_case(width_folding_ ? fold_width(c) : c); }
+
   bool literal_char(char32_t c, bool in_permute) const {
     return !is_special(c) && !is_space(c) && !(in_permute && c == U',');
   }
@@ -262,14 +269,14 @@ class Parser {
           if (is_space(q)) {
             if (lit->text.empty() || lit->text.back() != U' ') lit->text += U' ';
           } else {
-            lit->text += fold_case(q);
+            lit->text += fold(q);
           }
           ++i_;
         }
         if (at_end()) error_at(open, "unterminated quote");
         ++i_;
       } else if (literal_char(c, in_permute)) {
-        lit->text += fold_case(c);
+        lit->text += fold(c);
         ++i_;
       } else {
         break;
@@ -514,8 +521,8 @@ void throw_at(const SourcePos& pos, const std::string& message) {
   throw CompileError({{pos.line, pos.column, message, pos.file ? *pos.file : std::string()}});
 }
 
-NodePtr parse_pattern(const std::u32string& text, const SourcePos& start) {
-  return Parser(text, start).parse();
+NodePtr parse_pattern(const std::u32string& text, const SourcePos& start, bool width_folding) {
+  return Parser(text, start, width_folding).parse();
 }
 
 std::vector<std::pair<std::size_t, std::u32string>> split_top_level_commas(
