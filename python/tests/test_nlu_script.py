@@ -83,9 +83,10 @@ class CompileTest(unittest.TestCase):
     def test_compile_error_lists_every_error(self):
         with self.assertRaises(nlu_script.CompileError) as caught:
             nlu_script.Script("card:lost\n    [신용|체크카드 분실\n    I lost my @{card}\n")
-        self.assertEqual([line for line, _, _ in caught.exception.errors], [2, 3])
+        self.assertEqual([e.line for e in caught.exception.errors], [2, 3])
         self.assertEqual(caught.exception.line, 2)
-        self.assertIn("@{card}", caught.exception.errors[1][2])
+        self.assertIn("@{card}", caught.exception.errors[1].message)
+        self.assertEqual(caught.exception.errors[1].file, "")
 
     def test_from_file(self):
         handle, path = tempfile.mkstemp(suffix=".nlu")
@@ -93,9 +94,29 @@ class CompileTest(unittest.TestCase):
             with os.fdopen(handle, "wb") as f:
                 f.write(SCRIPT.encode("utf-8"))
             with nlu_script.Script.from_file(path) as script:
-                self.assertEqual([m.label for m in script.match("달러 환율")], ["exchange:rate"])
+                matches = script.match("달러 환율")
+                self.assertEqual([m.label for m in matches], ["exchange:rate"])
+                self.assertEqual(matches[0].file, path)
         finally:
             os.remove(path)
+
+    def test_include_errors_name_their_file(self):
+        directory = tempfile.mkdtemp()
+        try:
+            broken = os.path.join(directory, "broken.nlu")
+            with open(broken, "w", encoding="utf-8") as f:
+                f.write("x\n    [unclosed\n")
+            main = os.path.join(directory, "main.nlu")
+            with open(main, "w", encoding="utf-8") as f:
+                f.write("include broken.nlu\n")
+            with self.assertRaises(nlu_script.CompileError) as caught:
+                nlu_script.Script.from_file(main)
+            self.assertEqual(caught.exception.errors[0].file, broken)
+            self.assertEqual(caught.exception.errors[0].line, 2)
+        finally:
+            for name in os.listdir(directory):
+                os.remove(os.path.join(directory, name))
+            os.rmdir(directory)
 
     def test_missing_file_raises_os_error(self):
         with self.assertRaises(OSError):

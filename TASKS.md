@@ -121,6 +121,10 @@
       9.7 GB), so rules are capped at 500,000 automaton states and scripts at
       10 million. System entities now use a linear-size `Chain` node (KO_NUMBER
       went from about 25,000 states per use to under 5,000)
+- [x] `include path` lines split a script across files (relative to the
+      including file, each file read once). Errors, matches, lint findings
+      and lint comments carry the file their line is in (`file` fields; the
+      C API's `nlu_result_file`; Python `Match.file` and `Diagnostic`)
 
 ## Next
 
@@ -162,7 +166,6 @@
 - [ ] A wildcard before an optional particle swallows a wrong particle
       (`<?>+?(을/를)` matches `청약통장를` with `를` in the wildcard); consider
       keeping particle syllables out of a wildcard's last character
-- [ ] `include` directive to split large rule sets across files
 - [ ] Explain mode for a non-matching input: the rule that consumed the
       longest prefix and where it stopped
 - [ ] The lazy DFA cache resets completely at 20,000 states (`kMaxStates`),

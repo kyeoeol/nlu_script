@@ -115,6 +115,11 @@ int nlu_result_line(const nlu_result* r, size_t match) {
   return m ? m->line : 0;
 }
 
+const char* nlu_result_file(const nlu_result* r, size_t match) {
+  const nlu::Match* m = match_at(r, match);
+  return m ? m->file.c_str() : nullptr;
+}
+
 int nlu_result_specificity(const nlu_result* r, size_t match) {
   const nlu::Match* m = match_at(r, match);
   return m ? m->specificity : 0;

@@ -35,6 +35,9 @@ struct Match {
   // Input characters, not counting spaces, that the rule matched with
   // pattern text (literals and entities) rather than wildcards.
   int specificity;
+  // Script file of the rule: the path given to compile_file, or an included
+  // file's path; empty for a script compiled from a string.
+  std::string file;
 };
 
 // Two labels that both match some input, found by Script::lint().
@@ -44,6 +47,8 @@ struct Overlap {
   std::string other_label;
   int other_line;
   std::string example;      // a shortest normalized input that both labels match
+  std::string file;         // script files of the two rules (see Match::file)
+  std::string other_file;
 };
 
 // An entity or variable that no rule uses, directly or through other
@@ -51,12 +56,14 @@ struct Overlap {
 struct UnusedDefinition {
   std::string name;  // as written in the script: "@card" or "@var.digit"
   int line;
+  std::string file;  // see Match::file
 };
 
 // A `# lint:` comment that lint() could not apply.
 struct LintDirectiveError {
   int line;
   std::string message;
+  std::string file;  // see Match::file
 };
 
 struct LintReport {
@@ -73,11 +80,14 @@ struct Diagnostic {
   int line;    // 1-based, 0 if unknown
   int column;  // 1-based, in code points
   std::string message;
+  std::string file;  // see Match::file
 };
 
-// Thrown by Script::compile with every error found in the script. what()
-// lists them, one per line ("line 3, column 5: ..."); line(), column() and
-// message() describe the first.
+// Thrown by Script::compile with every error found in the script, ordered by
+// file (the main script, then included files as they are read) and position.
+// what() lists them, one per line ("rules.nlu: line 3, column 5: ..."; the
+// file is left out for the main script compiled from a string); line(),
+// column() and message() describe the first.
 class CompileError : public std::runtime_error {
  public:
   CompileError(const std::string& message, int line, int column);
@@ -93,8 +103,10 @@ class CompileError : public std::runtime_error {
 
 class Script {
  public:
-  // Throws CompileError on syntax or reference errors.
+  // Throws CompileError on syntax or reference errors. `include` lines in
+  // `source` are relative to the current directory.
   static Script compile(const std::string& source);
+  // Like compile(), with `include` lines relative to the file's directory.
   // Throws std::runtime_error if the file cannot be read.
   static Script compile_file(const std::string& path);
 

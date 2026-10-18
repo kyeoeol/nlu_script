@@ -28,7 +28,8 @@ typedef struct nlu_result nlu_result;
 
 /* Compiles a script. On failure returns NULL and, if `error` is not NULL,
  * stores a message to release with nlu_string_free. For compile errors the
- * message lists every error, one per line ("line 3, column 5: ..."), and
+ * message lists every error, one per line ("line 3, column 5: ...", after
+ * "path: " for errors in a file), and
  * `line` and `column` (if not NULL) receive the first one's location;
  * otherwise they receive 0. */
 NLU_SCRIPT_API nlu_script* nlu_script_compile(const char* source, char** error, int* line,
@@ -50,8 +51,11 @@ NLU_SCRIPT_API void nlu_result_free(nlu_result* result);
 NLU_SCRIPT_API size_t nlu_result_count(const nlu_result* result);
 NLU_SCRIPT_API const char* nlu_result_label(const nlu_result* result, size_t match);
 NLU_SCRIPT_API const char* nlu_result_tagged(const nlu_result* result, size_t match);
-/* 1-based script line of the rule that matched. */
+/* 1-based script line of the rule that matched, and its script file: the
+ * path given to nlu_script_compile_file or an included file's path; empty for
+ * a script compiled from a string. */
 NLU_SCRIPT_API int nlu_result_line(const nlu_result* result, size_t match);
+NLU_SCRIPT_API const char* nlu_result_file(const nlu_result* result, size_t match);
 /* Input characters, not counting spaces, that the rule matched with pattern
  * text rather than wildcards. */
 NLU_SCRIPT_API int nlu_result_specificity(const nlu_result* result, size_t match);

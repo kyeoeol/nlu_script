@@ -53,8 +53,8 @@ bool ends_with(const std::u32string& s, const std::u32string& suffix) {
 
 class Parser {
  public:
-  Parser(const std::u32string& text, int line, int column)
-      : text_(text), line_(line), column_(column) {}
+  Parser(const std::u32string& text, const SourcePos& start)
+      : text_(text), line_(start.line), column_(start.column), file_(start.file) {}
 
   NodePtr parse() {
     std::shared_ptr<Node> node = parse_alternation(false);
@@ -67,6 +67,7 @@ class Parser {
   const std::u32string& text_;
   int line_;
   int column_;
+  const std::string* file_;
   std::size_t i_ = 0;
   int depth_ = 0;  // groups open around the current position
 
@@ -82,11 +83,10 @@ class Parser {
     return true;
   }
   SourcePos pos_at(std::size_t index) const {
-    return SourcePos{line_, column_ + static_cast<int>(index)};
+    return SourcePos{line_, column_ + static_cast<int>(index), file_};
   }
   [[noreturn]] void error_at(std::size_t index, const std::string& message) const {
-    SourcePos p = pos_at(index);
-    throw CompileError(message, p.line, p.column);
+    throw_at(pos_at(index), message);
   }
   [[noreturn]] void error(const std::string& message) const { error_at(i_, message); }
   [[noreturn]] void unexpected() const {
@@ -510,8 +510,12 @@ bool is_name_char(char32_t c) {
   return !is_special(c) && !is_space(c) && c != U'"' && c != U',' && c != U'?';
 }
 
-NodePtr parse_pattern(const std::u32string& text, int line, int column) {
-  return Parser(text, line, column).parse();
+void throw_at(const SourcePos& pos, const std::string& message) {
+  throw CompileError({{pos.line, pos.column, message, pos.file ? *pos.file : std::string()}});
+}
+
+NodePtr parse_pattern(const std::u32string& text, const SourcePos& start) {
+  return Parser(text, start).parse();
 }
 
 std::vector<std::pair<std::size_t, std::u32string>> split_top_level_commas(

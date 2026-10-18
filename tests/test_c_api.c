@@ -42,6 +42,7 @@ static void test_match_with_slots(void) {
   CHECK(strcmp(nlu_result_slot_attribute_key(result, 0, 0, 0), "type") == 0);
   CHECK(strcmp(nlu_result_slot_attribute_value(result, 0, 0, 0), "DEBIT") == 0);
   CHECK(nlu_result_line(result, 0) == 2);
+  CHECK(strcmp(nlu_result_file(result, 0), "") == 0);
   CHECK(nlu_result_specificity(result, 0) == 20);
   CHECK(nlu_result_label(result, 1) == NULL);
   CHECK(nlu_result_line(result, 1) == 0);

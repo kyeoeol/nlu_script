@@ -73,7 +73,9 @@ TestSummary run_script_tests(const nlu::Script& script, const std::string& scrip
     for (const std::string& line : c.expected) report << "  expected: " << line << "\n";
     for (std::size_t i = 0; i < actual.size(); ++i) {
       report << "  actual:   " << actual[i];
-      if (i < matches.size()) report << "  (" << script_name << ":" << matches[i].line << ")";
+      if (i < matches.size())
+        report << "  (" << (matches[i].file.empty() ? script_name : matches[i].file) << ":"
+               << matches[i].line << ")";
       report << "\n";
     }
   }

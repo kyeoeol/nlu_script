@@ -17,7 +17,7 @@ import os
 import re
 import sys
 
-__all__ = ["CompileError", "Match", "Script", "Slot"]
+__all__ = ["CompileError", "Diagnostic", "Match", "Script", "Slot"]
 __version__ = "0.1.0"
 
 
@@ -75,6 +75,7 @@ _result_label = _declare("nlu_result_label", ctypes.c_char_p, _ptr, _size)
 _result_tagged = _declare("nlu_result_tagged", ctypes.c_char_p, _ptr, _size)
 _result_line = _declare("nlu_result_line", ctypes.c_int, _ptr, _size)
 _result_specificity = _declare("nlu_result_specificity", ctypes.c_int, _ptr, _size)
+_result_file = _declare("nlu_result_file", ctypes.c_char_p, _ptr, _size)
 _slot_count = _declare("nlu_result_slot_count", _size, _ptr, _size)
 _slot_name = _declare("nlu_result_slot_name", ctypes.c_char_p, _ptr, _size, _size)
 _slot_text = _declare("nlu_result_slot_text", ctypes.c_char_p, _ptr, _size, _size)
@@ -91,17 +92,21 @@ def _decode(data):
     return data.decode("utf-8")
 
 
+Diagnostic = collections.namedtuple("Diagnostic", "line column message file")
+
+
 class CompileError(ValueError):
-    """Raised for syntax and reference errors. `errors` lists every error as
-    (line, column, message), ordered by position; `line` and `column` (1-based)
-    locate the first."""
+    """Raised for syntax and reference errors. `errors` lists every error as a
+    Diagnostic(line, column, message, file), ordered by file and position
+    (`file` is empty for the main script compiled from a string); `line` and
+    `column` (1-based) locate the first."""
 
     def __init__(self, message, line, column, errors=None):
         super().__init__(message)
         self.message = message
         self.line = line
         self.column = column
-        self.errors = errors if errors is not None else [(line, column, message)]
+        self.errors = errors if errors is not None else [Diagnostic(line, column, message, "")]
 
 
 class Slot(collections.namedtuple("Slot", "name text begin end attributes")):
@@ -110,16 +115,17 @@ class Slot(collections.namedtuple("Slot", "name text begin end attributes")):
     __slots__ = ()
 
 
-class Match(collections.namedtuple("Match", "label slots tagged line specificity")):
-    """A matched label. `line` is the script line of the rule that matched;
-    `specificity` counts the input characters, not counting spaces, that the
-    rule matched with pattern text rather than wildcards."""
+class Match(collections.namedtuple("Match", "label slots tagged line specificity file")):
+    """A matched label. `line` and `file` locate the rule that matched (`file`
+    is empty for a script compiled from a string); `specificity` counts the
+    input characters, not counting spaces, that the rule matched with pattern
+    text rather than wildcards."""
 
     __slots__ = ()
 
 
-# The C library reports each error as "line L, column C: message".
-_ERROR_LINE = re.compile(r"^line (\d+), column (\d+): (.*)$")
+# The C library reports each error as "[file: ]line L, column C: message".
+_ERROR_LINE = re.compile(r"^(?:(.*): )?line (\d+), column (\d+): (.*)$")
 
 
 def _compile_with(function, argument):
@@ -136,9 +142,10 @@ def _compile_with(function, argument):
         for text in message.split("\n"):
             found = _ERROR_LINE.match(text)
             if found:
-                errors.append((int(found.group(1)), int(found.group(2)), found.group(3)))
+                errors.append(Diagnostic(int(found.group(2)), int(found.group(3)),
+                                         found.group(4), found.group(1) or ""))
             else:
-                errors.append((0, 0, text))
+                errors.append(Diagnostic(0, 0, text, ""))
         raise CompileError(message, line.value, column.value, errors)
     raise OSError(message)
 
@@ -209,4 +216,5 @@ class Script:
             slots.append(Slot(_decode(_slot_name(result, i, j)), text, begin, begin + len(text),
                               attributes))
         return Match(_decode(_result_label(result, i)), slots, _decode(_result_tagged(result, i)),
-                     _result_line(result, i), _result_specificity(result, i))
+                     _result_line(result, i), _result_specificity(result, i),
+                     _decode(_result_file(result, i)))
