@@ -534,6 +534,18 @@ and the CLI prints each as `rules.nlu:3:5: message`.
 waits only while another thread adds a state to the shared DFA cache, which
 mostly happens while the cache warms up.
 
+The cache is bounded (`CacheOptions`: 200,000 states and 64 MiB by
+default). When it fills up, it keeps the states used since its last
+eviction, up to half of each limit, and drops the rest, so the states most
+inputs pass through stay. `Script::cache_stats()` reports its size and how
+often it evicted; `set_cache_options()` changes the limits, or gives each
+thread its own cache (`per_thread`).
+
+`nlu_script_bench` times matching against generated scripts. On an M-series
+Mac, a warm `match()` takes about 4 µs at 10 rules and at 100,000 rules
+alike; four threads together reach about 1.2 µs per match, with a shared
+cache or per-thread ones.
+
 ## C API
 
 See [`include/nlu_script/nlu_script.h`](include/nlu_script/nlu_script.h).

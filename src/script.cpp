@@ -8,6 +8,7 @@
 //     input with priorities (greedy groups, lazy wildcards) to recover slot
 //     spans and attribute assignments.
 #include <algorithm>
+#include <atomic>
 #include <deque>
 #include <fstream>
 #include <map>
@@ -407,10 +408,19 @@ class ScriptParser {
 
 // Threads share one cache. Lookups of cached transitions run under a shared
 // lock; a thread that needs a new transition switches to the exclusive lock
-// for the rest of its input.
+// for the rest of its input. When the cache reaches its limits it keeps the
+// states used since the last eviction, up to half of each limit, and drops
+// the rest, so states every input passes through survive.
 class LazyDfa {
  public:
-  LazyDfa(const Nfa& nfa, int start) : nfa_(nfa), closure_(nfa), start_nfa_(start) { reset(); }
+  LazyDfa(const Nfa& nfa, int start, const CacheOptions& options)
+      : nfa_(nfa),
+        closure_(nfa),
+        start_nfa_(start),
+        max_states_(std::max<std::size_t>(options.max_states, 2)),
+        max_bytes_(options.max_bytes) {
+    start_ = intern(closure_({start_nfa_}, 0));
+  }
 
   // Returns the ids of the rules accepting the whole text, ascending.
   std::vector<int> accepted_rules(const std::u32string& text) {
@@ -420,17 +430,19 @@ class LazyDfa {
     {
       std::shared_lock<std::shared_mutex> lock(mutex_);
       d = start_;
+      touch(d);
       for (; i < text.size(); ++i) {
         auto it = states_[d].next.find(text[i]);
         if (it == states_[d].next.end()) break;
         d = it->second;
+        touch(d);
         if (states_[d].set.empty()) return {};
       }
       if (i == text.size()) return states_[d].accepts;
       epoch = epoch_;
     }
     std::lock_guard<std::shared_mutex> lock(mutex_);
-    if (epoch != epoch_) {  // the cache was reset, so `d` is stale
+    if (epoch != epoch_) {  // states were evicted, so `d` is stale
       d = start_;
       i = 0;
     }
@@ -445,22 +457,30 @@ class LazyDfa {
           for (const Edge& e : nfa_.states[s].edges)
             if (e.consumes() && nfa_.matches(e, c)) targets.push_back(e.to);
         std::vector<int> set = closure_(std::move(targets), c);
-        if (states_.size() >= kMaxStates) {
-          reset();
+        if (states_.size() >= max_states_ || bytes_ >= max_bytes_) {
+          evict();
           d = intern(std::move(set));
         } else {
           int next = intern(std::move(set));
           states_[d].next.emplace(c, next);
+          ++transitions_;
+          bytes_ += kTransitionBytes;
           d = next;
         }
       }
+      touch(d);
       if (states_[d].set.empty()) return {};
     }
     return states_[d].accepts;
   }
 
+  CacheStats stats() {
+    std::shared_lock<std::shared_mutex> lock(mutex_);
+    return {states_.size(), transitions_, bytes_, evictions_};
+  }
+
  private:
-  static constexpr std::size_t kMaxStates = 20000;
+  static constexpr std::size_t kTransitionBytes = 32;  // an unordered_map node
 
   struct DState {
     std::vector<int> set;      // NFA states with consuming edges or accepting
@@ -470,33 +490,101 @@ class LazyDfa {
 
   const Nfa& nfa_;
   std::shared_mutex mutex_;
-  // Everything below is guarded by mutex_.
+  // Everything below is guarded by mutex_, except that readers holding the
+  // shared lock update used_.
   Closure closure_;
   int start_nfa_;
+  std::size_t max_states_, max_bytes_;
   int start_ = 0;
-  unsigned epoch_ = 0;  // bumped by reset(), which invalidates state ids
+  unsigned epoch_ = 0;  // bumped by evict(), which renumbers states
   std::vector<DState> states_;
-  std::map<std::vector<int>, int> index_;
+  std::unordered_multimap<std::size_t, int> index_;  // hash of a state's set -> state
+  // The round in which each state was last used; a deque keeps the atomics put.
+  std::deque<std::atomic<unsigned>> used_;
+  unsigned round_ = 1;  // bumped by each eviction
+  std::size_t transitions_ = 0;
+  std::size_t bytes_ = 0;
+  std::size_t evictions_ = 0;
 
-  void reset() {
-    states_.clear();
-    index_.clear();
-    ++epoch_;
-    start_ = intern(closure_({start_nfa_}, 0));
+  // Marks state `d` used in this round. Only the first use in a round writes,
+  // so states every input passes through stay quiet.
+  void touch(int d) {
+    std::atomic<unsigned>& u = used_[d];
+    if (u.load(std::memory_order_relaxed) != round_) u.store(round_, std::memory_order_relaxed);
+  }
+
+  static std::size_t hash(const std::vector<int>& set) {
+    std::size_t h = set.size();
+    for (int s : set) h = h * 1000003u ^ static_cast<std::size_t>(s);
+    return h;
+  }
+
+  static std::size_t state_bytes(const DState& d) {
+    return sizeof(DState) + (d.set.size() + d.accepts.size()) * sizeof(int) + 64;
   }
 
   int intern(std::vector<int> set) {
-    auto it = index_.find(set);
-    if (it != index_.end()) return it->second;
+    const std::size_t h = hash(set);
+    auto range = index_.equal_range(h);
+    for (auto it = range.first; it != range.second; ++it)
+      if (states_[it->second].set == set) return it->second;
     DState d;
     for (int s : set)
       if (nfa_.states[s].accept_rule >= 0) d.accepts.push_back(nfa_.states[s].accept_rule);
     std::sort(d.accepts.begin(), d.accepts.end());
-    d.set = set;
+    d.set = std::move(set);
+    bytes_ += state_bytes(d);
     int id = static_cast<int>(states_.size());
     states_.push_back(std::move(d));
-    index_.emplace(std::move(set), id);
+    used_.emplace_back(round_);
+    index_.emplace(h, id);
     return id;
+  }
+
+  // Keeps the start state and the states used in this round, up to half of
+  // each limit (in order of creation, so shallow states come first), with
+  // the transitions between them; drops the rest.
+  void evict() {
+    ++evictions_;
+    std::vector<int> renumber(states_.size(), -1);
+    std::vector<int> kept;
+    std::size_t kept_bytes = 0;
+    for (int id = 0; id < static_cast<int>(states_.size()); ++id) {
+      const bool wanted = id == start_ || used_[id].load(std::memory_order_relaxed) == round_;
+      const std::size_t b = state_bytes(states_[id]);
+      if (!wanted || (id != start_ && (kept.size() >= max_states_ / 2 ||
+                                       kept_bytes + b > max_bytes_ / 2)))
+        continue;
+      renumber[id] = static_cast<int>(kept.size());
+      kept.push_back(id);
+      kept_bytes += b;
+    }
+    std::vector<DState> states;
+    states.reserve(kept.size());
+    transitions_ = 0;
+    bytes_ = 0;
+    for (int id : kept) {
+      DState d = std::move(states_[id]);
+      std::unordered_map<char32_t, int> next;
+      for (const auto& kv : d.next) {
+        if (renumber[kv.second] < 0) continue;
+        next.emplace(kv.first, renumber[kv.second]);
+      }
+      d.next = std::move(next);
+      transitions_ += d.next.size();
+      bytes_ += state_bytes(d) + d.next.size() * kTransitionBytes;
+      states.push_back(std::move(d));
+    }
+    states_ = std::move(states);
+    index_.clear();
+    used_.clear();
+    ++round_;
+    for (int id = 0; id < static_cast<int>(states_.size()); ++id) {
+      index_.emplace(hash(states_[id].set), id);
+      used_.emplace_back(0);
+    }
+    start_ = renumber[start_];
+    ++epoch_;
   }
 };
 
@@ -833,7 +921,36 @@ struct Script::Impl {
   std::deque<std::string> files;  // what lint_directives' positions point into
   std::vector<LintDirective> lint_directives;
   int start = 0;
+
+  // The DFA cache: one shared, or one per thread (see cache()).
+  CacheOptions cache_options;
   mutable std::unique_ptr<LazyDfa> dfa;
+  // Per-thread caches are keyed by `id` and dropped once `alive` expires.
+  std::uint64_t id = next_id();
+  std::shared_ptr<const int> alive = std::make_shared<const int>(0);
+  unsigned cache_generation = 0;  // bumped by set_cache_options()
+
+  static std::uint64_t next_id() {
+    static std::atomic<std::uint64_t> counter{0};
+    return ++counter;
+  }
+
+  LazyDfa& cache() const {
+    if (!cache_options.per_thread) return *dfa;
+    struct ThreadCache {
+      std::weak_ptr<const int> alive;
+      unsigned generation;
+      std::unique_ptr<LazyDfa> dfa;
+    };
+    thread_local std::unordered_map<std::uint64_t, ThreadCache> caches;
+    auto it = caches.find(id);
+    if (it != caches.end() && it->second.generation == cache_generation) return *it->second.dfa;
+    for (auto i = caches.begin(); i != caches.end();)  // drop caches of scripts that are gone
+      i = i->second.alive.expired() ? caches.erase(i) : std::next(i);
+    ThreadCache& c = caches[id];
+    c = {alive, cache_generation, std::make_unique<LazyDfa>(nfa, start, cache_options)};
+    return *c.dfa;
+  }
 
   std::vector<Match> match(const std::string& text, bool best) const;
   std::vector<Match> search(const std::string& text) const;
@@ -905,7 +1022,7 @@ std::unique_ptr<Script::Impl> compile_source(const std::string& source, const st
   // pointers stay valid.
   impl->files = std::move(parsed.files);
   impl->lint_directives = std::move(parsed.lint_directives);
-  impl->dfa = std::make_unique<LazyDfa>(impl->nfa, impl->start);
+  impl->dfa = std::make_unique<LazyDfa>(impl->nfa, impl->start, impl->cache_options);
   return impl;
 }
 
@@ -920,6 +1037,16 @@ Script Script::compile_file(const std::string& path) {
 }
 
 std::size_t Script::rule_count() const { return impl_->rules.size(); }
+
+CacheStats Script::cache_stats() const { return impl_->cache().stats(); }
+
+void Script::set_cache_options(const CacheOptions& options) {
+  impl_->cache_options = options;
+  impl_->dfa = std::make_unique<LazyDfa>(impl_->nfa, impl_->start, options);
+  ++impl_->cache_generation;
+}
+
+CacheOptions Script::cache_options() const { return impl_->cache_options; }
 
 std::vector<Explanation> Script::explain(const std::string& text, std::size_t limit) const {
   const Impl& impl = *impl_;
@@ -1109,7 +1236,7 @@ std::vector<Match> Script::match_best(const std::string& text) const {
 // its most specific one. Labels keep the order of their first matching rule.
 std::vector<Match> Script::Impl::match(const std::string& text, bool best) const {
   NormalizedText norm = normalize(text, fold_width);
-  std::vector<int> accepted = dfa->accepted_rules(norm.text);
+  std::vector<int> accepted = cache().accepted_rules(norm.text);
   if (accepted.empty()) return {};
   const int letters = static_cast<int>(
       norm.text.size() - std::count(norm.text.begin(), norm.text.end(), U' '));

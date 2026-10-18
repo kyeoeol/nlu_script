@@ -162,21 +162,23 @@
 - [x] Search mode: `Script::search` (C API, Python, `--search`) finds the
       longest rule match at each position of free text, with byte spans
       (`Match::begin`/`end`, also set by `match()`), keeping ASCII words whole
+- [x] DFA cache: bounded by states and bytes (`CacheOptions`, 200,000 states
+      and 64 MiB by default), evicting the states unused since the last
+      eviction instead of clearing everything, with `cache_stats()`, states
+      indexed by hash (each set stored once) and optional per-thread caches.
+      Profiling with `nlu_script_bench` at 50,000+ rules showed the cache
+      thrashing: 2,000 distinct inputs need about 46,000 states, more than
+      the old 20,000, and each refill rebuilt the large shared-prefix states.
+      A warm `match()` went from 46 µs (50,000 rules) and 100 µs (100,000)
+      to about 4 µs at any size; with the old cap, eviction alone gives 20
+      and 38 µs. Four threads reach the same throughput with a shared cache
+      as with per-thread ones (about 1.2 µs per match)
 
 ## Next
 
 - [ ] Save and load compiled scripts so large rule sets don't need recompiling
-- [ ] Bound the lazy DFA cache by memory as well as by state count, and expose
-      stats for it
-- [ ] Profile full-match time at 50k+ rules (about 33 µs vs about 5 µs at 10
-      rules; classification alone stays flat at about 1.3 µs)
-- [ ] Concurrent classification still contends on the shared lock's cache
-      line; per-thread DFA caches would remove it at the cost of memory per
-      thread
 - [ ] Let an exclusion reach a wildcard inside a following slot
       (`\X <slot><?>*?</slot>`); today the exclusion has to go inside the slot
-- [ ] The lazy DFA cache resets completely at 20,000 states (`kMaxStates`),
-      so throughput drops right after a reset; consider evicting part of it
 - [ ] Publish wheels to PyPI (e.g. on a version tag)
 - [ ] If GitHub retires the Intel macOS runner (`macos-15-intel`), build the
       x86_64 wheel on the arm64 runner instead: cross-compile (pass

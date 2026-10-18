@@ -163,6 +163,25 @@ struct DateTimeRange {
 DateTimeRange resolve_datetime(const std::vector<std::pair<std::string, std::string>>& attributes,
                                const DateTimeValue& now);
 
+// The lazily built DFA that classifies inputs, from Script::cache_stats().
+struct CacheStats {
+  std::size_t states;       // DFA states cached now
+  std::size_t transitions;  // cached transitions between them
+  std::size_t bytes;        // approximate memory they take
+  std::size_t evictions;    // times the cache was full and dropped unused states
+};
+
+// Limits of the DFA cache, for Script::set_cache_options(). When either
+// limit is reached, the cache keeps the states used since the last eviction
+// (up to half of each limit) and drops the rest.
+struct CacheOptions {
+  std::size_t max_states = 200000;
+  std::size_t max_bytes = std::size_t{64} << 20;  // 64 MiB
+  // One cache per thread instead of one shared cache: no contention between
+  // threads, at the cost of memory per thread.
+  bool per_thread = false;
+};
+
 class CompileError : public std::runtime_error {
  public:
   CompileError(const std::string& message, int line, int column);
@@ -208,6 +227,13 @@ class Script {
   std::vector<Match> search(const std::string& text) const;
 
   std::size_t rule_count() const;
+
+  // The state of the DFA cache (the calling thread's with per_thread).
+  CacheStats cache_stats() const;
+  // Replaces the DFA cache with an empty one with these options. Not safe
+  // while other threads match with this script.
+  void set_cache_options(const CacheOptions& options);
+  CacheOptions cache_options() const;
 
   // For debugging rules: the `limit` rules that got furthest into `text`
   // (rules that match none of it are left out), longest match first, then

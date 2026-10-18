@@ -66,6 +66,10 @@ target_link_libraries(nlu_script_tools PUBLIC nlu_script_static)
 add_executable(nlu_script_cli tools/nlu_script_cli.cpp)
 target_link_libraries(nlu_script_cli PRIVATE nlu_script_tools)
 
+# Times matching against generated scripts of growing size.
+add_executable(nlu_script_bench tools/nlu_script_bench.cpp)
+target_link_libraries(nlu_script_bench PRIVATE nlu_script_static)
+
 if(NLU_SCRIPT_BUILD_TESTS)
   enable_testing()
   add_executable(nlu_script_tests

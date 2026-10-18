@@ -529,3 +529,59 @@ TEST(search_takes_the_longest_match_and_moves_past_it) {
     CHECK_EQ(found[0].end, std::string("lost card").size());
   }
 }
+
+namespace {
+
+std::string order_rules(int count) {
+  std::string source;
+  for (int i = 0; i < count; ++i)
+    source += "label" + std::to_string(i) + "\n    order " + std::to_string(i * 7919) +
+              " for customer " + std::to_string(i) + "\n";
+  return source;
+}
+
+std::string order(int i) {
+  return "order " + std::to_string(i * 7919) + " for customer " + std::to_string(i);
+}
+
+}  // namespace
+
+TEST(a_full_cache_keeps_matching_correctly) {
+  nlu::Script s = nlu::Script::compile(order_rules(300));
+  nlu::CacheOptions options;
+  options.max_states = 200;
+  s.set_cache_options(options);
+  for (int round = 0; round < 3; ++round)
+    for (int i = 0; i < 300; ++i)
+      CHECK_EQ(labels(s, order(i)), (std::vector<std::string>{"label" + std::to_string(i)}));
+  nlu::CacheStats stats = s.cache_stats();
+  CHECK(stats.evictions > 0);
+  CHECK(stats.states <= 200u);
+  CHECK(stats.states > 1u);  // the states in use survive an eviction
+}
+
+TEST(the_cache_stays_within_its_memory_budget) {
+  nlu::Script s = nlu::Script::compile(order_rules(300));
+  nlu::CacheOptions options;
+  options.max_bytes = 64 * 1024;
+  s.set_cache_options(options);
+  for (int i = 0; i < 300; ++i) s.match(order(i));
+  CHECK(s.cache_stats().bytes <= 64 * 1024 + 16 * 1024);  // one state may go over
+}
+
+TEST(per_thread_caches_are_separate) {
+  nlu::Script s = nlu::Script::compile(order_rules(200));
+  nlu::CacheOptions options;
+  options.per_thread = true;
+  s.set_cache_options(options);
+  CHECK_EQ(labels(s, order(7)), (std::vector<std::string>{"label7"}));
+  const std::size_t mine = s.cache_stats().states;
+  int wrong = 0;
+  std::thread other([&] {
+    for (int i = 0; i < 200; ++i)
+      if (labels(s, order(i)) != std::vector<std::string>{"label" + std::to_string(i)}) ++wrong;
+  });
+  other.join();
+  CHECK_EQ(wrong, 0);
+  CHECK_EQ(s.cache_stats().states, mine);  // the other thread filled its own cache
+}
