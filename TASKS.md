@@ -143,14 +143,14 @@
       date; `resolve_datetime()` (C++, C, Python) resolves the attributes
       against the caller's `now` with a grain (Monday weeks, next occurrence
       for a weekday or date given alone)
+- [x] System entities `EN_NUMBER` (English number words), `ORDINAL`
+      (`첫 번째`, `셋째`, `twenty-first`, `21st`) and `MONEY` (`value` and
+      `currency` from Korean, symbol, word and code forms); `KO_NUMBER` also
+      reads native numbers up to 99; `TELNUM` also accepts international and
+      North American formats
 
 ## Next
 
-- [ ] More system entities (currency, ordinals, native Korean numbers like
-      하나/둘/세, English number words)
-- [ ] `TELNUM` for non-Korean formats (e.g. `+1 555-123-4567`,
-      `(555) 123-4567`); English sentences work today, but only with Korean
-      numbers
 - [ ] Optionally ignore trailing punctuation in input (`are you there?`)
       instead of requiring `"?"` in every pattern
 - [ ] Unicode case folding beyond ASCII; optional full-width/half-width folding

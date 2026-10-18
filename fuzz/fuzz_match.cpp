@@ -27,6 +27,11 @@ agent:callback
     call me back (at) `@{DATETIME}
 account:phone
     휴대폰 번호 `@{TELNUM}(으로/로) 변경해주세요
+    call `@{TELNUM}
+payment:amount
+    `@{MONEY} 결제
+    pay `@{MONEY} (for the `@{ORDINAL} item)
+    `@{EN_NUMBER} items
     끝자리 @var.{digit}@var.{digit} <?> [ㅠ]^>1
 any:text
     <?>*? "?"

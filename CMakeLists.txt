@@ -70,6 +70,7 @@ if(NLU_SCRIPT_BUILD_TESTS)
   enable_testing()
   add_executable(nlu_script_tests
     tests/test_datetime.cpp
+    tests/test_entities.cpp
     tests/test_explain.cpp
     tests/test_include.cpp
     tests/test_lint.cpp

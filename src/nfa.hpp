@@ -60,6 +60,9 @@ enum class Normalizer : std::uint8_t {
   None,
   KoreanNumber,  // value: the number written with digits and Korean numerals
   DateTime,      // day_offset, weekday, month, hour, ...: see datetime.hpp
+  EnglishNumber,  // value: the number written in English words or digits
+  Ordinal,        // value: the position (첫 번째, 21st)
+  Money,          // value and currency (KRW, USD, ...)
 };
 
 struct Action {
