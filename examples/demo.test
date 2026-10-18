@@ -108,3 +108,7 @@ call me back next friday morning
     agent:callback:call me back <DATETIME week_offset="+1" weekday="FRI" part_of_day="MORNING">next friday morning</DATETIME>
 call me back at noon
     agent:callback:call me back at <DATETIME hour="12" minute="0">noon</DATETIME>
+내일 3시부터 5시까지 연락해주세요
+    agent:callback:<DATETIME day_offset="+1" hour="3" end_hour="5">내일 3시부터 5시까지</DATETIME> 연락해주세요
+call me back in 2 hours
+    agent:callback:call me back <DATETIME hour_offset="+2">in 2 hours</DATETIME>

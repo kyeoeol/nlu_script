@@ -28,6 +28,11 @@ typedef struct nlu_result nlu_result;
 typedef struct nlu_explanation nlu_explanation;
 typedef struct nlu_lint nlu_lint;
 
+/* A local date and time; hour and minute are -1 when not given. */
+typedef struct nlu_datetime {
+  int year, month, day, hour, minute;
+} nlu_datetime;
+
 /* Compiles a script. On failure returns NULL and, if `error` is not NULL,
  * stores a message to release with nlu_string_free. For compile errors the
  * message lists every error, one per line ("line 3, column 5: ...", after
@@ -111,6 +116,16 @@ NLU_SCRIPT_API int nlu_lint_line(const nlu_lint* lint, size_t i);
 NLU_SCRIPT_API const char* nlu_lint_message(const nlu_lint* lint, size_t i);
 NLU_SCRIPT_API size_t nlu_lint_allowed(const nlu_lint* lint);
 NLU_SCRIPT_API int nlu_lint_complete(const nlu_lint* lint);
+
+/* Resolves the attributes of a DATETIME slot (`count` key/value pairs)
+ * against `now`, as nlu::resolve_datetime in C++. Fills `start`, and `end`
+ * when the slot is a range, and returns 1 if it is, 0 otherwise. `grain` (if
+ * not NULL) receives "year", "month", "week", "day", "hour" or "minute",
+ * a static string. */
+NLU_SCRIPT_API int nlu_resolve_datetime(const char* const* keys, const char* const* values,
+                                        size_t count, const nlu_datetime* now,
+                                        nlu_datetime* start, nlu_datetime* end,
+                                        const char** grain);
 
 NLU_SCRIPT_API void nlu_string_free(char* string);
 

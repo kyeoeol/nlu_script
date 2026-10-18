@@ -120,6 +120,18 @@ static void test_lint(void) {
   nlu_script_free(script);
 }
 
+static void test_resolve_datetime(void) {
+  const char* keys[] = {"day_offset", "part_of_day", "hour"};
+  const char* values[] = {"+1", "PM", "15"};
+  nlu_datetime now = {2026, 12, 31, 14, 20};
+  nlu_datetime start, end;
+  const char* grain = NULL;
+  CHECK(nlu_resolve_datetime(keys, values, 3, &now, &start, &end, &grain) == 0);
+  CHECK(start.year == 2027 && start.month == 1 && start.day == 1);
+  CHECK(start.hour == 15 && start.minute == 0);
+  CHECK(grain != NULL && strcmp(grain, "hour") == 0);
+}
+
 static void test_compile_error(void) {
   char* error = NULL;
   int line = -1;
@@ -156,6 +168,7 @@ int main(void) {
   test_match_best();
   test_explain();
   test_lint();
+  test_resolve_datetime();
   test_compile_error();
   test_missing_file();
   printf("C API: %d failed checks\n", failures);

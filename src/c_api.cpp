@@ -272,6 +272,29 @@ size_t nlu_lint_allowed(const nlu_lint* l) { return l ? l->allowed : 0; }
 
 int nlu_lint_complete(const nlu_lint* l) { return l && l->complete ? 1 : 0; }
 
+int nlu_resolve_datetime(const char* const* keys, const char* const* values, size_t count,
+                         const nlu_datetime* now, nlu_datetime* start, nlu_datetime* end,
+                         const char** grain) {
+  if (!now) return 0;
+  std::vector<std::pair<std::string, std::string>> attributes;
+  for (size_t i = 0; i < count; ++i)
+    if (keys[i] && values[i]) attributes.emplace_back(keys[i], values[i]);
+  nlu::DateTimeRange r = nlu::resolve_datetime(
+      attributes, nlu::DateTimeValue{now->year, now->month, now->day, now->hour, now->minute});
+  auto copy = [](const nlu::DateTimeValue& v, nlu_datetime* out) {
+    if (out) *out = nlu_datetime{v.year, v.month, v.day, v.hour, v.minute};
+  };
+  copy(r.start, start);
+  if (r.has_end) copy(r.end, end);
+  if (grain) {
+    static const char* const grains[] = {"year", "month", "week", "day", "hour", "minute"};
+    *grain = grains[0];
+    for (const char* g : grains)
+      if (r.grain == g) *grain = g;
+  }
+  return r.has_end ? 1 : 0;
+}
+
 void nlu_string_free(char* string) { std::free(string); }
 
 }  // extern "C"

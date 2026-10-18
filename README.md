@@ -392,13 +392,38 @@ call me back (at) `@{DATETIME}
 | 새벽, 아침, 오전, 낮, 점심, 오후, 저녁, 밤; morning, afternoon, evening, night, tonight, am, pm | `part_of_day` (`DAWN`, `MORNING`, `AM`, `DAY`, `NOON`, `PM`, `EVENING`, `NIGHT`) |
 | 3시, 세 시, 열두시, 15시, 30분, 반, 정오, 자정; 3pm, 3:30 pm, 15:30, 3 o'clock, noon, midnight | `hour`, `minute` |
 
-A date comes before a time (`다음 주 월요일 저녁 7시 반`, `tomorrow at 3pm`).
+| 3시부터 5시까지, 내일부터 모레까지, 3시~5시, 3~5시; from 3 to 5pm, between monday and friday, 3-5pm | the start's attributes, and the end's with an `end_` prefix |
+| 2시간 뒤, 1시간 30분 후, 이틀 전, 한 달 후; in 2 hours, in an hour, 3 days ago, 2 weeks from now | `minute_offset`, `hour_offset`, `day_offset`, ... (`+2`, `-3`) |
+
+A date usually comes before a time (`다음 주 월요일 저녁 7시 반`, `tomorrow
+at 3pm`), but English also takes `3pm tomorrow` and `noon on friday`, and a
+weekday may follow a date (`3월 5일 월요일`). In a range, an end without a
+part of the day takes the other end's (`오후 3시부터 5시까지` ends at 17,
+`from 3 to 5pm` starts at 15), and an English range may start with a bare
+hour.
 `hour` is on a 24-hour clock when the part of the day settles it (오후 3시
 gives 15, 밤 11시 23, 밤 1시 1, 12am 0); otherwise it is the hour as
 written (세 시 gives 3). Digits are checked against the calendar and clock
 (13월, 32일, 25시 and 3시 60분 don't match); numerals out of range (십삼월)
 match without that attribute. Prepositions and particles around the entity
 (`at`, `on`, `에`) belong to the pattern.
+
+`nlu::resolve_datetime(attributes, now)` turns the attributes into a date
+and time, given the caller's local `now`, and says how precise it is:
+
+```cpp
+nlu::DateTimeRange r = nlu::resolve_datetime(slot.attributes, {2026, 10, 21, 14, 20});
+// "내일 오후 3시"    -> 2026-10-22 15:00, grain "hour"
+// "다음 주 월요일"  -> 2026-10-26, grain "day"
+// "3시부터 5시까지" -> 2026-10-21 03:00 to 05:00 (r.has_end)
+```
+
+Weeks start on Monday. A weekday, a month or a day of the month given alone
+means the next one, today included (on 2026-10-21, `3월 5일` is 2027-03-05),
+and a coarse date starts at its beginning (`다음 달` is the 1st). Durations
+count from `now`. The C API has `nlu_resolve_datetime`, and Python
+`nlu_script.resolve_datetime(slot.attributes, now)`, which returns `date` or
+`datetime` objects.
 
 ### Slots and attributes
 

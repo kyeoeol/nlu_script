@@ -1,4 +1,5 @@
 // Behavior of the DATETIME system entity and its normalized attributes.
+#include <cstdio>
 #include <string>
 #include <vector>
 
@@ -110,4 +111,97 @@ TEST(datetime_slot_in_a_sentence) {
                          "part_of_day=\"PM\">tomorrow at 3pm</DATETIME>"));
   // A leading "at" belongs to the pattern, not the entity.
   CHECK(s.match("call me back at 3pm").empty());
+}
+
+TEST(datetime_ranges) {
+  CHECK_EQ(attributes("3시부터 5시까지"), std::string("hour=3 end_hour=5"));
+  CHECK_EQ(attributes("오후 3시부터 5시까지"),
+           std::string("part_of_day=PM hour=15 end_hour=17 end_part_of_day=PM"));
+  CHECK_EQ(attributes("내일부터 모레까지"), std::string("day_offset=+1 end_day_offset=+2"));
+  CHECK_EQ(attributes("3시~5시"), std::string("hour=3 end_hour=5"));
+  CHECK_EQ(attributes("from 3 to 5pm"),
+           std::string("hour=15 part_of_day=PM end_hour=17 end_part_of_day=PM"));
+  CHECK_EQ(attributes("3-5pm"), std::string("hour=15 part_of_day=PM end_hour=17 end_part_of_day=PM"));
+  CHECK_EQ(attributes("between monday and friday"),
+           std::string("weekday=MON end_weekday=FRI"));
+  // A bare number is an hour only in an English range.
+  CHECK_EQ(attributes("3"), std::string("<no match>"));
+}
+
+TEST(datetime_durations) {
+  CHECK_EQ(attributes("2시간 뒤"), std::string("hour_offset=+2"));
+  CHECK_EQ(attributes("1시간 30분 후"), std::string("hour_offset=+1 minute_offset=+30"));
+  CHECK_EQ(attributes("두 시간 후"), std::string("hour_offset=+2"));
+  CHECK_EQ(attributes("삼십 분 뒤"), std::string("minute_offset=+30"));
+  CHECK_EQ(attributes("이틀 전"), std::string("day_offset=-2"));
+  CHECK_EQ(attributes("3주 뒤"), std::string("week_offset=+3"));
+  CHECK_EQ(attributes("한 달 후"), std::string("month_offset=+1"));
+  CHECK_EQ(attributes("in 2 hours"), std::string("hour_offset=+2"));
+  CHECK_EQ(attributes("in an hour"), std::string("hour_offset=+1"));
+  CHECK_EQ(attributes("3 days ago"), std::string("day_offset=-3"));
+  CHECK_EQ(attributes("2 weeks from now"), std::string("week_offset=+2"));
+  CHECK_EQ(attributes("in 1 hour 30 minutes"), std::string("hour_offset=+1 minute_offset=+30"));
+}
+
+TEST(datetime_more_orders) {
+  CHECK_EQ(attributes("3월 5일 월요일"), std::string("month=3 day=5 weekday=MON"));
+  CHECK_EQ(attributes("3pm tomorrow"), std::string("hour=15 part_of_day=PM day_offset=+1"));
+  CHECK_EQ(attributes("noon on friday"), std::string("hour=12 minute=0 weekday=FRI"));
+}
+
+namespace {
+
+std::string resolved(const std::string& text, const nlu::DateTimeValue& now) {
+  static const nlu::Script script = nlu::Script::compile("t\n    `@{DATETIME}\n");
+  std::vector<nlu::Match> found = script.match(text);
+  if (found.size() != 1) return "<no match>";
+  nlu::DateTimeRange r = nlu::resolve_datetime(found[0].slots[0].attributes, now);
+  auto show = [](const nlu::DateTimeValue& v) {
+    char buffer[32];
+    std::snprintf(buffer, sizeof buffer, "%04d-%02d-%02d", v.year, v.month, v.day);
+    std::string out = buffer;
+    if (v.hour >= 0) {
+      std::snprintf(buffer, sizeof buffer, " %02d:%02d", v.hour, v.minute < 0 ? 0 : v.minute);
+      out += buffer;
+    }
+    return out;
+  };
+  return show(r.start) + (r.has_end ? " ~ " + show(r.end) : "") + " (" + r.grain + ")";
+}
+
+}  // namespace
+
+TEST(datetime_resolves_against_a_reference_time) {
+  // Wednesday 2026-10-21, 14:20. Weeks start on Monday (ISO 8601).
+  const nlu::DateTimeValue now{2026, 10, 21, 14, 20};
+  CHECK_EQ(resolved("내일 오후 3시", now), std::string("2026-10-22 15:00 (hour)"));
+  CHECK_EQ(resolved("모레", now), std::string("2026-10-23 (day)"));
+  CHECK_EQ(resolved("다음 주 월요일", now), std::string("2026-10-26 (day)"));
+  CHECK_EQ(resolved("이번 주 금요일", now), std::string("2026-10-23 (day)"));
+  CHECK_EQ(resolved("다음 주", now), std::string("2026-10-26 (week)"));
+  // A weekday, month or day alone means the next one, today included.
+  CHECK_EQ(resolved("월요일", now), std::string("2026-10-26 (day)"));
+  CHECK_EQ(resolved("수요일", now), std::string("2026-10-21 (day)"));
+  CHECK_EQ(resolved("3월 5일", now), std::string("2027-03-05 (day)"));
+  CHECK_EQ(resolved("12월 25일", now), std::string("2026-12-25 (day)"));
+  CHECK_EQ(resolved("15일", now), std::string("2026-11-15 (day)"));
+  CHECK_EQ(resolved("2026년 3월 5일", now), std::string("2026-03-05 (day)"));
+  CHECK_EQ(resolved("다음 달 15일", now), std::string("2026-11-15 (day)"));
+  CHECK_EQ(resolved("내년", now), std::string("2027-01-01 (year)"));
+  CHECK_EQ(resolved("2시간 뒤", now), std::string("2026-10-21 16:20 (minute)"));
+  CHECK_EQ(resolved("30분 후", now), std::string("2026-10-21 14:50 (minute)"));
+  CHECK_EQ(resolved("3 days ago", now), std::string("2026-10-18 (day)"));
+  CHECK_EQ(resolved("tonight", now), std::string("2026-10-21 (day)"));
+  CHECK_EQ(resolved("3시부터 5시까지", now),
+           std::string("2026-10-21 03:00 ~ 2026-10-21 05:00 (hour)"));
+  // The end of a range takes the start's date when it gives none.
+  CHECK_EQ(resolved("내일 3시부터 5시까지", now),
+           std::string("2026-10-22 03:00 ~ 2026-10-22 05:00 (hour)"));
+  CHECK_EQ(resolved("내일부터 모레까지", now), std::string("2026-10-22 ~ 2026-10-23 (day)"));
+  // Month ends and leap years.
+  CHECK_EQ(resolved("내일", nlu::DateTimeValue{2028, 2, 28, -1, -1}), std::string("2028-02-29 (day)"));
+  CHECK_EQ(resolved("다음 달", nlu::DateTimeValue{2026, 1, 31, -1, -1}),
+           std::string("2026-02-01 (month)"));
+  CHECK_EQ(resolved("1시간 뒤", nlu::DateTimeValue{2026, 12, 31, 23, 30}),
+           std::string("2027-01-01 00:30 (minute)"));
 }
