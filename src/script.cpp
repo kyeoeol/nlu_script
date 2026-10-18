@@ -125,8 +125,10 @@ bool is_absolute(const std::string& path) {
 }
 
 // `path` relative to the directory of `from` (the current directory if
-// `from` has none), with "." and ".." segments removed where possible.
+// `from` has none), with "." and ".." segments removed where possible. The
+// result uses backslashes if `from` does (Windows paths), slashes otherwise.
 std::string resolve(const std::string& from, const std::string& path) {
+  const char separator = from.find('\\') != std::string::npos ? '\\' : '/';
   std::string joined = path;
   if (!is_absolute(path)) {
     std::size_t slash = from.find_last_of("/\\");
@@ -151,9 +153,19 @@ std::string resolve(const std::string& from, const std::string& path) {
     }
     part.clear();
   }
-  std::string out = absolute ? "/" : "";
-  for (std::size_t i = 0; i < parts.size(); ++i) out += (i ? "/" : "") + parts[i];
+  std::string out = absolute ? std::string(1, separator) : "";
+  for (std::size_t i = 0; i < parts.size(); ++i) {
+    if (i) out += separator;
+    out += parts[i];
+  }
   return out;
+}
+
+// Compares paths whichever separators they use.
+std::string path_key(std::string path) {
+  for (char& c : path)
+    if (c == '\\') c = '/';
+  return path;
 }
 
 bool read_file(const std::string& path, std::string& out) {
@@ -175,7 +187,7 @@ class ScriptParser {
  public:
   ParsedScript parse(const std::string& source, const std::string& main_file) {
     out_.files.push_back(main_file);
-    if (!main_file.empty()) read_.insert(resolve("", main_file));
+    if (!main_file.empty()) read_.insert(path_key(resolve("", main_file)));
     parse_file(source, &out_.files.back());
     finish(out_.defs.entities, entity_values_, out_.broken_entities, "entity @");
     finish(out_.defs.variables, variable_values_, out_.broken_variables, "variable @var.");
@@ -308,7 +320,7 @@ class ScriptParser {
   void include(const std::string& path, const SourcePos& pos) {
     if (path.empty()) throw_at(pos, "expected a file name after include");
     const std::string resolved = resolve(*pos.file, path);
-    if (!read_.insert(resolved).second) return;  // read already
+    if (!read_.insert(path_key(resolved)).second) return;  // read already
     std::string source;
     if (!read_file(resolved, source)) throw_at(pos, "cannot open included file " + resolved);
     out_.files.push_back(resolved);
