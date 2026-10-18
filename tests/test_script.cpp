@@ -640,3 +640,18 @@ TEST(loading_rejects_anything_but_a_saved_script) {
   }
   CHECK(rejected > 0);
 }
+
+TEST(exclusion_reaches_the_wildcard_starting_a_slot) {
+  nlu::Script s = nlu::Script::compile(
+      "account:close\n"
+      "    \\[적금|예금] <account><?>+?</account>을/를 해지\n"
+      "    close my \\[savings] <account><name><?>+?</name> plan</account>\n");
+  CHECK_EQ(tagged(s, "청약통장을 해지"),
+           std::string("account:close:<account>청약통장</account>을 해지"));
+  CHECK(labels(s, "적금을 해지").empty());
+  CHECK_EQ(tagged(s, "close my pension plan"),
+           std::string("account:close:close my <account><name>pension</name> plan</account>"));
+  CHECK(labels(s, "close my savings plan").empty());
+  // The slot has to start with a wildcard for the exclusion to reach.
+  CHECK_THROWS(nlu::CompileError, nlu::Script::compile("t\n    \\[x] <slot>y <?>*?</slot>\n"));
+}

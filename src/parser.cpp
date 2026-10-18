@@ -431,16 +431,34 @@ class Parser {
       excluded->children.push_back(parse_item(false));
       skip_spaces();
     }
-    if (!looking_at(U"<?>")) {
-      if (peek() == U'<' && peek(1) != U'/')
-        error_at(start, "an exclusion '\\' must be followed directly by a wildcard '<?>'; "
-                        "to capture the wildcard, put the exclusion inside the slot: "
-                        "<slot>\\[...] <?>*?</slot>");
-      error_at(start, "an exclusion '\\' must be followed by a wildcard '<?>'");
+    if (peek() == U'<' && peek(1) != U'?' && peek(1) != U'/') {
+      // \X <slot><?>*?...</slot>: the exclusion applies to the wildcard the
+      // slot (or a slot nested at its start) begins with.
+      std::shared_ptr<Node> slot = parse_slot();
+      Node* wild = leading_wildcard(slot.get());
+      if (!wild || wild->exclusion)
+        error_at(start, "an exclusion '\\' must be followed by a wildcard '<?>', or by a slot "
+                        "that starts with one");
+      wild->exclusion = excluded;
+      return slot;
     }
+    if (!looking_at(U"<?>")) error_at(start, "an exclusion '\\' must be followed by a wildcard '<?>'");
     std::shared_ptr<Node> wild = parse_wildcard();
     wild->exclusion = excluded;
     return wild;
+  }
+
+  // The wildcard a slot's text starts with, looking into nested slots and
+  // sequences; null if it starts with something else. The nodes were made by
+  // this parser and are not shared yet, so changing them is safe.
+  static Node* leading_wildcard(Node* n) {
+    while (n) {
+      if (n->kind == Node::Kind::Wildcard) return n;
+      if ((n->kind != Node::Kind::Slot && n->kind != Node::Kind::Sequence) || n->children.empty())
+        return nullptr;
+      n = const_cast<Node*>(n->children[0].get());
+    }
+    return nullptr;
   }
 
   // @{entity} or @var.{variable}

@@ -389,9 +389,11 @@ close my \[<?>*? savings <?>*?|<?>*? checking <?>*?] <?>+? account
 The exclusion is tested against the wildcard's **whole** text. To exclude
 text that merely contains a token, surround the token with `<?>*?`.
 
-An exclusion must come right before a wildcard. Several exclusions may
-precede one wildcard (`\X \Y <?>*?`). Wildcard text never starts or ends with a
-space.
+An exclusion must come right before a wildcard, or before a slot whose
+text starts with one, which then captures the wildcard
+(`\[적금|예금] <account><?>+?</account>을/를 해지`). Several exclusions may
+precede one wildcard (`\X \Y <?>*?`). Wildcard text never starts or ends with
+a space.
 
 ### References
 

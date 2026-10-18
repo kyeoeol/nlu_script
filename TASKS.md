@@ -179,11 +179,11 @@
       fuzzed in CI (`fuzz_load`). At 50,000 rules loading takes about half
       as long as compiling (most of the rest is building the automaton in
       memory), and the file is about 20 MiB
+- [x] An exclusion reaches the wildcard a following slot starts with
+      (`\X <slot><?>*?</slot>`, nested slots too)
 
 ## Next
 
-- [ ] Let an exclusion reach a wildcard inside a following slot
-      (`\X <slot><?>*?</slot>`); today the exclusion has to go inside the slot
 - [ ] Publish wheels to PyPI (e.g. on a version tag)
 - [ ] If GitHub retires the Intel macOS runner (`macos-15-intel`), build the
       x86_64 wheel on the arm64 runner instead: cross-compile (pass
