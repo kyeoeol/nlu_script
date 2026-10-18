@@ -168,8 +168,8 @@ NodePtr datetime() {
   NodePtr month_ko = choice({glued({choice({month_digits(), sino_upto_99}), literal(U"월")}),
                              spaced({which_ko, literal(U"달")})});
   NodePtr day_ko = glued({choice({day_digits(), sino_upto_99}), literal(U"일")});
-  NodePtr date_ko =
-      choice({literals(kRelativeDays), week_part_ko, in_order({year_ko, month_ko, day_ko})});
+  NodePtr date_ko = choice({literals(kRelativeDays), week_part_ko,
+                            in_order({year_ko, month_ko, day_ko, weekday_ko})});
 
   // Korean times.
   static const char32_t* const kNativeHours[] = {U"한", U"두", U"세", U"네", U"다섯",
@@ -185,6 +185,28 @@ NodePtr datetime() {
   NodePtr part_ko = literals(kPartsKo);
   NodePtr time_ko = choice({spaced({part_ko, clock_ko}), clock_ko, part_ko, literal(U"정오"),
                             literal(U"자정")});
+  NodePtr single_ko = in_order({date_ko, time_ko});
+
+  // Korean durations: 2시간 뒤, 1시간 30분 후, 이틀 전, 한 달 후.
+  static const char32_t* const kDayCounts[] = {U"하루", U"이틀", U"사흘", U"나흘", nullptr};
+  NodePtr count_ko = choice({digits(1, 3), sino_upto_99, literals(kNativeHours)});
+  auto amount_ko = [&](std::vector<NodePtr> units) {
+    return spaced({count_ko, choice(std::move(units))});
+  };
+  NodePtr span_ko = in_order(
+      {amount_ko({literal(U"년")}), amount_ko({literal(U"개월"), literal(U"달")}),
+       amount_ko({literal(U"주"), literal(U"주일")}),
+       choice({amount_ko({literal(U"일")}), literals(kDayCounts)}), amount_ko({literal(U"시간")}),
+       amount_ko({literal(U"분")})});
+  NodePtr duration_ko = spaced({span_ko, choice({literal(U"뒤"), literal(U"후"), literal(U"전")})});
+
+  // Korean ranges: 3시부터 5시까지, 3시에서 5시 사이, 3시~5시, 3~5시.
+  NodePtr dash = choice({literal(U"~"), literal(U"-")});
+  NodePtr range_ko = choice(
+      {spaced({glued({single_ko, literal(U"부터")}), glued({single_ko, literal(U"까지")})}),
+       spaced({glued({single_ko, literal(U"부터")}), single_ko}),
+       spaced({glued({single_ko, literal(U"에서")}), single_ko, literal(U"사이")}),
+       spaced({single_ko, dash, single_ko}), spaced({hour24_digits(), dash, hour_ko})});
 
   // English dates.
   static const char32_t* const kRelativeDaysEn[] = {
@@ -223,11 +245,39 @@ NodePtr datetime() {
   NodePtr part_en = literals(kPartsEn);
   NodePtr time_en = choice({spaced({clock_en, part_en}), clock_en, part_en});
 
-  // "tomorrow at 3pm": `at` may join a date and a time. A leading `at` is
-  // left to the pattern (`(at) `@{DATETIME}`), like other prepositions.
-  NodePtr en = choice({spaced({date_en, choice({spaced({literal(U"at"), time_en}), time_en})}),
-                       date_en, time_en});
-  return choice({in_order({date_ko, time_ko}), en});
+  // "tomorrow at 3pm": `at` may join a date and a time; "3pm tomorrow" and
+  // "noon on friday" put the time first. A leading `at` or `on` is left to the
+  // pattern (`(at) `@{DATETIME}`), like other prepositions.
+  NodePtr single_en =
+      choice({spaced({date_en, choice({spaced({literal(U"at"), time_en}), time_en})}),
+              spaced({time_en, choice({spaced({literal(U"on"), date_en}), date_en})}), date_en,
+              time_en});
+
+  // English durations: in 2 hours, in an hour, 3 days ago, 2 weeks from now.
+  static const char32_t* const kCountsEn[] = {
+      U"a",   U"an",    U"one",   U"two",  U"three",  U"four",   U"five", U"six",
+      U"seven", U"eight", U"nine", U"ten", U"eleven", U"twelve", nullptr};
+  NodePtr count_en = choice({digits(1, 3), literals(kCountsEn)});
+  auto amount_en = [&](const char32_t* unit) {
+    std::u32string plural = std::u32string(unit) + U"s";
+    return spaced({count_en, choice({literal(unit), literal(plural)})});
+  };
+  NodePtr span_en = in_order({amount_en(U"year"), amount_en(U"month"), amount_en(U"week"),
+                              amount_en(U"day"), amount_en(U"hour"), amount_en(U"minute")});
+  NodePtr duration_en =
+      choice({spaced({literal(U"in"), span_en}),
+              spaced({span_en, choice({literal(U"later"), literal(U"ago"),
+                                       literal(U"from now")})})});
+
+  // English ranges: from 3 to 5pm, between monday and friday, 3-5pm. The
+  // start may be a bare hour, which takes the end's am or pm.
+  NodePtr start_en = choice({single_en, hour12_digits()});
+  NodePtr to_en = choice({literal(U"to"), literal(U"until"), literal(U"till"), literal(U"-")});
+  NodePtr range_en = choice({spaced({literal(U"from"), start_en, to_en, single_en}),
+                             spaced({literal(U"between"), start_en, literal(U"and"), single_en}),
+                             spaced({start_en, to_en, single_en})});
+
+  return choice({range_ko, duration_ko, single_ko, range_en, duration_en, single_en});
 }
 
 }  // namespace

@@ -1,3 +1,4 @@
+import datetime
 import os
 import tempfile
 import unicodedata
@@ -95,6 +96,19 @@ class ScriptTest(unittest.TestCase):
         self.assertEqual([(f.kind, f.line) for f in report.findings], [("dead-rule", 3)])
         self.assertEqual(report.allowed, 1)
         self.assertTrue(report.complete)
+
+    def test_resolve_datetime(self):
+        script = nlu_script.Script("t\n    `@{DATETIME}\n")
+        now = datetime.datetime(2026, 10, 21, 14, 20)
+        slot = script.match("내일 오후 3시")[0].slots[0]
+        resolved = nlu_script.resolve_datetime(slot.attributes, now)
+        self.assertEqual(resolved.start, datetime.datetime(2026, 10, 22, 15, 0))
+        self.assertIsNone(resolved.end)
+        self.assertEqual(resolved.grain, "hour")
+        slot = script.match("내일부터 모레까지")[0].slots[0]
+        resolved = nlu_script.resolve_datetime(slot.attributes, now.date())
+        self.assertEqual((resolved.start, resolved.end),
+                         (datetime.date(2026, 10, 22), datetime.date(2026, 10, 23)))
 
     def test_no_match_returns_empty_list(self):
         self.assertEqual(self.script.match("thank you"), [])

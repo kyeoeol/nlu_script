@@ -132,6 +132,33 @@ struct Diagnostic {
 // what() lists them, one per line ("rules.nlu: line 3, column 5: ..."; the
 // file is left out for the main script compiled from a string); line(),
 // column() and message() describe the first.
+// A local date and time; hour and minute are -1 when not given.
+struct DateTimeValue {
+  int year;
+  int month;  // 1-12
+  int day;    // 1-31
+  int hour = -1;
+  int minute = -1;
+};
+
+struct DateTimeRange {
+  DateTimeValue start;
+  DateTimeValue end;  // set when has_end
+  bool has_end = false;
+  // The finest unit the text gave: "year", "month", "week", "day", "hour" or
+  // "minute".
+  std::string grain;
+};
+
+// Resolves the attributes of a DATETIME slot against `now`, the caller's
+// local date and time. Weeks start on Monday. A weekday, a month or a day of
+// the month given alone means the next one, today included (금요일, 3월 5일).
+// Fields the text leaves out come from the coarser ones: 다음 달 is the 1st
+// of next month, 다음 주 its Monday. The end of a range takes the start's date
+// when it gives none.
+DateTimeRange resolve_datetime(const std::vector<std::pair<std::string, std::string>>& attributes,
+                               const DateTimeValue& now);
+
 class CompileError : public std::runtime_error {
  public:
   CompileError(const std::string& message, int line, int column);

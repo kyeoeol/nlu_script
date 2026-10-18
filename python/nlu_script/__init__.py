@@ -13,12 +13,13 @@ environment variable, the package directory, then the system library path.
 import collections
 import ctypes
 import ctypes.util
+import datetime
 import os
 import re
 import sys
 
-__all__ = ["CompileError", "Diagnostic", "Explanation", "LintFinding", "LintReport", "Match",
-           "Script", "Slot", "TestFailure", "TestReport"]
+__all__ = ["CompileError", "DateTimeRange", "Diagnostic", "Explanation", "LintFinding",
+           "LintReport", "Match", "Script", "Slot", "TestFailure", "TestReport", "resolve_datetime"]
 __version__ = "0.1.0"
 
 
@@ -106,6 +107,15 @@ _lint_line = _declare("nlu_lint_line", ctypes.c_int, _ptr, _size)
 _lint_message = _declare("nlu_lint_message", ctypes.c_char_p, _ptr, _size)
 _lint_allowed = _declare("nlu_lint_allowed", _size, _ptr)
 _lint_complete = _declare("nlu_lint_complete", ctypes.c_int, _ptr)
+class _DateTime(ctypes.Structure):
+    _fields_ = [("year", ctypes.c_int), ("month", ctypes.c_int), ("day", ctypes.c_int),
+                ("hour", ctypes.c_int), ("minute", ctypes.c_int)]
+
+
+_resolve = _declare("nlu_resolve_datetime", ctypes.c_int, ctypes.POINTER(ctypes.c_char_p),
+                    ctypes.POINTER(ctypes.c_char_p), _size, ctypes.POINTER(_DateTime),
+                    ctypes.POINTER(_DateTime), ctypes.POINTER(_DateTime),
+                    ctypes.POINTER(ctypes.c_char_p))
 _string_free = _declare("nlu_string_free", None, _ptr)
 
 
@@ -196,6 +206,36 @@ def _read_test_cases(path):
         raise ValueError("%s:%d: no expected output; write '-' to expect no match"
                          % (path, cases[-1][0]))
     return cases
+
+
+DateTimeRange = collections.namedtuple("DateTimeRange", "start end grain")
+
+
+def resolve_datetime(attributes, now):
+    """Resolves the attributes of a DATETIME slot (a dict) against `now`, a
+    datetime.datetime or datetime.date in the caller's time zone. Returns a
+    DateTimeRange whose `start` and `end` (None unless the slot is a range) are
+    datetimes when the text gives a time and dates otherwise; `grain` is the
+    finest unit the text gave ("year" ... "minute")."""
+    keys = (ctypes.c_char_p * len(attributes))(*[k.encode("utf-8") for k in attributes])
+    values = (ctypes.c_char_p * len(attributes))(
+        *[v.encode("utf-8") for v in attributes.values()])
+    hour = getattr(now, "hour", -1)
+    minute = getattr(now, "minute", -1)
+    reference = _DateTime(now.year, now.month, now.day, hour, minute)
+    start, end = _DateTime(), _DateTime()
+    grain = ctypes.c_char_p()
+    has_end = _resolve(keys, values, len(attributes), ctypes.byref(reference), ctypes.byref(start),
+                       ctypes.byref(end), ctypes.byref(grain))
+
+    def convert(value):
+        if value.hour < 0:
+            return datetime.date(value.year, value.month, value.day)
+        return datetime.datetime(value.year, value.month, value.day, value.hour,
+                                 max(value.minute, 0))
+
+    return DateTimeRange(convert(start), convert(end) if has_end else None,
+                         _decode(grain.value))
 
 
 def _compile_with(function, argument):

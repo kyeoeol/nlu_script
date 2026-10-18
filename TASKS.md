@@ -138,15 +138,16 @@
       wildcard-free copies of the rules); `LintReport::findings(best)` gives
       the lines `--lint` prints, also from the C API (`nlu_script_lint`) and
       Python (`Script.lint`); the CLI adds `--lint --best` and `--verbose`
+- [x] `DATETIME`: ranges (`end_` attributes, part of day carried across),
+      durations (signed `*_offset`s), a weekday after a date, a time before a
+      date; `resolve_datetime()` (C++, C, Python) resolves the attributes
+      against the caller's `now` with a grain (Monday weeks, next occurrence
+      for a weekday or date given alone)
 
 ## Next
 
 - [ ] More system entities (currency, ordinals, native Korean numbers like
       하나/둘/세, English number words)
-- [ ] `DATETIME`: ranges (`3시부터 5시까지`, `from 3 to 5pm`), durations
-      (`2시간 뒤`, `in 2 hours`), weekday after a date (`3월 5일 월요일`), a time
-      before a date (`3pm tomorrow`), and a helper that resolves the attributes
-      against a reference time
 - [ ] `TELNUM` for non-Korean formats (e.g. `+1 555-123-4567`,
       `(555) 123-4567`); English sentences work today, but only with Korean
       numbers
