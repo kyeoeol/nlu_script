@@ -44,7 +44,9 @@ printf '%s\n' "I lost my debit card" "마스터 체크카드를 분실했어요"
 # card:lost:<card brand="MASTERCARD" type="DEBIT">마스터 체크카드</card>를 분실했어요
 ```
 
-Input with no matching label prints `-`.
+Input with no matching label prints `-`. With `--best`, only the most
+specific labels are printed (see [Matching](#matching)); `--test --best` runs
+test files the same way.
 
 ## Testing scripts
 
@@ -146,6 +148,23 @@ follow the same rules. Punctuation in the input is not stripped, so
 `match()` returns one result per matching label, in the order the label's
 first matching rule appears in the script. Each result carries the script
 line of that rule, so you can tell which pattern produced it.
+
+Each result also has a **specificity**: the number of input characters, not
+counting spaces, that the rule matched with pattern text (literals, entities,
+system entities) rather than wildcards. When several labels match,
+`match_best()` keeps only the labels whose most specific rule scores
+highest, and each of those results comes from that rule. Ties keep every
+such label, in script order.
+
+```
+card:lost      I lost my [credit|debit] card    -> specificity 16
+report:any     I <?>+?                          -> specificity 1
+input "I lost my debit card": match() -> card:lost, report:any; match_best() -> card:lost
+```
+
+This often replaces an exclusion. `@{product}(을/를) 해지` beats
+`<?>+?(을/를) 해지` for `적금을 해지` without the general rule having to
+exclude product names.
 
 ## Pattern language
 
@@ -290,11 +309,12 @@ first assigned.
 
 nlu::Script script = nlu::Script::compile_file("rules.nlu");  // throws nlu::CompileError
 for (const nlu::Match& m : script.match("I lost my debit card")) {
-  std::cout << m.label << ":" << m.tagged << "\n";  // m.line: script line of the rule
+  std::cout << m.label << ":" << m.tagged << "\n";  // also m.line, m.specificity
   for (const nlu::Slot& s : m.slots) { /* s.name, s.text, s.begin, s.end, s.attributes */ }
 }
 ```
 
+`script.match_best(text)` keeps only the most specific labels.
 `Script::lint()` returns the same checks as `--lint` as an `nlu::LintReport`
 (overlaps, unused definitions, and whether the search was complete).
 
@@ -311,8 +331,9 @@ char* error = NULL; int line = 0, column = 0;
 nlu_script* script = nlu_script_compile(source, &error, &line, &column);
 nlu_result* result = nlu_script_match(script, "상담원 연결해주세요");
 for (size_t i = 0; i < nlu_result_count(result); ++i)
-  printf("%s:%s (line %d)\n", nlu_result_label(result, i), nlu_result_tagged(result, i),
-         nlu_result_line(result, i));
+  printf("%s:%s (line %d, specificity %d)\n", nlu_result_label(result, i),
+         nlu_result_tagged(result, i), nlu_result_line(result, i),
+         nlu_result_specificity(result, i));
 nlu_result_free(result);
 nlu_script_free(script);
 ```
@@ -336,7 +357,8 @@ import nlu_script
 
 script = nlu_script.Script.from_file("rules.nlu")   # or nlu_script.Script(source)
 for m in script.match("엄마한테 3만 원 보내줘"):
-    print(m.label, m.tagged, m.line)
+    print(m.label, m.tagged, m.line, m.specificity)
+best = script.match_best("엄마한테 3만 원 보내줘")    # only the most specific labels
     for slot in m.slots:
         print(slot.name, slot.text, slot.begin, slot.end, slot.attributes)
 ```

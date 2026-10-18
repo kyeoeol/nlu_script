@@ -289,18 +289,21 @@ class PikeVm {
       : nfa_(nfa), first_(first), mark_(static_cast<std::size_t>(last - first), 0) {}
 
   // Runs the rule over the text and returns the actions on the highest
-  // priority accepting path. Returns false if the rule does not match.
-  bool run(int start, const std::u32string& text, std::vector<Event>& events) {
+  // priority accepting path, and how many characters wildcards consumed on
+  // it. Returns false if the rule does not match.
+  bool run(int start, const std::u32string& text, std::vector<Event>& events, int& wildcard_chars) {
     std::vector<Thread> current;
     std::vector<Thread> next;
-    add(current, start, nullptr, 0, 0);
+    add(current, start, nullptr, 0, 0, 0);
     for (std::size_t i = 0; i < text.size() && !current.empty(); ++i) {
       next.clear();
       ++generation_;
       for (const Thread& t : current) {
         if (t.edge < 0) continue;
         const Edge& e = nfa_.states[t.state].edges[t.edge];
-        if (nfa_.matches(e, text[i])) add(next, e.to, t.log, static_cast<int>(i) + 1, text[i]);
+        if (nfa_.matches(e, text[i]))
+          add(next, e.to, t.log, static_cast<int>(i) + 1, text[i],
+              t.wild + (e.kind == Edge::Kind::Any ? 1 : 0));
       }
       std::swap(current, next);
     }
@@ -309,6 +312,7 @@ class PikeVm {
       events.clear();
       for (const LogNode* n = t.log.get(); n; n = n->prev.get()) events.push_back({n->action, n->pos});
       std::reverse(events.begin(), events.end());
+      wildcard_chars = t.wild;
       return true;
     }
     return false;
@@ -319,6 +323,7 @@ class PikeVm {
     int state;
     int edge;  // consuming edge to follow, or -1 for an accepting thread
     Log log;
+    int wild;  // characters consumed by wildcards so far
   };
   struct Item {
     bool visit;  // true: explore `state`; false: emit a thread
@@ -334,7 +339,7 @@ class PikeVm {
 
   // Depth-first, in edge order, so threads are listed by priority. `prev` is
   // the character consumed last, which guard edges test.
-  void add(std::vector<Thread>& list, int state, Log log, int pos, char32_t prev) {
+  void add(std::vector<Thread>& list, int state, Log log, int pos, char32_t prev, int wild) {
     std::vector<Item> stack;
     stack.push_back({true, state, -1, std::move(log)});
     std::vector<Item> children;
@@ -342,7 +347,7 @@ class PikeVm {
       Item item = std::move(stack.back());
       stack.pop_back();
       if (!item.visit) {
-        list.push_back({item.state, item.edge, std::move(item.log)});
+        list.push_back({item.state, item.edge, std::move(item.log), wild});
         continue;
       }
       unsigned& mark = mark_[item.state - first_];
@@ -402,7 +407,7 @@ std::string escape_attribute(const std::string& value) {
   return out;
 }
 
-Match build_match(const Nfa& nfa, const std::string& label, int line,
+Match build_match(const Nfa& nfa, const std::string& label, int line, int specificity,
                   const std::vector<Event>& events, const std::string& original,
                   const NormalizedText& norm) {
   std::vector<Instance> instances;
@@ -457,6 +462,7 @@ Match build_match(const Nfa& nfa, const std::string& label, int line,
   Match m;
   m.label = label;
   m.line = line;
+  m.specificity = specificity;
   for (const Instance& inst : instances) {
     Slot s;
     s.name = nfa.slot_names[inst.slot];
@@ -540,6 +546,8 @@ struct Script::Impl {
   std::vector<UnusedDefinition> unused;
   int start = 0;
   mutable std::unique_ptr<LazyDfa> dfa;
+
+  std::vector<Match> match(const std::string& text, bool best) const;
 };
 
 Script::Script(std::unique_ptr<Impl> impl) : impl_(std::move(impl)) {}
@@ -589,19 +597,53 @@ LintReport Script::lint(std::size_t max_states) const {
 }
 
 std::vector<Match> Script::match(const std::string& text) const {
+  return impl_->match(text, false);
+}
+
+std::vector<Match> Script::match_best(const std::string& text) const {
+  return impl_->match(text, true);
+}
+
+// Picks one rule per matching label: its first matching rule, or with `best`
+// its most specific one. Labels keep the order of their first matching rule.
+std::vector<Match> Script::Impl::match(const std::string& text, bool best) const {
   NormalizedText norm = normalize(text);
-  std::vector<int> rules = impl_->dfa->accepted_rules(norm.text);
-  std::vector<Match> out;
-  if (rules.empty()) return out;
-  std::set<std::string> seen;
+  std::vector<int> accepted = dfa->accepted_rules(norm.text);
+  if (accepted.empty()) return {};
+  const int letters = static_cast<int>(
+      norm.text.size() - std::count(norm.text.begin(), norm.text.end(), U' '));
+
+  struct Found {
+    int rule;
+    std::vector<Event> events;
+    int specificity;
+  };
+  std::vector<Found> found;
+  std::map<std::string, std::size_t> label_index;
   std::vector<Event> events;
-  for (int id : rules) {
-    const CompiledRule& r = impl_->rules[id];
-    if (seen.count(r.label)) continue;
-    PikeVm vm(impl_->nfa, r.first, r.last);
-    if (!vm.run(r.start, norm.text, events)) continue;
-    seen.insert(r.label);
-    out.push_back(build_match(impl_->nfa, r.label, r.line, events, text, norm));
+  for (int id : accepted) {
+    const CompiledRule& r = rules[id];
+    auto it = label_index.find(r.label);
+    if (it != label_index.end() && !best) continue;
+    PikeVm vm(nfa, r.first, r.last);
+    int wildcard_chars = 0;
+    if (!vm.run(r.start, norm.text, events, wildcard_chars)) continue;
+    Found f{id, events, letters - wildcard_chars};
+    if (it == label_index.end()) {
+      label_index.emplace(r.label, found.size());
+      found.push_back(std::move(f));
+    } else if (f.specificity > found[it->second].specificity) {
+      found[it->second] = std::move(f);
+    }
+  }
+
+  int top = 0;
+  for (const Found& f : found) top = std::max(top, f.specificity);
+  std::vector<Match> out;
+  for (const Found& f : found) {
+    if (best && f.specificity < top) continue;
+    const CompiledRule& r = rules[f.rule];
+    out.push_back(build_match(nfa, r.label, r.line, f.specificity, f.events, text, norm));
   }
   return out;
 }

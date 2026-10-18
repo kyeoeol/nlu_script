@@ -40,6 +40,9 @@ NLU_SCRIPT_API size_t nlu_script_rule_count(const nlu_script* script);
 /* Matches `text` against every rule. Returns NULL if `script` is NULL or on
  * allocation failure. Accessors return NULL or 0 for out-of-range indices. */
 NLU_SCRIPT_API nlu_result* nlu_script_match(const nlu_script* script, const char* text);
+/* Keeps only the labels whose most specific rule has the highest
+ * specificity (see nlu_result_specificity). */
+NLU_SCRIPT_API nlu_result* nlu_script_match_best(const nlu_script* script, const char* text);
 NLU_SCRIPT_API void nlu_result_free(nlu_result* result);
 
 /* One entry per matched label. */
@@ -48,6 +51,9 @@ NLU_SCRIPT_API const char* nlu_result_label(const nlu_result* result, size_t mat
 NLU_SCRIPT_API const char* nlu_result_tagged(const nlu_result* result, size_t match);
 /* 1-based script line of the rule that matched. */
 NLU_SCRIPT_API int nlu_result_line(const nlu_result* result, size_t match);
+/* Input characters, not counting spaces, that the rule matched with pattern
+ * text rather than wildcards. */
+NLU_SCRIPT_API int nlu_result_specificity(const nlu_result* result, size_t match);
 
 NLU_SCRIPT_API size_t nlu_result_slot_count(const nlu_result* result, size_t match);
 NLU_SCRIPT_API const char* nlu_result_slot_name(const nlu_result* result, size_t match,

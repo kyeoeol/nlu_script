@@ -1,5 +1,6 @@
 // Reads sentences from stdin (one per line) and prints `label:tagged text` for
-// every matching label, or `-` when nothing matches.
+// every matching label, or `-` when nothing matches. With --best, prints only
+// the most specific labels (Script::match_best).
 //
 // With --test, runs script test files instead (see script_tests.hpp) and
 // exits with 1 if any case fails. With --lint, reports labels that match the
@@ -8,6 +9,7 @@
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <vector>
 
 #include "nlu_script/nlu_script.hpp"
 #include "script_tests.hpp"
@@ -15,20 +17,20 @@
 namespace {
 
 int usage(const char* program) {
-  std::cerr << "usage: " << program << " SCRIPT\n"
-            << "       " << program << " --test SCRIPT TESTS...\n"
+  std::cerr << "usage: " << program << " [--best] SCRIPT\n"
+            << "       " << program << " --test [--best] SCRIPT TESTS...\n"
             << "       " << program << " --lint SCRIPT\n";
   return 2;
 }
 
-int run_tests(const std::string& script_path, char** tests, int count) {
+int run_tests(const std::string& script_path, const std::vector<std::string>& tests, bool best) {
   nlu::Script script = nlu::Script::compile_file(script_path);
   nlu_tools::TestSummary total;
-  for (int i = 0; i < count; ++i) {
-    std::ifstream in(tests[i], std::ios::binary);
-    if (!in) throw std::runtime_error(std::string("cannot open ") + tests[i]);
+  for (const std::string& path : tests) {
+    std::ifstream in(path, std::ios::binary);
+    if (!in) throw std::runtime_error("cannot open " + path);
     nlu_tools::TestSummary s =
-        nlu_tools::run_script_tests(script, script_path, in, tests[i], std::cout);
+        nlu_tools::run_script_tests(script, script_path, in, path, std::cout, best);
     total.passed += s.passed;
     total.failed += s.failed;
   }
@@ -57,17 +59,24 @@ int run_lint(const std::string& script_path) {
 }  // namespace
 
 int main(int argc, char** argv) {
-  const std::string mode = argc >= 2 ? argv[1] : "";
-  const bool test = mode == "--test", lint = mode == "--lint";
-  if (test ? argc < 4 : argc != (lint ? 3 : 2)) return usage(argv[0]);
-  const std::string script_path = argv[test || lint ? 2 : 1];
+  std::vector<std::string> args(argv + 1, argv + argc);
+  const bool test = !args.empty() && args[0] == "--test";
+  const bool lint = !args.empty() && args[0] == "--lint";
+  if (test || lint) args.erase(args.begin());
+  const bool best = !lint && !args.empty() && args[0] == "--best";
+  if (best) args.erase(args.begin());
+  if (args.empty() || (test ? args.size() < 2 : args.size() != 1) ||
+      args[0].compare(0, 2, "--") == 0)
+    return usage(argv[0]);
+  const std::string script_path = args[0];
   try {
-    if (test) return run_tests(script_path, argv + 3, argc - 3);
+    if (test) return run_tests(script_path, {args.begin() + 1, args.end()}, best);
     if (lint) return run_lint(script_path);
     nlu::Script script = nlu::Script::compile_file(script_path);
     std::string line;
     while (std::getline(std::cin, line)) {
-      for (const std::string& out : nlu_tools::output_lines(script.match(line)))
+      for (const std::string& out :
+           nlu_tools::output_lines(best ? script.match_best(line) : script.match(line)))
         std::cout << out << "\n";
       std::cout.flush();
     }

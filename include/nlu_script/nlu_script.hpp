@@ -32,6 +32,9 @@ struct Match {
   std::vector<Slot> slots;  // ordered by the position of their opening tag
   std::string tagged;       // original input with slot tags inserted
   int line;                 // 1-based script line of the rule that matched
+  // Input characters, not counting spaces, that the rule matched with
+  // pattern text (literals and entities) rather than wildcards.
+  int specificity;
 };
 
 // Two labels that both match some input, found by Script::lint().
@@ -84,6 +87,11 @@ class Script {
   // order the labels' first matching rule appears in the script.
   // Safe to call concurrently from multiple threads.
   std::vector<Match> match(const std::string& text) const;
+
+  // Like match(), but scores every matching rule and keeps only the labels
+  // whose most specific rule has the highest specificity; each Match comes
+  // from that rule. Ties keep every such label, in script order.
+  std::vector<Match> match_best(const std::string& text) const;
 
   std::size_t rule_count() const;
 

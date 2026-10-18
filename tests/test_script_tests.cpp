@@ -22,12 +22,12 @@ struct Run {
   std::string report;
 };
 
-Run run(const std::string& tests) {
+Run run(const std::string& tests, bool best = false) {
   nlu::Script script = nlu::Script::compile(kScript);
   std::istringstream in(tests);
   std::ostringstream report;
   Run r;
-  r.summary = nlu_tools::run_script_tests(script, "rules.nlu", in, "rules.test", report);
+  r.summary = nlu_tools::run_script_tests(script, "rules.nlu", in, "rules.test", report, best);
   r.report = report.str();
   return r;
 }
@@ -61,6 +61,14 @@ TEST(expected_outputs_are_the_cli_output_lines) {
   CHECK_EQ(r.summary.passed, 3);
   CHECK_EQ(r.summary.failed, 0);
   CHECK_EQ(r.report, std::string());
+}
+
+TEST(best_mode_expects_only_the_most_specific_labels) {
+  const std::string tests =
+      "I lost my debit card\n"
+      "    card:lost:I lost my <card type=\"DEBIT\">debit card</card>\n";
+  CHECK_EQ(run(tests, true).summary.passed, 1);
+  CHECK_EQ(run(tests, false).summary.failed, 1);
 }
 
 TEST(failure_shows_where_and_what_differs) {

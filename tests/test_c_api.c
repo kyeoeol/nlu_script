@@ -42,6 +42,7 @@ static void test_match_with_slots(void) {
   CHECK(strcmp(nlu_result_slot_attribute_key(result, 0, 0, 0), "type") == 0);
   CHECK(strcmp(nlu_result_slot_attribute_value(result, 0, 0, 0), "DEBIT") == 0);
   CHECK(nlu_result_line(result, 0) == 2);
+  CHECK(nlu_result_specificity(result, 0) == 20);
   CHECK(nlu_result_label(result, 1) == NULL);
   CHECK(nlu_result_line(result, 1) == 0);
   CHECK(nlu_result_slot_name(result, 0, 5) == NULL);
@@ -58,6 +59,22 @@ static void test_match_with_slots(void) {
 
   result = nlu_script_match(script, "report a lost wallet");
   CHECK(nlu_result_count(result) == 0);
+  nlu_result_free(result);
+  nlu_script_free(script);
+}
+
+static void test_match_best(void) {
+  nlu_script* script = nlu_script_compile(
+      "card:lost\n    I lost my debit card\nreport:any\n    I <?>+?\n", NULL, NULL, NULL);
+  nlu_result* result;
+  CHECK(script != NULL);
+  if (!script) return;
+  result = nlu_script_match(script, "I lost my debit card");
+  CHECK(nlu_result_count(result) == 2);
+  nlu_result_free(result);
+  result = nlu_script_match_best(script, "I lost my debit card");
+  CHECK(nlu_result_count(result) == 1);
+  CHECK(strcmp(nlu_result_label(result, 0), "card:lost") == 0);
   nlu_result_free(result);
   nlu_script_free(script);
 }
@@ -86,6 +103,7 @@ static void test_missing_file(void) {
 
 int main(void) {
   test_match_with_slots();
+  test_match_best();
   test_compile_error();
   test_missing_file();
   printf("C API: %d failed checks\n", failures);
