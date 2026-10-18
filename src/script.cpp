@@ -646,8 +646,15 @@ Match build_match(const Nfa& nfa, const std::string& label, int line, int specif
   for (Instance& inst : instances) {
     const std::size_t begin = open_byte(inst);
     const std::string text = original.substr(begin, close_byte(inst) - begin);
-    if (inst.normalizer == Normalizer::KoreanNumber && korean_number_value(text, value))
+    std::string currency;
+    if ((inst.normalizer == Normalizer::KoreanNumber && korean_number_value(text, value)) ||
+        (inst.normalizer == Normalizer::EnglishNumber && english_number_value(text, value)) ||
+        (inst.normalizer == Normalizer::Ordinal && ordinal_value(text, value)))
       set_attribute(inst, "value", value);
+    if (inst.normalizer == Normalizer::Money && money_value(text, value, currency)) {
+      set_attribute(inst, "value", value);
+      set_attribute(inst, "currency", currency);
+    }
     if (inst.normalizer == Normalizer::DateTime)
       for (const auto& kv : datetime_attributes(text)) set_attribute(inst, kv.first, kv.second);
   }

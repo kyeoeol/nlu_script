@@ -82,6 +82,31 @@ NodePtr in_order(std::vector<NodePtr> items) {
   return n;
 }
 
+// Digits, with or without thousands separators: 35000, 35,000.
+NodePtr arabic_number() {
+  return choice({glued({digits(1, 3), repeated(glued({literal(U","), digits(3, 3)}), 1, -1)}),
+                 digits(1, -1)});
+}
+
+// One of the characters from `first` to `last`.
+NodePtr range(char32_t first, char32_t last) {
+  std::vector<NodePtr> options;
+  for (char32_t c = first; c <= last; ++c) options.push_back(literal(std::u32string(1, c)));
+  return choice(std::move(options));
+}
+
+// Native Korean numbers from 1 to 99: 하나, 열, 스물셋, 아흔아홉, and the
+// forms used before a counter (한, 두, 세, 네, 스무).
+NodePtr native_korean_number() {
+  static const char32_t* const kOnes[] = {U"하나", U"둘", U"셋", U"넷", U"다섯",
+                                          U"여섯", U"일곱", U"여덟", U"아홉", nullptr};
+  static const char32_t* const kCountingOnes[] = {U"한", U"두", U"세", U"네", nullptr};
+  static const char32_t* const kTens[] = {U"열", U"스물", U"서른", U"마흔", U"쉰",
+                                          U"예순", U"일흔", U"여든", U"아흔", nullptr};
+  NodePtr ones = choice({literals(kOnes), literals(kCountingOnes)});
+  return choice({glued({literals(kTens), optional(ones)}), ones, literal(U"스무")});
+}
+
 // Numbers written with digits and Korean numerals: 35000, 35,000, 3만 5천,
 // 삼만오천, 2,500만, 1억 2천만. Below 만 a number is either digits or
 // numerals (with single digits allowed for numerals: 3천5백); 만, 억 and 조
@@ -94,9 +119,7 @@ NodePtr korean_number() {
                                             U"8", U"9", nullptr};
   NodePtr sino = literals(kSinoDigits);
   NodePtr d = choice({sino, literals(kDigits)});
-  NodePtr comma_groups =
-      glued({digits(1, 3), repeated(glued({literal(U","), digits(3, 3)}), 1, -1)});
-  NodePtr arabic = choice({comma_groups, digits(1, -1)});
+  NodePtr arabic = arabic_number();
 
   // Below 10,000 in numerals: [d]천 [d]백 [d]십 [d], highest unit first.
   NodePtr ten = glued({optional(d), literal(U"십"), optional(d)});
@@ -106,17 +129,111 @@ NodePtr korean_number() {
 
   // [small]조 [small]억 [small]만 [small], highest unit first, any of them.
   auto group = [&](const char32_t* unit) { return glued({optional(small), literal(unit)}); };
-  return in_order({group(U"조"), group(U"억"), group(U"만"), small});
+  return choice(
+      {in_order({group(U"조"), group(U"억"), group(U"만"), small}), native_korean_number()});
+}
+
+// --- ORDINAL, EN_NUMBER, MONEY ---------------------------------------------------
+
+const char32_t* const kEnglishUnits[] = {U"one", U"two", U"three", U"four", U"five", U"six",
+                                         U"seven", U"eight", U"nine", nullptr};
+const char32_t* const kEnglishTeens[] = {U"ten",      U"eleven",  U"twelve",   U"thirteen",
+                                         U"fourteen", U"fifteen", U"sixteen",  U"seventeen",
+                                         U"eighteen", U"nineteen", nullptr};
+const char32_t* const kEnglishTens[] = {U"twenty", U"thirty",  U"forty",  U"fifty",
+                                        U"sixty",  U"seventy", U"eighty", U"ninety", nullptr};
+
+// One to 999,999,999,999 in English words, or in digits: twenty-one, two
+// hundred and five, three thousand five hundred, 3 million, 1,250.
+NodePtr english_number() {
+  NodePtr units = literals(kEnglishUnits);
+  NodePtr tens = literals(kEnglishTens);
+  NodePtr below_100 = choice({glued({tens, literal(U"-"), units}), spaced({tens, units}), tens,
+                              literals(kEnglishTeens), units, literal(U"zero")});
+  NodePtr hundreds_of = spaced({choice({units, literal(U"a")}), literal(U"hundred")});
+  NodePtr below_1000 = choice({spaced({hundreds_of, literal(U"and"), below_100}),
+                               spaced({hundreds_of, below_100}), hundreds_of, below_100});
+  auto scale = [&](const char32_t* word) {
+    return spaced({choice({below_1000, arabic_number(), literal(U"a")}), literal(word)});
+  };
+  return choice({in_order({scale(U"billion"), scale(U"million"), scale(U"thousand"), below_1000}),
+                 arabic_number()});
+}
+
+// 첫 번째, 두번째, 3번째, 셋째; first, twelfth, twenty-first, 21st.
+NodePtr ordinal() {
+  static const char32_t* const kCountingOnes[] = {U"한", U"두", U"세", U"네", U"다섯",
+                                                  U"여섯", U"일곱", U"여덟", U"아홉", nullptr};
+  static const char32_t* const kNativeTens[] = {U"열", U"스물", U"서른", U"마흔", U"쉰",
+                                                U"예순", U"일흔", U"여든", U"아흔", nullptr};
+  static const char32_t* const kTh[] = {U"첫", U"둘", U"셋", U"넷", U"다섯", U"여섯",
+                                        U"일곱", U"여덟", U"아홉", U"열", nullptr};
+  NodePtr counting = choice({glued({literals(kNativeTens), optional(literals(kCountingOnes))}),
+                             literals(kCountingOnes), literal(U"첫"), literal(U"스무")});
+  NodePtr korean = choice({spaced({choice({counting, digits(1, 3)}), literal(U"번째")}),
+                           glued({literals(kTh), literal(U"째")})});
+
+  // Digits with the suffix their last digits call for: 1st, 11th, 21st, 3rd.
+  NodePtr not_one = choice({literal(U"0"), range(U'2', U'9')});
+  NodePtr lead = optional(glued({digits(0, -1), not_one}));
+  NodePtr suffixed = choice({glued({digits(0, -1), literal(U"1"), range(U'0', U'9'), literal(U"th")}),
+                             glued({lead, literal(U"1st")}), glued({lead, literal(U"2nd")}),
+                             glued({lead, literal(U"3rd")}),
+                             glued({lead, choice({literal(U"0"), range(U'4', U'9')}), literal(U"th")})});
+  static const char32_t* const kOnesOrdinal[] = {U"first", U"second", U"third", U"fourth",
+                                                 U"fifth", U"sixth",  U"seventh", U"eighth",
+                                                 U"ninth", nullptr};
+  static const char32_t* const kOtherOrdinals[] = {
+      U"tenth",       U"eleventh",   U"twelfth",     U"thirteenth", U"fourteenth",
+      U"fifteenth",   U"sixteenth",  U"seventeenth", U"eighteenth", U"nineteenth",
+      U"twentieth",   U"thirtieth",  U"fortieth",    U"fiftieth",   U"sixtieth",
+      U"seventieth",  U"eightieth",  U"ninetieth",   nullptr};
+  NodePtr ones = literals(kOnesOrdinal);
+  NodePtr tens = literals(kEnglishTens);
+  NodePtr english = choice({glued({tens, literal(U"-"), ones}), spaced({tens, ones}), ones,
+                            literals(kOtherOrdinals), suffixed});
+  return choice({korean, english});
+}
+
+// An amount with its currency: 3만 원, 50달러, $12.50, €10, fifty dollars,
+// 20 bucks, USD 50, 50 GBP.
+NodePtr money() {
+  NodePtr decimal =
+      glued({arabic_number(), optional(glued({literal(U"."), digits(1, 2)}))});
+  static const char32_t* const kCurrenciesKo[] = {U"원", U"달러", U"불", U"엔", U"유로",
+                                                  U"위안", U"파운드", nullptr};
+  static const char32_t* const kSymbols[] = {U"$", U"₩", U"€", U"£", U"¥", nullptr};
+  static const char32_t* const kCurrenciesEn[] = {
+      U"dollar", U"dollars", U"buck", U"bucks", U"euro",  U"euros", U"yen",
+      U"won",    U"pound",   U"pounds", U"yuan", nullptr};
+  static const char32_t* const kCodes[] = {U"usd", U"krw", U"eur", U"jpy", U"gbp", U"cny",
+                                           nullptr};
+  NodePtr codes = literals(kCodes);
+  return choice({spaced({choice({korean_number(), decimal}), literals(kCurrenciesKo)}),
+                 spaced({literals(kSymbols), decimal}),
+                 spaced({choice({decimal, english_number()}), literals(kCurrenciesEn)}),
+                 spaced({codes, decimal}), spaced({decimal, codes})});
+}
+
+// Phone numbers: Korean (010-9876-5432, 031-765-4321, 01098765432),
+// international (+1 555-123-4567, +44 20 7946 0958, +82 10-9876-5432) and
+// North American ((555) 123-4567, 555.123.4567).
+NodePtr phone_number() {
+  NodePtr korean_separator = optional(choice({literal(U"-"), literal(U" ")}));
+  NodePtr korean = glued({literal(U"0"), digits(1, 2), korean_separator, digits(3, 4),
+                          korean_separator, digits(4, 4)});
+  NodePtr separator = optional(choice({literal(U"-"), literal(U" "), literal(U".")}));
+  NodePtr area = choice({glued({literal(U"("), digits(1, 4), literal(U")")}), digits(1, 4)});
+  NodePtr international =
+      glued({literal(U"+"), digits(1, 3), separator, area, separator, digits(2, 4), separator,
+             digits(2, 4), optional(glued({separator, digits(2, 4)}))});
+  NodePtr north_american =
+      glued({choice({glued({literal(U"("), digits(3, 3), literal(U")")}), digits(3, 3)}),
+             separator, digits(3, 3), separator, digits(4, 4)});
+  return choice({korean, international, north_american});
 }
 
 // --- DATETIME ---------------------------------------------------------------
-
-// One of the characters from `first` to `last`.
-NodePtr range(char32_t first, char32_t last) {
-  std::vector<NodePtr> options;
-  for (char32_t c = first; c <= last; ++c) options.push_back(literal(std::u32string(1, c)));
-  return choice(std::move(options));
-}
 
 // Two-digit fields within their ranges, with an optional leading zero.
 NodePtr month_digits() {
@@ -286,11 +403,11 @@ const std::map<std::string, SystemEntity>& system_entities() {
   static const std::map<std::string, SystemEntity> entities = [] {
     std::map<std::string, SystemEntity> m;
     m["NUMBER"] = {digits(1, -1), Normalizer::None};
-    NodePtr separator = optional(choice({literal(U"-"), literal(U" ")}));
-    m["TELNUM"] = {glued({literal(U"0"), digits(1, 2), separator, digits(3, 4), separator,
-                          digits(4, 4)}),
-                   Normalizer::None};
+    m["TELNUM"] = {phone_number(), Normalizer::None};
     m["KO_NUMBER"] = {korean_number(), Normalizer::KoreanNumber};
+    m["EN_NUMBER"] = {english_number(), Normalizer::EnglishNumber};
+    m["ORDINAL"] = {ordinal(), Normalizer::Ordinal};
+    m["MONEY"] = {money(), Normalizer::Money};
     m["DATETIME"] = {datetime(), Normalizer::DateTime};
     return m;
   }();

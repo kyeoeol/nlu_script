@@ -349,12 +349,20 @@ space.
 | `@var.{name}` | regex variable: its pattern, inlined |
 | `` `@{NAME} `` | system entity, captured as slot `<NAME>` |
 
-System entities: `NUMBER` (digits), `TELNUM` (Korean phone numbers such as
-`010-9876-5432`, `031-765-4321`, `01098765432`), `KO_NUMBER` (numbers in
-digits and Korean numerals) and `DATETIME` (dates and times), described
-below. They work the same in Korean and
-English sentences (``change my phone number to `@{TELNUM}``); `TELNUM` does
-not yet recognize other countries' number formats.
+System entities:
+
+| Entity | Matches | Attributes |
+|---|---|---|
+| `NUMBER` | digits | |
+| `TELNUM` | phone numbers: Korean (`010-9876-5432`, `031-765-4321`, `01098765432`), international (`+1 555-123-4567`, `+44 20 7946 0958`), North American (`(555) 123-4567`, `555.123.4567`) | |
+| `KO_NUMBER` | numbers in digits and Korean numerals (`3만 5천`, `삼만오천`), native ones (`스물셋`) | `value` |
+| `EN_NUMBER` | numbers in English words or digits (`twenty-one`, `two hundred and five`, `3 million`) | `value` |
+| `ORDINAL` | `첫 번째`, `두번째`, `3번째`, `셋째`, `first`, `twelfth`, `twenty-first`, `21st` | `value` |
+| `MONEY` | `3만 원`, `5,000원`, `50달러`, `$12.50`, `€10`, `fifty dollars`, `20 bucks`, `USD 50` | `value`, `currency` (`KRW`, `USD`, `EUR`, `JPY`, `GBP`, `CNY`) |
+| `DATETIME` | dates, times, ranges and durations | described below |
+
+They work the same in Korean and English sentences (``change my phone
+number to `@{TELNUM}``).
 
 `KO_NUMBER` matches `35000`, `35,000`, `3만 5천`, `3만5천`, `삼만오천`,
 `2,500만`, `1억 2천만` and the like (units 십, 백, 천, 만, 억, 조, with
@@ -366,8 +374,10 @@ sino-Korean digits 일 to 구 or Arabic digits). Its slot gets the number as a
   "삼만 오천 원 보내줘" -> <amount><KO_NUMBER value="35000">삼만 오천</KO_NUMBER></amount> 원 보내줘
 ```
 
-Values of 10^18 or more match without a `value`. Native Korean numbers
-(하나, 둘, 세) are not recognized.
+Values of 10^18 or more match without a `value`. Native Korean numbers go
+up to 99 (`하나`, `열`, `스물셋`, `아흔아홉`), including the forms used before a
+counter (`한`, `두`, `세`, `네`, `스무`). `MONEY` keeps decimals as written
+(`$12.50` gives `value="12.50"`) and reads Korean or English amounts.
 
 `DATETIME` matches dates and times in Korean and English and describes them
 with attributes relative to now, which the caller resolves against its own
