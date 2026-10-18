@@ -28,6 +28,12 @@ card:freeze
     [freeze|lock] my card (ending in <last4>@var.{digit}@var.{digit}@var.{digit}@var.{digit}</last4>)
     (끝자리 <last4>@var.{digit}@var.{digit}@var.{digit}@var.{digit}</last4>) 카드 [정지|잠금] (해주세요|해줘)
 
+# These labels capture free text (a recipient, a merchant, an account name),
+# so each also matches some sentence written for another of them, such as
+# "send 5 won to 결제 환불해줘". That is accepted here; use match_best() to
+# prefer the rule that matched more of the sentence literally.
+# lint: allow-overlap transfer:send payment:refund account:close
+
 transfer:send
     send <amount><?>+?</amount> [dollars{amount.currency=USD}|won{amount.currency=KRW}] to <recipient><?>+?</recipient>
     <recipient><?>+?</recipient>::[한테|에게] <amount>`@{KO_NUMBER}</amount> [달러{amount.currency=USD}|원{amount.currency=KRW}] [보내줘|송금해줘]

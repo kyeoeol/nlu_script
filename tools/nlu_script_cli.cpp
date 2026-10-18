@@ -43,6 +43,8 @@ int run_lint(const std::string& script_path) {
   std::vector<std::pair<int, std::string>> findings;
   for (const nlu::UnusedDefinition& d : report.unused)
     findings.emplace_back(d.line, d.name + " is never used");
+  for (const nlu::LintDirectiveError& e : report.directive_errors)
+    findings.emplace_back(e.line, e.message);
   for (const nlu::Overlap& o : report.overlaps)
     findings.emplace_back(o.line, o.label + " and " + o.other_label + " (line " +
                                       std::to_string(o.other_line) + ") both match \"" +
@@ -52,7 +54,11 @@ int run_lint(const std::string& script_path) {
   for (const auto& f : findings) std::cout << script_path << ":" << f.first << ": " << f.second << "\n";
   if (!report.complete)
     std::cout << "note: the automaton is too large to search fully; more overlaps may exist\n";
-  std::cout << findings.size() << (findings.size() == 1 ? " finding\n" : " findings\n");
+  std::cout << findings.size() << (findings.size() == 1 ? " finding" : " findings");
+  if (const std::size_t n = report.allowed_overlaps.size())
+    std::cout << " (" << n << (n == 1 ? " intended overlap" : " intended overlaps")
+              << " allowed by lint comments)";
+  std::cout << "\n";
   return findings.empty() ? 0 : 1;
 }
 

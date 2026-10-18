@@ -88,18 +88,33 @@ can run in CI.
 variables that no rule uses:
 
 ```sh
-./build/nlu_script_cli --lint examples/demo.nlu
-# examples/demo.nlu:32: transfer:send and payment:refund (line 41) both match "send x won to 결제 환불해줘"
-# ...
+./build/nlu_script_cli --lint rules.nlu
+# rules.nlu:32: transfer:send and payment:refund (line 41) both match "send x won to 결제 환불해줘"
+# 1 finding
 ```
 
 Each overlap names the first rule of each label that matches, and gives the
 shortest input that both match (normalized, so in lowercase), with `x`
-standing in for any text a wildcard accepts. Some overlaps are intended, and
-wildcards produce many. Read each one and decide whether a label needs an
-exclusion. The search explores the automaton of all rules, up to 100,000
-states. If it stops there, the output says that more overlaps may exist. The
-exit status is 1 when there are findings.
+standing in for any text a wildcard accepts. Read each one and decide whether
+a label needs an exclusion, or whether `match_best()` should pick between
+them. The search explores the automaton of all rules, up to 100,000 states.
+If it stops there, the output says that more overlaps may exist.
+
+Some overlaps are intended, and wildcards produce many. Mark them with a
+comment anywhere in the script:
+
+```
+# lint: allow-overlap transfer:send payment:refund account:close
+# lint: allow-overlap report:any *
+```
+
+The first line allows overlaps between any two of the listed labels; `*`
+allows every overlap of the other labels on its line. Allowed overlaps are
+counted but not listed. An unknown label or command in a `# lint:` comment is
+a finding itself; such comments never affect matching.
+
+The exit status is 1 when there are findings, so `--lint` can run in CI; the
+demo script is linted that way in `ctest`.
 
 ## Script files
 

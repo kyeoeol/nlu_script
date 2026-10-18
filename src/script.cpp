@@ -45,10 +45,31 @@ struct Rule {
   NodePtr pattern;
 };
 
+// A `# lint: <command> <args...>` comment.
+struct LintDirective {
+  int line;
+  std::string command;
+  std::vector<std::string> args;
+};
+
 struct ParsedScript {
   Definitions defs;
   std::vector<Rule> rules;
+  std::vector<LintDirective> lint_directives;
 };
+
+// Reads a comment line as a lint directive if its text starts with "lint:".
+bool parse_lint_directive(const std::string& comment, int line, LintDirective& out) {
+  std::istringstream words(comment.substr(comment.find('#') + 1));
+  std::string head;
+  if (!(words >> head) || head.compare(0, 5, "lint:") != 0) return false;
+  out.line = line;
+  out.command = head.substr(5);
+  if (out.command.empty()) words >> out.command;
+  out.args.clear();
+  for (std::string word; words >> word;) out.args.push_back(word);
+  return true;
+}
 
 std::u32string trim(const std::u32string& s, std::size_t* leading = nullptr) {
   std::size_t b = 0;
@@ -101,7 +122,13 @@ ParsedScript parse_script(const std::string& source) {
     for (const DecodedChar& d : chars) line += d.code;
     std::size_t first = 0;
     while (first < line.size() && is_space(line[first])) ++first;
-    if (first == line.size() || line[first] == U'#') continue;
+    if (first == line.size()) continue;
+    if (line[first] == U'#') {
+      LintDirective directive;
+      if (parse_lint_directive(raw, line_no, directive))
+        out.lint_directives.push_back(std::move(directive));
+      continue;
+    }
     const int column = static_cast<int>(first) + 1;
 
     if (first > 0) {
@@ -554,6 +581,7 @@ struct Script::Impl {
   Nfa nfa;
   std::vector<CompiledRule> rules;
   std::vector<UnusedDefinition> unused;
+  std::vector<LintDirective> lint_directives;
   int start = 0;
   mutable std::unique_ptr<LazyDfa> dfa;
 
@@ -581,6 +609,7 @@ Script Script::compile(const std::string& source) {
     impl->rules.push_back(std::move(r));
   }
   impl->unused = unused_definitions(parsed);
+  impl->lint_directives = std::move(parsed.lint_directives);
   impl->dfa = std::make_unique<LazyDfa>(impl->nfa, impl->start);
   return Script(std::move(impl));
 }
@@ -603,7 +632,47 @@ LintReport Script::lint(std::size_t max_states) const {
     lines.push_back(r.line);
   }
   OverlapSearch search = find_overlaps(impl_->nfa, impl_->start, labels, lines, max_states);
-  return LintReport{std::move(search.overlaps), impl_->unused, search.complete};
+
+  LintReport report;
+  report.unused = impl_->unused;
+  report.complete = search.complete;
+
+  // `# lint: allow-overlap A B ...` allows overlaps among its labels; `*`
+  // stands for every label.
+  const std::set<std::string> known(labels.begin(), labels.end());
+  std::vector<std::set<std::string>> allowed;
+  for (const LintDirective& d : impl_->lint_directives) {
+    auto error = [&](const std::string& message) {
+      report.directive_errors.push_back({d.line, message});
+    };
+    if (d.command != "allow-overlap") {
+      error("unknown lint command '" + d.command + "'; expected allow-overlap");
+      continue;
+    }
+    if (d.args.size() < 2) {
+      error("allow-overlap needs two or more labels, or a label and *");
+      continue;
+    }
+    bool valid = true;
+    for (const std::string& label : d.args) {
+      if (label != "*" && !known.count(label)) {
+        error("allow-overlap names unknown label '" + label + "'");
+        valid = false;
+      }
+    }
+    if (valid) allowed.emplace_back(d.args.begin(), d.args.end());
+  }
+  auto is_allowed = [&](const Overlap& o) {
+    for (const std::set<std::string>& group : allowed) {
+      const bool star = group.count("*") > 0;
+      const bool a = group.count(o.label) > 0, b = group.count(o.other_label) > 0;
+      if ((a && b) || (star && (a || b))) return true;
+    }
+    return false;
+  };
+  for (Overlap& o : search.overlaps)
+    (is_allowed(o) ? report.allowed_overlaps : report.overlaps).push_back(std::move(o));
+  return report;
 }
 
 std::vector<Match> Script::match(const std::string& text) const {

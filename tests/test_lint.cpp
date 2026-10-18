@@ -136,3 +136,54 @@ TEST(lint_follows_particle_pairs) {
   CHECK_EQ(labels(s, report.overlaps[0].example),
            (std::vector<std::string>{"close:any", "close:vowel"}));
 }
+
+namespace {
+
+const char* kOverlapping =
+    "card:lost\n"
+    "    I lost my card\n"
+    "report:any\n"
+    "    I <?>+?\n"
+    "report:card\n"
+    "    <?>+? card\n";
+
+std::vector<std::string> pairs(const std::vector<nlu::Overlap>& overlaps) {
+  std::vector<std::string> out;
+  for (const nlu::Overlap& o : overlaps) out.push_back(o.label + " & " + o.other_label);
+  return out;
+}
+
+}  // namespace
+
+TEST(lint_comment_allows_overlaps_among_its_labels) {
+  nlu::Script s = nlu::Script::compile(std::string(kOverlapping) +
+                                       "# lint: allow-overlap card:lost report:any\n");
+  nlu::LintReport report = s.lint();
+  CHECK_EQ(pairs(report.overlaps), (std::vector<std::string>{"card:lost & report:card",
+                                                             "report:any & report:card"}));
+  CHECK_EQ(pairs(report.allowed_overlaps), (std::vector<std::string>{"card:lost & report:any"}));
+  CHECK(report.directive_errors.empty());
+}
+
+TEST(lint_comment_star_allows_every_overlap_of_a_label) {
+  nlu::Script s = nlu::Script::compile(
+      "# lint: allow-overlap report:any *\n"
+      "#lint:allow-overlap   report:card card:lost\n" + std::string(kOverlapping));
+  nlu::LintReport report = s.lint();
+  CHECK(report.overlaps.empty());
+  CHECK_EQ(report.allowed_overlaps.size(), 3u);
+}
+
+TEST(lint_comment_mistakes_are_reported) {
+  nlu::Script s = nlu::Script::compile(std::string(kOverlapping) +
+                                       "# lint: allow-overlap card:lsot report:any\n"
+                                       "# lint: allow-overlap card:lost\n"
+                                       "# lint: allow-overlpa card:lost report:any\n"
+                                       "# lint is not run on this script\n");
+  nlu::LintReport report = s.lint();
+  std::vector<std::string> lines;
+  for (const nlu::LintDirectiveError& e : report.directive_errors)
+    lines.push_back(std::to_string(e.line));
+  CHECK_EQ(lines, (std::vector<std::string>{"7", "8", "9"}));
+  CHECK_EQ(report.overlaps.size(), 3u);
+}
