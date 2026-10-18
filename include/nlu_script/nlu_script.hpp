@@ -61,6 +61,31 @@ struct Overlap {
   std::string example;      // a shortest normalized input that both labels match
   std::string file;         // script files of the two rules (see Match::file)
   std::string other_file;
+  // The label match_best() returns on every input both labels match, since
+  // one of its rules matches each such input without wildcards and the other
+  // label always needs one; empty if they may tie.
+  std::string best_label;
+};
+
+// A rule match() never uses: every input it matches is matched by an earlier
+// rule of the same label first, or it matches nothing at all.
+struct DeadRule {
+  std::string label;
+  int line;
+  std::string file;
+  bool matches_nothing;
+  // The earlier rule that matches everything this one does; 0 when it takes
+  // several earlier rules together (or matches_nothing).
+  int covered_by_line;
+  std::string covered_by_file;
+};
+
+// One lint finding, as `nlu_script_cli --lint` prints it.
+struct LintFinding {
+  std::string kind;  // "overlap", "dead-rule", "unused" or "directive"
+  std::string file;
+  int line;
+  std::string message;
 };
 
 // An entity or variable that no rule uses, directly or through other
@@ -79,12 +104,19 @@ struct LintDirectiveError {
 };
 
 struct LintReport {
-  std::vector<Overlap> overlaps;          // ordered by line, then other_line
+  std::vector<Overlap> overlaps;          // in script order of their rules
   // Overlaps that a `# lint: allow-overlap` comment marks as intended.
-  std::vector<Overlap> allowed_overlaps;  // ordered by line, then other_line
-  std::vector<UnusedDefinition> unused;   // ordered by line
-  std::vector<LintDirectiveError> directive_errors;  // ordered by line
-  bool complete;  // false if the overlap search stopped at its state limit
+  std::vector<Overlap> allowed_overlaps;  // in script order of their rules
+  // Found only when the search is complete.
+  std::vector<DeadRule> dead_rules;       // in script order
+  std::vector<UnusedDefinition> unused;   // ordered by file and line
+  std::vector<LintDirectiveError> directive_errors;  // ordered by file and line
+  bool complete;  // false if the search stopped at its state limit
+  std::vector<std::string> files;  // script files: the main one, then included ones
+
+  // Every finding, ordered by file and line. With `best`, overlaps that
+  // match_best() resolves (best_label set) are left out.
+  std::vector<LintFinding> findings(bool best = false) const;
 };
 
 // One error in a script.

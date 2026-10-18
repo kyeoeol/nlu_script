@@ -10,7 +10,6 @@
 #include <fstream>
 #include <iostream>
 #include <string>
-#include <tuple>
 #include <vector>
 
 #include "nlu_script/nlu_script.hpp"
@@ -21,7 +20,7 @@ namespace {
 int usage(const char* program) {
   std::cerr << "usage: " << program << " [--best | --explain] SCRIPT\n"
             << "       " << program << " --test [--best] SCRIPT TESTS...\n"
-            << "       " << program << " --lint SCRIPT\n";
+            << "       " << program << " --lint [--best] [--verbose] SCRIPT\n";
   return 2;
 }
 
@@ -40,39 +39,40 @@ int run_tests(const std::string& script_path, const std::vector<std::string>& te
   return total.failed == 0 ? 0 : 1;
 }
 
-int run_lint(const std::string& script_path) {
+int run_lint(const std::string& script_path, bool best, bool verbose) {
   nlu::LintReport report = nlu::Script::compile_file(script_path).lint();
-  // file:line: message, ordered by file (as found) and line.
-  std::vector<std::string> files;
-  std::vector<std::tuple<std::size_t, int, std::string>> findings;
-  auto add = [&](const std::string& file, int line, const std::string& message) {
-    std::size_t index = std::find(files.begin(), files.end(), file) - files.begin();
-    if (index == files.size()) files.push_back(file);
-    findings.emplace_back(index, line, message);
-  };
-  for (const nlu::UnusedDefinition& d : report.unused) add(d.file, d.line, d.name + " is never used");
-  for (const nlu::LintDirectiveError& e : report.directive_errors) add(e.file, e.line, e.message);
+  auto file_of = [&](const std::string& file) { return file.empty() ? script_path : file; };
+  std::vector<nlu::LintFinding> findings = report.findings(best);
+  for (const nlu::LintFinding& f : findings)
+    std::cout << file_of(f.file) << ":" << f.line << ": " << f.message << "\n";
+  std::size_t resolved = 0;
   for (const nlu::Overlap& o : report.overlaps) {
-    std::string other = o.other_file == o.file ? "line " + std::to_string(o.other_line)
-                                               : o.other_file + ":" + std::to_string(o.other_line);
-    add(o.file, o.line,
-        o.label + " and " + o.other_label + " (" + other + ") both match \"" + o.example + "\"");
+    if (!best || o.best_label.empty()) continue;
+    ++resolved;
+    if (verbose)
+      std::cout << file_of(o.file) << ":" << o.line << ": note: " << o.label << " and "
+                << o.other_label << " overlap, but match_best() always picks " << o.best_label
+                << "\n";
   }
-  std::stable_sort(findings.begin(), findings.end(), [](const auto& a, const auto& b) {
-    return std::tie(std::get<0>(a), std::get<1>(a)) < std::tie(std::get<0>(b), std::get<1>(b));
-  });
-  for (const auto& f : findings) {
-    const std::string& file = files[std::get<0>(f)];
-    std::cout << (file.empty() ? script_path : file) << ":" << std::get<1>(f) << ": "
-              << std::get<2>(f) << "\n";
+  if (verbose) {
+    for (const nlu::Overlap& o : report.allowed_overlaps)
+      std::cout << file_of(o.file) << ":" << o.line << ": note: " << o.label << " and "
+                << o.other_label << " both match \"" << o.example
+                << "\" (allowed by a lint comment)\n";
   }
   if (!report.complete)
-    std::cout << "note: the automaton is too large to search fully; more overlaps may exist\n";
+    std::cout << "note: the automaton is too large to search fully; more overlaps may exist, "
+                 "and dead rules were not checked\n";
   std::cout << findings.size() << (findings.size() == 1 ? " finding" : " findings");
+  std::vector<std::string> notes;
   if (const std::size_t n = report.allowed_overlaps.size())
-    std::cout << " (" << n << (n == 1 ? " intended overlap" : " intended overlaps")
-              << " allowed by lint comments)";
-  std::cout << "\n";
+    notes.push_back(std::to_string(n) + (n == 1 ? " intended overlap" : " intended overlaps") +
+                    " allowed by lint comments");
+  if (resolved)
+    notes.push_back(std::to_string(resolved) + (resolved == 1 ? " overlap" : " overlaps") +
+                    " resolved by match_best()");
+  for (std::size_t k = 0; k < notes.size(); ++k) std::cout << (k ? "; " : " (") << notes[k];
+  std::cout << (notes.empty() ? "\n" : ")\n");
   return findings.empty() ? 0 : 1;
 }
 
@@ -83,8 +83,11 @@ int main(int argc, char** argv) {
   const bool test = !args.empty() && args[0] == "--test";
   const bool lint = !args.empty() && args[0] == "--lint";
   if (test || lint) args.erase(args.begin());
-  const bool best = !lint && !args.empty() && args[0] == "--best";
-  if (best) args.erase(args.begin());
+  bool best = false, verbose = false;
+  while (!args.empty() && (args[0] == "--best" || (lint && args[0] == "--verbose"))) {
+    (args[0] == "--best" ? best : verbose) = true;
+    args.erase(args.begin());
+  }
   const bool explain = !test && !lint && !best && !args.empty() && args[0] == "--explain";
   if (explain) args.erase(args.begin());
   if (args.empty() || (test ? args.size() < 2 : args.size() != 1) ||
@@ -93,7 +96,7 @@ int main(int argc, char** argv) {
   const std::string script_path = args[0];
   try {
     if (test) return run_tests(script_path, {args.begin() + 1, args.end()}, best);
-    if (lint) return run_lint(script_path);
+    if (lint) return run_lint(script_path, best, verbose);
     nlu::Script script = nlu::Script::compile_file(script_path);
     std::string line;
     while (std::getline(std::cin, line)) {

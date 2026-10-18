@@ -18,6 +18,12 @@ struct nlu_explanation {
   std::vector<nlu::Explanation> items;
 };
 
+struct nlu_lint {
+  std::vector<nlu::LintFinding> findings;
+  size_t allowed;
+  bool complete;
+};
+
 namespace {
 
 char* copy_string(const std::string& s) {
@@ -53,6 +59,10 @@ const nlu::Match* match_at(const nlu_result* r, size_t match) {
 
 const nlu::Explanation* explanation_at(const nlu_explanation* e, size_t i) {
   return e && i < e->items.size() ? &e->items[i] : nullptr;
+}
+
+const nlu::LintFinding* finding_at(const nlu_lint* l, size_t i) {
+  return l && i < l->findings.size() ? &l->findings[i] : nullptr;
 }
 
 const nlu::Slot* slot_at(const nlu_result* r, size_t match, size_t slot) {
@@ -222,6 +232,45 @@ const char* nlu_explanation_expected(const nlu_explanation* e, size_t i, size_t 
   const nlu::Explanation* x = explanation_at(e, i);
   return x && j < x->expected.size() ? x->expected[j].c_str() : nullptr;
 }
+
+nlu_lint* nlu_script_lint(const nlu_script* script, int best) {
+  if (!script) return nullptr;
+  try {
+    nlu::LintReport report = script->script.lint();
+    return new nlu_lint{report.findings(best != 0), report.allowed_overlaps.size(),
+                        report.complete};
+  } catch (const std::exception&) {
+    return nullptr;
+  }
+}
+
+void nlu_lint_free(nlu_lint* l) { delete l; }
+
+size_t nlu_lint_count(const nlu_lint* l) { return l ? l->findings.size() : 0; }
+
+const char* nlu_lint_kind(const nlu_lint* l, size_t i) {
+  const nlu::LintFinding* f = finding_at(l, i);
+  return f ? f->kind.c_str() : nullptr;
+}
+
+const char* nlu_lint_file(const nlu_lint* l, size_t i) {
+  const nlu::LintFinding* f = finding_at(l, i);
+  return f ? f->file.c_str() : nullptr;
+}
+
+int nlu_lint_line(const nlu_lint* l, size_t i) {
+  const nlu::LintFinding* f = finding_at(l, i);
+  return f ? f->line : 0;
+}
+
+const char* nlu_lint_message(const nlu_lint* l, size_t i) {
+  const nlu::LintFinding* f = finding_at(l, i);
+  return f ? f->message.c_str() : nullptr;
+}
+
+size_t nlu_lint_allowed(const nlu_lint* l) { return l ? l->allowed : 0; }
+
+int nlu_lint_complete(const nlu_lint* l) { return l && l->complete ? 1 : 0; }
 
 void nlu_string_free(char* string) { std::free(string); }
 

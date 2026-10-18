@@ -87,6 +87,15 @@ class ScriptTest(unittest.TestCase):
         finally:
             os.remove(path)
 
+    def test_lint_reports_findings(self):
+        script = nlu_script.Script("card:lost\n    I lost my <?>+?\n    I lost my card\n"
+                                   "report:any\n    I <?>+?\n"
+                                   "# lint: allow-overlap report:any *\n")
+        report = script.lint()
+        self.assertEqual([(f.kind, f.line) for f in report.findings], [("dead-rule", 3)])
+        self.assertEqual(report.allowed, 1)
+        self.assertTrue(report.complete)
+
     def test_no_match_returns_empty_list(self):
         self.assertEqual(self.script.match("thank you"), [])
 

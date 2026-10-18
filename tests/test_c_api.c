@@ -101,6 +101,25 @@ static void test_explain(void) {
   nlu_script_free(script);
 }
 
+static void test_lint(void) {
+  nlu_script* script = nlu_script_compile(
+      "card:lost\n    I lost my <?>+?\n    I lost my card\n@unused: x\n", NULL, NULL, NULL);
+  nlu_lint* lint;
+  CHECK(script != NULL);
+  if (!script) return;
+  lint = nlu_script_lint(script, 0);
+  CHECK(nlu_lint_count(lint) == 2);
+  CHECK(strcmp(nlu_lint_kind(lint, 0), "dead-rule") == 0);
+  CHECK(nlu_lint_line(lint, 0) == 3);
+  CHECK(strcmp(nlu_lint_file(lint, 0), "") == 0);
+  CHECK(strcmp(nlu_lint_message(lint, 1), "@unused is never used") == 0);
+  CHECK(nlu_lint_complete(lint) == 1);
+  CHECK(nlu_lint_allowed(lint) == 0);
+  CHECK(nlu_lint_kind(lint, 2) == NULL);
+  nlu_lint_free(lint);
+  nlu_script_free(script);
+}
+
 static void test_compile_error(void) {
   char* error = NULL;
   int line = -1;
@@ -136,6 +155,7 @@ int main(void) {
   test_match_with_slots();
   test_match_best();
   test_explain();
+  test_lint();
   test_compile_error();
   test_missing_file();
   printf("C API: %d failed checks\n", failures);

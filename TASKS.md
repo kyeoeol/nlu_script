@@ -132,6 +132,12 @@
 - [x] Python runs script test files: `Script.run_tests(path, best=False)`
       returns a `TestReport` with each failure's line, input, expected and
       actual output
+- [x] Lint: dead rules (every input matched first by earlier rules of the
+      label, or no input at all), found exactly in the same search; overlaps
+      say which label `match_best()` always picks (`best_label`, proven with
+      wildcard-free copies of the rules); `LintReport::findings(best)` gives
+      the lines `--lint` prints, also from the C API (`nlu_script_lint`) and
+      Python (`Script.lint`); the CLI adds `--lint --best` and `--verbose`
 
 ## Next
 
@@ -163,11 +169,6 @@
       not
 - [ ] Typo tolerance (edit distance 1) via a Levenshtein automaton; costs
       DFA states, so opt-in per rule or label
-- [ ] Lint: rules subsumed by another rule of the same label (dead rules)
-- [ ] Lint from the C API and Python
-- [ ] Lint with `match_best()` in mind: an overlap where one label is always
-      more specific doesn't need attention when callers use `match_best()`
-- [ ] Lint `--verbose` to list allowed overlaps too
 - [ ] Particle pairs inside exclusions: needs exclusion character classes
       split by final consonant (today a compile error)
 - [ ] A wildcard before an optional particle swallows a wrong particle
