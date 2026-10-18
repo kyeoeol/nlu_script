@@ -53,9 +53,18 @@ struct UnusedDefinition {
   int line;
 };
 
+// A `# lint:` comment that lint() could not apply.
+struct LintDirectiveError {
+  int line;
+  std::string message;
+};
+
 struct LintReport {
-  std::vector<Overlap> overlaps;        // ordered by line, then other_line
-  std::vector<UnusedDefinition> unused;  // ordered by line
+  std::vector<Overlap> overlaps;          // ordered by line, then other_line
+  // Overlaps that a `# lint: allow-overlap` comment marks as intended.
+  std::vector<Overlap> allowed_overlaps;  // ordered by line, then other_line
+  std::vector<UnusedDefinition> unused;   // ordered by line
+  std::vector<LintDirectiveError> directive_errors;  // ordered by line
   bool complete;  // false if the overlap search stopped at its state limit
 };
 

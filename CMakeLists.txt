@@ -76,6 +76,10 @@ if(NLU_SCRIPT_BUILD_TESTS)
   add_test(NAME nlu_script_demo_test
     COMMAND nlu_script_cli --test examples/demo.nlu examples/demo.test
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+  # The demo has no lint findings; intended overlaps are marked in it.
+  add_test(NAME nlu_script_demo_lint
+    COMMAND nlu_script_cli --lint examples/demo.nlu
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
   # A failing case must make `--test` exit with failure.
   add_test(NAME nlu_script_cli_test_failure
     COMMAND nlu_script_cli --test examples/demo.nlu tests/data/demo_failing.test

@@ -95,6 +95,9 @@
       (`35,000`, `3만 5천`, `삼만오천`, `1억 2천만`) with a normalized `value`
       attribute computed when the match is built (a slot normalizer). The
       demo's Korean transfer amount uses it
+- [x] `# lint: allow-overlap A B ...` comments mark intended overlaps (`*`
+      for every label); they are reported as allowed, and mistakes in such
+      comments are findings. The demo marks its three, and `ctest` lints it
 
 ## Next
 
@@ -126,12 +129,10 @@
 - [ ] Typo tolerance (edit distance 1) via a Levenshtein automaton; costs
       DFA states, so opt-in per rule or label
 - [ ] Lint: rules subsumed by another rule of the same label (dead rules)
-- [ ] Lint: a way to mark intended overlaps (e.g. a comment on the label) so
-      `--lint` can gate CI; today any overlap exits with 1, and the demo has
-      three from its catch-all wildcards
 - [ ] Lint from the C API and Python
 - [ ] Lint with `match_best()` in mind: an overlap where one label is always
       more specific doesn't need attention when callers use `match_best()`
+- [ ] Lint `--verbose` to list allowed overlaps too
 - [ ] Particle pairs inside exclusions: needs exclusion character classes
       split by final consonant (today a compile error)
 - [ ] A wildcard before an optional particle swallows a wrong particle
