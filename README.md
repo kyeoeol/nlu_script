@@ -46,6 +46,40 @@ printf '%s\n' "I lost my debit card" "마스터 체크카드를 분실했어요"
 
 Input with no matching label prints `-`.
 
+## Testing scripts
+
+Keep example sentences next to a script, each followed by the indented output
+expected for it (exactly what `nlu_script_cli` prints), and run them with
+`--test`:
+
+```
+# Lines starting with # are comments.
+I lost my debit card
+    card:lost:I lost my <card type="DEBIT">debit card</card>
+thank you
+    -
+```
+
+```sh
+./build/nlu_script_cli --test examples/demo.nlu examples/demo.test
+# 32 passed, 0 failed
+```
+
+When an input matches several labels, list one line per label in script
+order. `-` expects no match. Input lines must not be indented, and trailing
+whitespace on them is ignored. Each failure shows the test's location, the
+expected lines and the actual ones, with the script line of the rule behind
+each actual line:
+
+```
+rules.test:2: I lost my debit card
+  expected: agent:connect:I lost my debit card
+  actual:   card:lost:I lost my <card type="DEBIT">debit card</card>  (rules.nlu:22)
+```
+
+The exit status is 0 when every case passes and 1 otherwise, so the command
+can run in CI.
+
 ## Script files
 
 A script is a list of labels, each followed by its indented patterns, plus
@@ -89,7 +123,8 @@ follow the same rules. Punctuation in the input is not stripped, so
 `is my card blocked?` only matches a pattern that ends in `"?"`.
 
 `match()` returns one result per matching label, in the order the label's
-first matching rule appears in the script.
+first matching rule appears in the script. Each result carries the script
+line of that rule, so you can tell which pattern produced it.
 
 ## Pattern language
 
@@ -212,7 +247,7 @@ first assigned.
 
 nlu::Script script = nlu::Script::compile_file("rules.nlu");  // throws nlu::CompileError
 for (const nlu::Match& m : script.match("I lost my debit card")) {
-  std::cout << m.label << ":" << m.tagged << "\n";
+  std::cout << m.label << ":" << m.tagged << "\n";  // m.line: script line of the rule
   for (const nlu::Slot& s : m.slots) { /* s.name, s.text, s.begin, s.end, s.attributes */ }
 }
 ```
@@ -230,7 +265,8 @@ char* error = NULL; int line = 0, column = 0;
 nlu_script* script = nlu_script_compile(source, &error, &line, &column);
 nlu_result* result = nlu_script_match(script, "상담원 연결해주세요");
 for (size_t i = 0; i < nlu_result_count(result); ++i)
-  printf("%s:%s\n", nlu_result_label(result, i), nlu_result_tagged(result, i));
+  printf("%s:%s (line %d)\n", nlu_result_label(result, i), nlu_result_tagged(result, i),
+         nlu_result_line(result, i));
 nlu_result_free(result);
 nlu_script_free(script);
 ```
@@ -254,7 +290,7 @@ import nlu_script
 
 script = nlu_script.Script.from_file("rules.nlu")   # or nlu_script.Script(source)
 for m in script.match("엄마한테 3만 원 보내줘"):
-    print(m.label, m.tagged)
+    print(m.label, m.tagged, m.line)
     for slot in m.slots:
         print(slot.name, slot.text, slot.begin, slot.end, slot.attributes)
 ```

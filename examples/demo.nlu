@@ -1,7 +1,9 @@
 # nlu_script demo: customer-support inquiries for a banking or payment app.
 # Try it with:
 #   ./build/nlu_script_cli examples/demo.nlu
-# and type sentences in Korean or English, one per line.
+# and type sentences in Korean or English, one per line. Its test cases are in
+# demo.test:
+#   ./build/nlu_script_cli --test examples/demo.nlu examples/demo.test
 
 # Domain entities: each value may carry attributes for the auto-created slot.
 # One entity can list the Korean and English words for the same value.

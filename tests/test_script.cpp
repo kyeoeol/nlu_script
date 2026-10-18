@@ -52,6 +52,27 @@ TEST(labels_are_reported_in_script_order) {
   CHECK_EQ(s.rule_count(), 6u);
 }
 
+TEST(match_reports_the_line_of_the_rule_that_matched) {
+  nlu::Script s = nlu::Script::compile(
+      "# card rules\n"
+      "card:lost\n"
+      "    I lost my card\n"
+      "    <?>+? my card\n"
+      "\n"
+      "agent:connect\n"
+      "    talk to an agent\n"
+      "card:lost\n"
+      "    카드 분실\n");
+  auto line_of = [&](const std::string& text) {
+    std::vector<nlu::Match> found = s.match(text);
+    return found.size() == 1 ? found[0].line : -1;
+  };
+  CHECK_EQ(line_of("I lost my card"), 3);  // lines 3 and 4 both match; the first wins
+  CHECK_EQ(line_of("I found my card"), 4);
+  CHECK_EQ(line_of("talk to an agent"), 7);
+  CHECK_EQ(line_of("카드 분실"), 9);
+}
+
 TEST(label_without_slots_tags_plain_text) {
   nlu::Script s = nlu::Script::compile("card:lost\n    report (a) lost card\n");
   CHECK_EQ(tagged(s, "Report a lost card"), std::string("card:lost:Report a lost card"));

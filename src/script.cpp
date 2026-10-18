@@ -39,6 +39,7 @@ namespace {
 
 struct Rule {
   std::string label;
+  int line;
   NodePtr pattern;
 };
 
@@ -104,7 +105,7 @@ ParsedScript parse_script(const std::string& source) {
       if (block == Block::None)
         throw CompileError("indented pattern outside of a label or definition", line_no, column);
       if (block == Block::Label) {
-        out.rules.push_back({current, parse_pattern(content, line_no, column)});
+        out.rules.push_back({current, line_no, parse_pattern(content, line_no, column)});
       } else {
         add_values(content, line_no, column);
       }
@@ -395,8 +396,9 @@ std::string escape_attribute(const std::string& value) {
   return out;
 }
 
-Match build_match(const Nfa& nfa, const std::string& label, const std::vector<Event>& events,
-                  const std::string& original, const NormalizedText& norm) {
+Match build_match(const Nfa& nfa, const std::string& label, int line,
+                  const std::vector<Event>& events, const std::string& original,
+                  const NormalizedText& norm) {
   std::vector<Instance> instances;
   std::vector<int> event_instance(events.size(), -1);
   std::vector<int> open;
@@ -448,6 +450,7 @@ Match build_match(const Nfa& nfa, const std::string& label, const std::vector<Ev
 
   Match m;
   m.label = label;
+  m.line = line;
   for (const Instance& inst : instances) {
     Slot s;
     s.name = nfa.slot_names[inst.slot];
@@ -486,6 +489,7 @@ Match build_match(const Nfa& nfa, const std::string& label, const std::vector<Ev
 
 struct CompiledRule {
   std::string label;
+  int line;
   int start;  // start state
   int first;  // the rule's states occupy the id range [first, last)
   int last;
@@ -510,6 +514,7 @@ Script Script::compile(const std::string& source) {
   for (const Rule& rule : parsed.rules) {
     CompiledRule r;
     r.label = rule.label;
+    r.line = rule.line;
     r.first = static_cast<int>(impl->nfa.states.size());
     r.start = compile_rule(impl->nfa, parsed.defs, *rule.pattern,
                            static_cast<int>(impl->rules.size()));
@@ -544,7 +549,7 @@ std::vector<Match> Script::match(const std::string& text) const {
     PikeVm vm(impl_->nfa, r.first, r.last);
     if (!vm.run(r.start, norm.text, events)) continue;
     seen.insert(r.label);
-    out.push_back(build_match(impl_->nfa, r.label, events, text, norm));
+    out.push_back(build_match(impl_->nfa, r.label, r.line, events, text, norm));
   }
   return out;
 }

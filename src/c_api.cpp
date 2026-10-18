@@ -101,6 +101,11 @@ const char* nlu_result_tagged(const nlu_result* r, size_t match) {
   return m ? m->tagged.c_str() : nullptr;
 }
 
+int nlu_result_line(const nlu_result* r, size_t match) {
+  const nlu::Match* m = match_at(r, match);
+  return m ? m->line : 0;
+}
+
 size_t nlu_result_slot_count(const nlu_result* r, size_t match) {
   const nlu::Match* m = match_at(r, match);
   return m ? m->slots.size() : 0;

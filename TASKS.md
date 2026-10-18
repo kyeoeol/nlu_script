@@ -65,6 +65,12 @@
       never cancels an earlier one), macOS x86_64 wheels build natively on
       the `macos-15-intel` runner, and the workflow comments no longer
       mention private-repository minutes
+- [x] Each match reports the script line of the rule that produced it
+      (`Match::line`, `nlu_result_line`, Python `Match.line`)
+- [x] Script test files: example sentences with their expected CLI output,
+      run by `nlu_script_cli --test SCRIPT TESTS...` (failures show the
+      script line behind each actual output; exit status 1 on failure).
+      `examples/demo.test` covers the demo and runs in `ctest`
 
 ## Next
 
@@ -89,6 +95,35 @@
 - [ ] Search mode: find slots inside free text without `<?>*?` padding
 - [ ] Let an exclusion reach a wildcard inside a following slot
       (`\X <slot><?>*?</slot>`); today the exclusion has to go inside the slot
+- [ ] Korean particle selection: one syntax (e.g. `::{을}`) that picks
+      을/를, 이/가, 은/는, 으로/로 from whether the preceding syllable has a
+      final consonant, instead of writing `::(을|를)` by hand and accepting
+      wrong pairs like `적금를`. Entity values are known at compile time;
+      after a wildcard, split its last character into syllables with and
+      without a final consonant
+- [ ] Unicode NFC normalization of the input (and patterns): decomposed
+      Hangul (NFD, e.g. text copied from macOS file names) looks the same but
+      never matches today; `normalize()` already maps back to original bytes
+- [ ] Normalized values for numbers and amounts (`3만 원` -> `value=30000`),
+      together with the Korean numerals system entity
+- [ ] Typo tolerance (edit distance 1) via a Levenshtein automaton; costs
+      DFA states, so opt-in per rule or label
+- [ ] Ranking when several labels match: a specificity score (literal
+      characters vs wildcards) on each `Match`, and an option to return only
+      the most specific label. Would replace exclusion workarounds such as
+      `account:close` skipping `account:close:product` in the demo
+- [ ] Lint for scripts: report label pairs whose patterns overlap, with a
+      generated sentence that both match (product of the two automata);
+      rules subsumed by another rule; unused entities and variables
+- [ ] Report all compile errors at once instead of stopping at the first
+- [ ] `include` directive to split large rule sets across files
+- [ ] Explain mode for a non-matching input: the rule that consumed the
+      longest prefix and where it stopped
+- [ ] Fuzz the parser and matcher (libFuzzer with ASan/UBSan), since scripts
+      and inputs come from users
+- [ ] The lazy DFA cache resets completely at 20,000 states (`kMaxStates`),
+      so throughput drops right after a reset; consider evicting part of it
+- [ ] Python access to script test files (e.g. `Script.run_tests(path)`)
 - [ ] Publish wheels to PyPI (e.g. on a version tag)
 - [ ] If GitHub retires the Intel macOS runner (`macos-15-intel`), build the
       x86_64 wheel on the arm64 runner instead: cross-compile (pass

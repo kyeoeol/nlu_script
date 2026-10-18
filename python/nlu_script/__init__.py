@@ -71,6 +71,7 @@ _result_free = _declare("nlu_result_free", None, _ptr)
 _result_count = _declare("nlu_result_count", _size, _ptr)
 _result_label = _declare("nlu_result_label", ctypes.c_char_p, _ptr, _size)
 _result_tagged = _declare("nlu_result_tagged", ctypes.c_char_p, _ptr, _size)
+_result_line = _declare("nlu_result_line", ctypes.c_int, _ptr, _size)
 _slot_count = _declare("nlu_result_slot_count", _size, _ptr, _size)
 _slot_name = _declare("nlu_result_slot_name", ctypes.c_char_p, _ptr, _size, _size)
 _slot_text = _declare("nlu_result_slot_text", ctypes.c_char_p, _ptr, _size, _size)
@@ -103,7 +104,10 @@ class Slot(collections.namedtuple("Slot", "name text begin end attributes")):
     __slots__ = ()
 
 
-Match = collections.namedtuple("Match", "label slots tagged")
+class Match(collections.namedtuple("Match", "label slots tagged line")):
+    """A matched label. `line` is the script line of the rule that matched."""
+
+    __slots__ = ()
 
 
 def _compile_with(function, argument):
@@ -177,4 +181,5 @@ class Script:
             begin = len(_decode(data[:_slot_begin(result, i, j)]))
             slots.append(Slot(_decode(_slot_name(result, i, j)), text, begin, begin + len(text),
                               attributes))
-        return Match(_decode(_result_label(result, i)), slots, _decode(_result_tagged(result, i)))
+        return Match(_decode(_result_label(result, i)), slots, _decode(_result_tagged(result, i)),
+                     _result_line(result, i))

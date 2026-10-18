@@ -1,0 +1,3 @@
+# Expects the wrong label, so `nlu_script_cli --test` must exit with failure.
+I lost my debit card
+    agent:connect:I lost my debit card
