@@ -29,11 +29,12 @@ struct TestSummary {
 };
 
 // Runs every case in `tests` against `script` and writes each failure to
-// `report`. The names locate failures and rules in the report. Throws
+// `report`. The names locate failures and rules in the report. With `best`,
+// cases expect the output of match_best() instead of match(). Throws
 // std::runtime_error if the test file is malformed.
 TestSummary run_script_tests(const nlu::Script& script, const std::string& script_name,
                              std::istream& tests, const std::string& tests_name,
-                             std::ostream& report);
+                             std::ostream& report, bool best = false);
 
 }  // namespace nlu_tools
 

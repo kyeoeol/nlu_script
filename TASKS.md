@@ -87,6 +87,10 @@
       test the previous input character), which the lazy DFA, Pike VM and
       lint follow. The demo uses them instead of `::(을|를)`, so wrong pairs
       like `적금를` no longer match
+- [x] Ranking: every match has a specificity (input characters matched by
+      pattern text rather than wildcards), and `match_best()` keeps only the
+      labels whose most specific rule scores highest (C++, C, Python, and
+      `nlu_script_cli --best`, also with `--test`)
 
 ## Next
 
@@ -118,15 +122,13 @@
       together with the Korean numerals system entity
 - [ ] Typo tolerance (edit distance 1) via a Levenshtein automaton; costs
       DFA states, so opt-in per rule or label
-- [ ] Ranking when several labels match: a specificity score (literal
-      characters vs wildcards) on each `Match`, and an option to return only
-      the most specific label. Would replace exclusion workarounds such as
-      `account:close` skipping `account:close:product` in the demo
 - [ ] Lint: rules subsumed by another rule of the same label (dead rules)
 - [ ] Lint: a way to mark intended overlaps (e.g. a comment on the label) so
       `--lint` can gate CI; today any overlap exits with 1, and the demo has
       three from its catch-all wildcards
 - [ ] Lint from the C API and Python
+- [ ] Lint with `match_best()` in mind: an overlap where one label is always
+      more specific doesn't need attention when callers use `match_best()`
 - [ ] Particle pairs inside exclusions: needs exclusion character classes
       split by final consonant (today a compile error)
 - [ ] A wildcard before an optional particle swallows a wrong particle

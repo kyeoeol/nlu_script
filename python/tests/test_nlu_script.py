@@ -40,6 +40,15 @@ class ScriptTest(unittest.TestCase):
         self.assertEqual(self.script.match("yen exchange rate")[0].line, 6)
         self.assertEqual(self.script.match("신용카드 분실 신고")[0].line, 10)
 
+    def test_match_best_keeps_the_most_specific_labels(self):
+        script = nlu_script.Script("card:lost\n    I lost my debit card\n"
+                                   "report:any\n    I <?>+?\n")
+        self.assertEqual([m.label for m in script.match("I lost my debit card")],
+                         ["card:lost", "report:any"])
+        best = script.match_best("I lost my debit card")
+        self.assertEqual([(m.label, m.specificity) for m in best], [("card:lost", 16)])
+        self.assertEqual(script.match_best("thank you"), [])
+
     def test_no_match_returns_empty_list(self):
         self.assertEqual(self.script.match("thank you"), [])
 

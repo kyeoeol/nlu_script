@@ -33,7 +33,7 @@ std::vector<std::string> output_lines(const std::vector<nlu::Match>& matches) {
 
 TestSummary run_script_tests(const nlu::Script& script, const std::string& script_name,
                              std::istream& tests, const std::string& tests_name,
-                             std::ostream& report) {
+                             std::ostream& report, bool best) {
   auto error = [&](int line, const std::string& message) {
     return std::runtime_error(tests_name + ":" + std::to_string(line) + ": " + message);
   };
@@ -62,7 +62,7 @@ TestSummary run_script_tests(const nlu::Script& script, const std::string& scrip
 
   TestSummary summary;
   for (const Case& c : cases) {
-    std::vector<nlu::Match> matches = script.match(c.input);
+    std::vector<nlu::Match> matches = best ? script.match_best(c.input) : script.match(c.input);
     std::vector<std::string> actual = output_lines(matches);
     if (actual == c.expected) {
       ++summary.passed;

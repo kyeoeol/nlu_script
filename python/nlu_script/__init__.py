@@ -67,11 +67,13 @@ _compile_file = _declare("nlu_script_compile_file", _ptr, ctypes.c_char_p, _ptr,
 _script_free = _declare("nlu_script_free", None, _ptr)
 _rule_count = _declare("nlu_script_rule_count", _size, _ptr)
 _match = _declare("nlu_script_match", _ptr, _ptr, ctypes.c_char_p)
+_match_best = _declare("nlu_script_match_best", _ptr, _ptr, ctypes.c_char_p)
 _result_free = _declare("nlu_result_free", None, _ptr)
 _result_count = _declare("nlu_result_count", _size, _ptr)
 _result_label = _declare("nlu_result_label", ctypes.c_char_p, _ptr, _size)
 _result_tagged = _declare("nlu_result_tagged", ctypes.c_char_p, _ptr, _size)
 _result_line = _declare("nlu_result_line", ctypes.c_int, _ptr, _size)
+_result_specificity = _declare("nlu_result_specificity", ctypes.c_int, _ptr, _size)
 _slot_count = _declare("nlu_result_slot_count", _size, _ptr, _size)
 _slot_name = _declare("nlu_result_slot_name", ctypes.c_char_p, _ptr, _size, _size)
 _slot_text = _declare("nlu_result_slot_text", ctypes.c_char_p, _ptr, _size, _size)
@@ -104,8 +106,10 @@ class Slot(collections.namedtuple("Slot", "name text begin end attributes")):
     __slots__ = ()
 
 
-class Match(collections.namedtuple("Match", "label slots tagged line")):
-    """A matched label. `line` is the script line of the rule that matched."""
+class Match(collections.namedtuple("Match", "label slots tagged line specificity")):
+    """A matched label. `line` is the script line of the rule that matched;
+    `specificity` counts the input characters, not counting spaces, that the
+    rule matched with pattern text rather than wildcards."""
 
     __slots__ = ()
 
@@ -142,8 +146,16 @@ class Script:
 
     def match(self, text):
         """Returns a list of Match, one per matching label, in script order."""
+        return self._run(_match, text)
+
+    def match_best(self, text):
+        """Like match(), but keeps only the labels whose most specific rule has
+        the highest specificity."""
+        return self._run(_match_best, text)
+
+    def _run(self, function, text):
         data = text.encode("utf-8")
-        result = _match(self._checked(), data)
+        result = function(self._checked(), data)
         if not result:
             raise MemoryError("nlu_script_match failed")
         try:
@@ -182,4 +194,4 @@ class Script:
             slots.append(Slot(_decode(_slot_name(result, i, j)), text, begin, begin + len(text),
                               attributes))
         return Match(_decode(_result_label(result, i)), slots, _decode(_result_tagged(result, i)),
-                     _result_line(result, i))
+                     _result_line(result, i), _result_specificity(result, i))

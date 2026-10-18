@@ -280,3 +280,78 @@ TEST(concurrent_matches_agree_with_the_script) {
   for (int w : wrong) total += w;
   CHECK_EQ(total, 0);
 }
+
+TEST(specificity_counts_characters_matched_by_pattern_text) {
+  nlu::Script s = nlu::Script::compile(
+      "card:any\n"
+      "    I lost my <?>+?\n"
+      "exchange:rate\n"
+      "    @{currency} 환율 `@{NUMBER}\n"
+      "@currency: 달러, 엔화\n");
+  auto specificity = [&](const std::string& text) {
+    std::vector<nlu::Match> found = s.match(text);
+    return found.size() == 1 ? found[0].specificity : -1;
+  };
+  // Spaces don't count; wildcard text doesn't either.
+  CHECK_EQ(specificity("I lost my debit card"), 7);
+  CHECK_EQ(specificity("달러 환율 1300"), 8);
+}
+
+TEST(match_best_keeps_the_most_specific_labels) {
+  nlu::Script s = nlu::Script::compile(
+      "card:lost\n"
+      "    I lost my [credit|debit] card\n"
+      "report:any\n"
+      "    I <?>+?\n"
+      "report:card\n"
+      "    <?>+? card\n");
+  CHECK_EQ(labels(s, "I lost my debit card"),
+           (std::vector<std::string>{"card:lost", "report:any", "report:card"}));
+  std::vector<nlu::Match> best = s.match_best("I lost my debit card");
+  CHECK_EQ(best.size(), 1u);
+  if (best.size() == 1) CHECK_EQ(best[0].label, std::string("card:lost"));
+  CHECK(s.match_best("thank you").empty());
+}
+
+TEST(match_best_keeps_ties_in_script_order) {
+  nlu::Script s = nlu::Script::compile(
+      "report:any\n"
+      "    I <?>+?\n"
+      "report:a\n"
+      "    <?>+? a\n");
+  std::vector<std::string> best;
+  for (const nlu::Match& m : s.match_best("I found a")) best.push_back(m.label);
+  CHECK_EQ(best, (std::vector<std::string>{"report:any", "report:a"}));
+}
+
+TEST(match_best_uses_the_most_specific_rule_of_a_label) {
+  nlu::Script s = nlu::Script::compile(
+      "card:lost\n"
+      "    I lost my <card><?>+?</card>\n"
+      "    I lost my <card>@var.{card}</card>\n"
+      "@var.card: [credit|debit] card\n");
+  std::vector<nlu::Match> all = s.match("I lost my debit card");
+  std::vector<nlu::Match> best = s.match_best("I lost my debit card");
+  CHECK_EQ(all.size(), 1u);
+  CHECK_EQ(best.size(), 1u);
+  if (all.size() != 1 || best.size() != 1) return;
+  CHECK_EQ(all[0].line, 2);
+  CHECK_EQ(best[0].line, 3);
+  CHECK_EQ(best[0].specificity, 16);
+  CHECK_EQ(best[0].tagged, std::string("I lost my <card>debit card</card>"));
+}
+
+TEST(match_best_prefers_entities_to_wildcards) {
+  nlu::Script s = nlu::Script::compile(
+      "@product: 적금, 예금\n"
+      "account:close:product\n"
+      "    @{product}(을/를) 해지\n"
+      "account:close\n"
+      "    <account><?>+?</account>(을/를) 해지\n");
+  std::vector<nlu::Match> best = s.match_best("적금을 해지");
+  CHECK_EQ(best.size(), 1u);
+  if (best.size() == 1) CHECK_EQ(best[0].label, std::string("account:close:product"));
+  best = s.match_best("청약통장을 해지");
+  CHECK_EQ(best.size(), 1u);
+  if (best.size() == 1) CHECK_EQ(best[0].label, std::string("account:close"));
+}
