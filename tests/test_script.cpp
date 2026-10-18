@@ -355,3 +355,39 @@ TEST(match_best_prefers_entities_to_wildcards) {
   CHECK_EQ(best.size(), 1u);
   if (best.size() == 1) CHECK_EQ(best[0].label, std::string("account:close"));
 }
+
+TEST(korean_number_entity_normalizes_its_value) {
+  nlu::Script s = nlu::Script::compile("transfer\n    `@{KO_NUMBER} 원 보내줘\n");
+  auto value = [&](const std::string& text) -> std::string {
+    std::vector<nlu::Match> found = s.match(text);
+    if (found.size() != 1 || found[0].slots.size() != 1) return "<no match>";
+    return attribute(found[0].slots[0], "value");
+  };
+  CHECK_EQ(value("3만 원 보내줘"), std::string("30000"));
+  CHECK_EQ(value("3만 5천 원 보내줘"), std::string("35000"));
+  CHECK_EQ(value("3만5천원 보내줘"), std::string("35000"));
+  CHECK_EQ(value("삼만오천 원 보내줘"), std::string("35000"));
+  CHECK_EQ(value("35000원 보내줘"), std::string("35000"));
+  CHECK_EQ(value("35,000원 보내줘"), std::string("35000"));
+  CHECK_EQ(value("2,500만 원 보내줘"), std::string("25000000"));
+  CHECK_EQ(value("1억 2천만 원 보내줘"), std::string("120000000"));
+  CHECK_EQ(value("만 원 보내줘"), std::string("10000"));
+  CHECK_EQ(value("천오백 원 보내줘"), std::string("1500"));
+  CHECK_EQ(value("십이만 원 보내줘"), std::string("120000"));
+  CHECK_EQ(value("3천5백 원 보내줘"), std::string("3500"));
+  CHECK_EQ(value("1조 원 보내줘"), std::string("1000000000000"));
+  CHECK_EQ(value("만만 원 보내줘"), std::string("<no match>"));
+  CHECK_EQ(value("많이 원 보내줘"), std::string("<no match>"));
+  CHECK_EQ(value("3,50 원 보내줘"), std::string("<no match>"));
+  // Too large to represent: the slot matches without a value.
+  CHECK_EQ(value("99999999999999999999999 원 보내줘"), std::string("<unset>"));
+}
+
+TEST(korean_number_slot_covers_only_the_number) {
+  nlu::Script s = nlu::Script::compile(
+      "transfer:send\n"
+      "    <recipient><?>+?</recipient>한테 <amount>`@{KO_NUMBER} 원</amount> 보내줘\n");
+  CHECK_EQ(tagged(s, "엄마한테 3만 5천 원 보내줘"),
+           std::string("transfer:send:<recipient>엄마</recipient>한테 <amount>"
+                       "<KO_NUMBER value=\"35000\">3만 5천</KO_NUMBER> 원</amount> 보내줘"));
+}

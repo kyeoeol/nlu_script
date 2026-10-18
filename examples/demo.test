@@ -21,7 +21,11 @@ Freeze my card ending in 1234
 Send 50 dollars to Alex
     transfer:send:Send <amount currency="USD">50</amount> dollars to <recipient>Alex</recipient>
 엄마한테 3만 원 보내줘
-    transfer:send:<recipient>엄마</recipient>한테 <amount currency="KRW">3만</amount> 원 보내줘
+    transfer:send:<recipient>엄마</recipient>한테 <amount currency="KRW"><KO_NUMBER value="30000">3만</KO_NUMBER></amount> 원 보내줘
+동생에게 삼만 오천 원 송금해줘
+    transfer:send:<recipient>동생</recipient>에게 <amount currency="KRW"><KO_NUMBER value="35000">삼만 오천</KO_NUMBER></amount> 원 송금해줘
+엄마한테 많이 원 보내줘
+    -
 송금이 안 들어갔어요
     transfer:status:송금이 안 들어갔어요
 did my transfer go through

@@ -18,6 +18,7 @@
 
 #include "compiler.hpp"
 #include "lint.hpp"
+#include "numbers.hpp"
 #include "nlu_script/nlu_script.hpp"
 #include "parser.hpp"
 #include "unicode.hpp"
@@ -381,6 +382,7 @@ struct Instance {
   int close_pos;
   std::size_t open_event;
   std::vector<std::pair<std::string, std::string>> attributes;
+  Normalizer normalizer;
 };
 
 void set_attribute(Instance& inst, const std::string& key, const std::string& value) {
@@ -418,7 +420,7 @@ Match build_match(const Nfa& nfa, const std::string& label, int line, int specif
     const Action& a = nfa.actions[events[i].action];
     switch (a.kind) {
       case Action::Kind::Open:
-        instances.push_back({a.slot, events[i].pos, events[i].pos, i, {}});
+        instances.push_back({a.slot, events[i].pos, events[i].pos, i, {}, a.normalizer});
         open.push_back(static_cast<int>(instances.size()) - 1);
         event_instance[i] = open.back();
         break;
@@ -458,6 +460,14 @@ Match build_match(const Nfa& nfa, const std::string& label, int line, int specif
   auto close_byte = [&](const Instance& inst) {
     return inst.close_pos > inst.open_pos ? norm.end[inst.close_pos - 1] : open_byte(inst);
   };
+
+  std::string value;
+  for (Instance& inst : instances) {
+    const std::size_t begin = open_byte(inst);
+    if (inst.normalizer == Normalizer::KoreanNumber &&
+        korean_number_value(original.substr(begin, close_byte(inst) - begin), value))
+      set_attribute(inst, "value", value);
+  }
 
   Match m;
   m.label = label;

@@ -24,6 +24,7 @@ set(NLU_SCRIPT_SOURCES
   src/c_api.cpp
   src/compiler.cpp
   src/lint.cpp
+  src/numbers.cpp
   src/parser.cpp
   src/script.cpp
   src/unicode.cpp)

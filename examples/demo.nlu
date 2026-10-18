@@ -30,7 +30,7 @@ card:freeze
 
 transfer:send
     send <amount><?>+?</amount> [dollars{amount.currency=USD}|won{amount.currency=KRW}] to <recipient><?>+?</recipient>
-    <recipient><?>+?</recipient>::[한테|에게] <amount><?>+?</amount> [달러{amount.currency=USD}|원{amount.currency=KRW}] [보내줘|송금해줘]
+    <recipient><?>+?</recipient>::[한테|에게] <amount>`@{KO_NUMBER}</amount> [달러{amount.currency=USD}|원{amount.currency=KRW}] [보내줘|송금해줘]
 
 transfer:status
     [송금|이체](이/가) [안 들어갔어요|됐나요]
