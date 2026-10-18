@@ -113,7 +113,7 @@ if(NLU_SCRIPT_BUILD_TESTS)
 endif()
 
 if(NLU_SCRIPT_BUILD_FUZZERS)
-  foreach(target fuzz_script fuzz_match)
+  foreach(target fuzz_script fuzz_match fuzz_load)
     add_executable(${target} fuzz/${target}.cpp)
     target_link_libraries(${target} PRIVATE nlu_script_static)
     target_link_options(${target} PRIVATE -fsanitize=fuzzer)

@@ -204,6 +204,16 @@ class Script {
   // Throws std::runtime_error if the file cannot be read.
   static Script compile_file(const std::string& path);
 
+  // A compiled script as bytes, which load() turns back into the same script
+  // without parsing or compiling it again. The bytes are for this format
+  // version of the library only (they start with "\x89NLU").
+  std::string save() const;
+  void save_file(const std::string& path) const;
+  // Throws std::runtime_error if `bytes` is not a script saved by save()
+  // (checking every count and index, so corrupt data is rejected).
+  static Script load(const std::string& bytes);
+  static Script load_file(const std::string& path);
+
   Script(Script&&) noexcept;
   Script& operator=(Script&&) noexcept;
   ~Script();

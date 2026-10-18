@@ -147,6 +147,30 @@ static void test_search(void) {
   nlu_script_free(script);
 }
 
+static void test_save_and_load(void) {
+  nlu_script* script = nlu_script_compile(kScript, NULL, NULL, NULL);
+  nlu_script* loaded;
+  nlu_result* result;
+  char* data;
+  char* error = NULL;
+  size_t size = 0;
+  CHECK(script != NULL);
+  if (!script) return;
+  data = nlu_script_save(script, &size);
+  CHECK(data != NULL && size > 8);
+  loaded = nlu_script_load(data, size, &error);
+  CHECK(loaded != NULL && error == NULL);
+  result = nlu_script_match(loaded, "Report a lost debit card");
+  CHECK(nlu_result_count(result) == 1);
+  nlu_result_free(result);
+  CHECK(nlu_script_load(data, size / 2, &error) == NULL);
+  CHECK(error != NULL);
+  nlu_string_free(error);
+  nlu_string_free(data);
+  nlu_script_free(loaded);
+  nlu_script_free(script);
+}
+
 static void test_compile_error(void) {
   char* error = NULL;
   int line = -1;
@@ -185,6 +209,7 @@ int main(void) {
   test_lint();
   test_resolve_datetime();
   test_search();
+  test_save_and_load();
   test_compile_error();
   test_missing_file();
   printf("C API: %d failed checks\n", failures);

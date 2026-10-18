@@ -173,10 +173,15 @@
       to about 4 µs at any size; with the old cap, eviction alone gives 20
       and 38 µs. Four threads reach the same throughput with a shared cache
       as with per-thread ones (about 1.2 µs per match)
+- [x] Saving and loading compiled scripts: `Script::save`/`load` (C API,
+      Python, `nlu_script_cli --save`, and saved files accepted as scripts),
+      a versioned varint format whose loading checks every count and index,
+      fuzzed in CI (`fuzz_load`). At 50,000 rules loading takes about half
+      as long as compiling (most of the rest is building the automaton in
+      memory), and the file is about 20 MiB
 
 ## Next
 
-- [ ] Save and load compiled scripts so large rule sets don't need recompiling
 - [ ] Let an exclusion reach a wildcard inside a following slot
       (`\X <slot><?>*?</slot>`); today the exclusion has to go inside the slot
 - [ ] Publish wheels to PyPI (e.g. on a version tag)

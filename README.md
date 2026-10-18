@@ -541,8 +541,17 @@ inputs pass through stay. `Script::cache_stats()` reports its size and how
 often it evicted; `set_cache_options()` changes the limits, or gives each
 thread its own cache (`per_thread`).
 
-`nlu_script_bench` times matching against generated scripts. On an M-series
-Mac, a warm `match()` takes about 4 µs at 10 rules and at 100,000 rules
+A compiled script can be saved and loaded again without parsing or
+compiling: `Script::save()` / `Script::load(bytes)` (and `save_file`,
+`load_file`), `nlu_script_save` / `nlu_script_load` in C, `Script.save()` /
+`Script.load(data)` in Python, and `nlu_script_cli --save rules.nlu
+rules.nlub`; the CLI accepts a saved file wherever it takes a script. The
+format is versioned, and loading checks every count and index, so other or
+corrupt data is rejected with an error. At 50,000 rules, loading takes
+about half as long as compiling, and the saved file is about 20 MiB.
+
+`nlu_script_bench` times matching against generated scripts. On an Apple
+silicon Mac, a warm `match()` takes about 4 µs at 10 rules and at 100,000 rules
 alike; four threads together reach about 1.2 µs per match, with a shared
 cache or per-thread ones.
 

@@ -44,6 +44,14 @@ NLU_SCRIPT_API nlu_script* nlu_script_compile(const char* source, char** error, 
 NLU_SCRIPT_API nlu_script* nlu_script_compile_file(const char* path, char** error, int* line,
                                                    int* column);
 NLU_SCRIPT_API void nlu_script_free(nlu_script* script);
+
+/* Saves a compiled script as bytes for nlu_script_load (as Script::save in
+ * C++). Returns a buffer to release with nlu_string_free and stores its
+ * length in `size`, or NULL on failure. */
+NLU_SCRIPT_API char* nlu_script_save(const nlu_script* script, size_t* size);
+/* Loads bytes from nlu_script_save. On failure returns NULL and, if `error`
+ * is not NULL, stores a message to release with nlu_string_free. */
+NLU_SCRIPT_API nlu_script* nlu_script_load(const char* data, size_t size, char** error);
 NLU_SCRIPT_API size_t nlu_script_rule_count(const nlu_script* script);
 
 /* Matches `text` against every rule. Returns NULL if `script` is NULL or on

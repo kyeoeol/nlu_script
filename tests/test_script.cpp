@@ -585,3 +585,58 @@ TEST(per_thread_caches_are_separate) {
   CHECK_EQ(wrong, 0);
   CHECK_EQ(s.cache_stats().states, mine);  // the other thread filled its own cache
 }
+
+namespace {
+
+const char* kSaveScript =
+    "option ignore-trailing-punctuation\n"
+    "@card: [신용{type=CREDIT}|체크{type=DEBIT}]카드\n"
+    "# lint: allow-overlap report:any *\n"
+    "card:lost\n"
+    "    @{card}(을/를) [분실했어요|잃어버렸어요]\n"
+    "    I lost my <card>[credit{type=CREDIT}|debit{type=DEBIT}] card</card>\n"
+    "agent:callback\n"
+    "    `@{DATETIME}::(에) 전화 주세요\n"
+    "report:any\n"
+    "    I <?>+?\n";
+
+}  // namespace
+
+TEST(saved_scripts_load_and_match_the_same) {
+  nlu::Script original = nlu::Script::compile(kSaveScript);
+  nlu::Script loaded = nlu::Script::load(original.save());
+  CHECK_EQ(loaded.rule_count(), original.rule_count());
+  for (const char* text : {"체크카드를 분실했어요!", "I lost my debit card", "내일 오후 3시에 전화 주세요",
+                           "I found it", "thank you"}) {
+    std::vector<nlu::Match> a = original.match(text), b = loaded.match(text);
+    CHECK_EQ(a.size(), b.size());
+    for (std::size_t i = 0; i < a.size() && i < b.size(); ++i) {
+      CHECK_EQ(b[i].label, a[i].label);
+      CHECK_EQ(b[i].tagged, a[i].tagged);
+      CHECK_EQ(b[i].line, a[i].line);
+    }
+  }
+  CHECK_EQ(loaded.lint().findings().size(), original.lint().findings().size());
+  CHECK_EQ(loaded.lint().allowed_overlaps.size(), original.lint().allowed_overlaps.size());
+  CHECK_EQ(loaded.search("so I lost my credit card today").size(), 1u);
+}
+
+TEST(loading_rejects_anything_but_a_saved_script) {
+  const std::string saved = nlu::Script::compile(kSaveScript).save();
+  CHECK_THROWS(std::runtime_error, nlu::Script::load(""));
+  CHECK_THROWS(std::runtime_error, nlu::Script::load("card:lost\n    I lost my card\n"));
+  CHECK_THROWS(std::runtime_error, nlu::Script::load(saved.substr(0, saved.size() / 2)));
+  // Corrupt bytes are caught by the checks on every count and index.
+  int rejected = 0;
+  for (std::size_t at = 8; at < saved.size(); at += 97) {
+    std::string bad = saved;
+    bad[at] = static_cast<char>(bad[at] ^ 0x5a);
+    try {
+      nlu::Script s = nlu::Script::load(bad);
+      s.match("I lost my debit card");
+    } catch (const std::runtime_error&) {
+      ++rejected;
+    }
+  }
+  CHECK(rejected > 0);
+}

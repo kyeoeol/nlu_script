@@ -68,6 +68,8 @@ _compile = _declare("nlu_script_compile", _ptr, ctypes.c_char_p, _ptr, _c_int_p,
 _compile_file = _declare("nlu_script_compile_file", _ptr, ctypes.c_char_p, _ptr, _c_int_p,
                          _c_int_p)
 _script_free = _declare("nlu_script_free", None, _ptr)
+_save = _declare("nlu_script_save", _ptr, _ptr, ctypes.POINTER(_size))
+_load = _declare("nlu_script_load", _ptr, ctypes.c_char_p, _size, _ptr)
 _rule_count = _declare("nlu_script_rule_count", _size, _ptr)
 _match = _declare("nlu_script_match", _ptr, _ptr, ctypes.c_char_p)
 _match_best = _declare("nlu_script_match_best", _ptr, _ptr, ctypes.c_char_p)
@@ -276,6 +278,31 @@ class Script:
         script = cls.__new__(cls)
         script._handle = _compile_with(_compile_file, os.fsencode(path))
         return script
+
+    @classmethod
+    def load(cls, data):
+        """Loads a script saved by save(); raises ValueError for other bytes."""
+        error = ctypes.c_void_p()
+        handle = _load(data, len(data), ctypes.byref(error))
+        if not handle:
+            message = _decode(ctypes.string_at(error.value)) if error.value else "invalid data"
+            _string_free(error)
+            raise ValueError(message)
+        script = cls.__new__(cls)
+        script._handle = handle
+        return script
+
+    def save(self):
+        """The compiled script as bytes, which load() reads back without
+        compiling again."""
+        size = _size()
+        data = _save(self._checked(), ctypes.byref(size))
+        if not data:
+            raise MemoryError("nlu_script_save failed")
+        try:
+            return ctypes.string_at(data, size.value)
+        finally:
+            _string_free(data)
 
     @property
     def rule_count(self):

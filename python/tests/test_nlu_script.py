@@ -116,6 +116,15 @@ class ScriptTest(unittest.TestCase):
         self.assertEqual([(m.label, text[m.begin:m.end]) for m in found],
                          [("exchange:rate", "엔화 환율"), ("card:lost", "신용카드 분실 신고")])
 
+    def test_save_and_load(self):
+        data = self.script.save()
+        self.assertIsInstance(data, bytes)
+        with nlu_script.Script.load(data) as loaded:
+            self.assertEqual(loaded.match("체크카드 분실 신고")[0].tagged,
+                             self.script.match("체크카드 분실 신고")[0].tagged)
+        with self.assertRaises(ValueError):
+            nlu_script.Script.load(data[:10])
+
     def test_no_match_returns_empty_list(self):
         self.assertEqual(self.script.match("thank you"), [])
 
