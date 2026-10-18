@@ -101,6 +101,18 @@ TEST(slot_captures_span_of_original_text) {
   CHECK_EQ(found[0].tagged, std::string("I lost my <카드>Debit Card</카드>"));
 }
 
+TEST(slot_spans_decomposed_hangul_in_the_original_input) {
+  nlu::Script s = nlu::Script::compile("card:lost\n    <card>[신용|체크]카드</card> 분실\n");
+  const std::string card = "\u110e\u1166\u110f\u1173\u110f\u1161\u1103\u1173";  // 체크카드 in NFD
+  const std::string input = card + " \u1107\u116e\u11ab\u1109\u1175\u11af";
+  std::vector<nlu::Match> found = s.match(input);
+  CHECK_EQ(found.size(), 1u);
+  CHECK_EQ(found[0].slots[0].text, card);
+  CHECK_EQ(found[0].slots[0].begin, 0u);
+  CHECK_EQ(found[0].slots[0].end, card.size());
+  CHECK_EQ(found[0].tagged, "<card>" + card + "</card>" + input.substr(card.size()));
+}
+
 TEST(slot_text_keeps_original_case_and_spacing) {
   nlu::Script s = nlu::Script::compile(
       "payment:cancel\n    cancel payment at <merchant><?>+?</merchant>\n");

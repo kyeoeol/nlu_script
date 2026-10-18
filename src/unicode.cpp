@@ -51,6 +51,33 @@ std::vector<DecodedChar> decode_utf8(const std::string& text) {
   return out;
 }
 
+void compose_hangul(std::vector<DecodedChar>& chars) {
+  // Hangul syllable composition, Unicode section 3.12.
+  const char32_t kSBase = 0xAC00, kLBase = 0x1100, kVBase = 0x1161, kTBase = 0x11A7;
+  const char32_t kLCount = 19, kVCount = 21, kTCount = 28, kSCount = 11172;
+  std::size_t out = 0;
+  for (std::size_t i = 0; i < chars.size(); ++i) {
+    const char32_t c = chars[i].code;
+    if (out > 0) {
+      DecodedChar& last = chars[out - 1];
+      const char32_t l = last.code - kLBase, v = c - kVBase;
+      const char32_t s = last.code - kSBase, t = c - kTBase;
+      if (last.code >= kLBase && l < kLCount && c >= kVBase && v < kVCount) {
+        last.code = kSBase + (l * kVCount + v) * kTCount;
+        last.end = chars[i].end;
+        continue;
+      }
+      if (last.code >= kSBase && s < kSCount && s % kTCount == 0 && c > kTBase && t < kTCount) {
+        last.code += t;
+        last.end = chars[i].end;
+        continue;
+      }
+    }
+    chars[out++] = chars[i];
+  }
+  chars.resize(out);
+}
+
 void append_utf8(char32_t c, std::string& out) {
   if (c < 0x80) {
     out += static_cast<char>(c);
@@ -99,7 +126,9 @@ char32_t fold_case(char32_t c) {
 NormalizedText normalize(const std::string& text) {
   NormalizedText out;
   bool pending_space = false;
-  for (const DecodedChar& d : decode_utf8(text)) {
+  std::vector<DecodedChar> chars = decode_utf8(text);
+  compose_hangul(chars);
+  for (const DecodedChar& d : chars) {
     if (is_space(d.code)) {
       pending_space = !out.text.empty();
       continue;

@@ -93,8 +93,10 @@ ParsedScript parse_script(const std::string& source) {
   while (std::getline(lines, raw)) {
     ++line_no;
     if (!raw.empty() && raw.back() == '\r') raw.pop_back();
+    std::vector<DecodedChar> chars = decode_utf8(raw);
+    compose_hangul(chars);
     std::u32string line;
-    for (const DecodedChar& d : decode_utf8(raw)) line += d.code;
+    for (const DecodedChar& d : chars) line += d.code;
     std::size_t first = 0;
     while (first < line.size() && is_space(line[first])) ++first;
     if (first == line.size() || line[first] == U'#') continue;

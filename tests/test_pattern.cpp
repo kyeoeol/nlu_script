@@ -371,3 +371,14 @@ TEST(whitespace_in_input_is_normalized) {
   CHECK(matches("check my balance", "  check \t my\n balance  "));
   CHECK(matches("잔액 조회", "잔액　조회"));
 }
+
+// Decomposed Hangul (NFD, as in text copied from macOS file names) is composed
+// before matching, in input and in patterns alike.
+TEST(decomposed_hangul_matches_composed_hangul) {
+  const std::string decomposed = "카드 분실";
+  CHECK(matches("카드 분실", decomposed));               // 카드 분실 in NFD
+  CHECK(matches(decomposed, "카드 분실"));
+  CHECK(matches("카드 분실", "카드 분실"));    // 부 + final ㄴ
+  CHECK(matches("<?>드 분실", decomposed));              // one syllable is one character
+  CHECK(!matches("카드 분실", "카드 부실"));  // 부실, not 분실
+}
