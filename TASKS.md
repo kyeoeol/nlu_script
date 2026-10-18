@@ -91,13 +91,18 @@
       pattern text rather than wildcards), and `match_best()` keeps only the
       labels whose most specific rule scores highest (C++, C, Python, and
       `nlu_script_cli --best`, also with `--test`)
+- [x] `KO_NUMBER` system entity: numbers in digits and Korean numerals
+      (`35,000`, `3만 5천`, `삼만오천`, `1억 2천만`) with a normalized `value`
+      attribute computed when the match is built (a slot normalizer). The
+      demo's Korean transfer amount uses it
 
 ## Next
 
 - [ ] Datetime extractor: a bundled script of datetime rules plus a
       normalizer (relative days like `day="+1"`, `minute`, `part_of_day`), with
       a short how-to
-- [ ] More system entities (dates, times, currency, ordinals, Korean numerals)
+- [ ] More system entities (dates, times, currency, ordinals, native Korean
+      numbers like 하나/둘/세, English number words)
 - [ ] `TELNUM` for non-Korean formats (e.g. `+1 555-123-4567`,
       `(555) 123-4567`); English sentences work today, but only with Korean
       numbers
@@ -118,8 +123,6 @@
 - [ ] Full Unicode NFC beyond Hangul (e.g. `e` + U+0301 for `é`): needs the
       Unicode composition tables, which Hangul's algorithmic composition did
       not
-- [ ] Normalized values for numbers and amounts (`3만 원` -> `value=30000`),
-      together with the Korean numerals system entity
 - [ ] Typo tolerance (edit distance 1) via a Levenshtein automaton; costs
       DFA states, so opt-in per rule or label
 - [ ] Lint: rules subsumed by another rule of the same label (dead rules)

@@ -55,12 +55,19 @@ struct Edge {
   }
 };
 
+// Computes attributes from a slot's text when the match is built.
+enum class Normalizer : std::uint8_t {
+  None,
+  KoreanNumber,  // value: the number written with digits and Korean numerals
+};
+
 struct Action {
   enum class Kind : std::uint8_t { Open, Close, Assign };
   Kind kind;
   int slot;  // slot name id; for Assign, -1 targets the innermost open slot
   std::string key;
   std::string value;
+  Normalizer normalizer = Normalizer::None;  // Open: applied to the slot's text
 };
 
 struct State {

@@ -274,10 +274,24 @@ space.
 | `@var.{name}` | regex variable: its pattern, inlined |
 | `` `@{NAME} `` | system entity, captured as slot `<NAME>` |
 
-System entities: `NUMBER` (digits) and `TELNUM` (Korean phone numbers such as
-`010-9876-5432`, `031-765-4321`, `01098765432`). They work the same in
-Korean and English sentences (``change my phone number to `@{TELNUM}``);
-`TELNUM` does not yet recognize other countries' number formats.
+System entities: `NUMBER` (digits), `TELNUM` (Korean phone numbers such as
+`010-9876-5432`, `031-765-4321`, `01098765432`) and `KO_NUMBER` (numbers in
+digits and Korean numerals, see below). They work the same in Korean and
+English sentences (``change my phone number to `@{TELNUM}``); `TELNUM` does
+not yet recognize other countries' number formats.
+
+`KO_NUMBER` matches `35000`, `35,000`, `3만 5천`, `3만5천`, `삼만오천`,
+`2,500만`, `1억 2천만` and the like (units 십, 백, 천, 만, 억, 조, with
+sino-Korean digits 일 to 구 or Arabic digits). Its slot gets the number as a
+`value` attribute:
+
+```
+<amount>`@{KO_NUMBER}</amount> 원 보내줘
+  "삼만 오천 원 보내줘" -> <amount><KO_NUMBER value="35000">삼만 오천</KO_NUMBER></amount> 원 보내줘
+```
+
+Values of 10^18 or more match without a `value`. Native Korean numbers
+(하나, 둘, 세) are not recognized.
 
 ### Slots and attributes
 
