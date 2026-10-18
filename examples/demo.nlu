@@ -82,3 +82,7 @@ account:password:reset
 agent:connect
     [상담원|상담사] 연결 (해주세요|해줘)
     [talk|speak] to [an agent|a human|a person]
+
+agent:callback
+    `@{DATETIME}::(에) [전화|연락] (해)주세요
+    call me back (at) `@{DATETIME}

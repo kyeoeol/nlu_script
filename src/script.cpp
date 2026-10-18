@@ -17,6 +17,7 @@
 #include <unordered_map>
 
 #include "compiler.hpp"
+#include "datetime.hpp"
 #include "lint.hpp"
 #include "numbers.hpp"
 #include "nlu_script/nlu_script.hpp"
@@ -491,9 +492,11 @@ Match build_match(const Nfa& nfa, const std::string& label, int line, int specif
   std::string value;
   for (Instance& inst : instances) {
     const std::size_t begin = open_byte(inst);
-    if (inst.normalizer == Normalizer::KoreanNumber &&
-        korean_number_value(original.substr(begin, close_byte(inst) - begin), value))
+    const std::string text = original.substr(begin, close_byte(inst) - begin);
+    if (inst.normalizer == Normalizer::KoreanNumber && korean_number_value(text, value))
       set_attribute(inst, "value", value);
+    if (inst.normalizer == Normalizer::DateTime)
+      for (const auto& kv : datetime_attributes(text)) set_attribute(inst, kv.first, kv.second);
   }
 
   Match m;

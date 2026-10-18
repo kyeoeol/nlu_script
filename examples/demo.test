@@ -94,3 +94,17 @@ talk to a human
     agent:connect:talk to a human
 thank you
     -
+
+# agent:callback, with DATETIME
+내일 오후 3시에 전화주세요
+    agent:callback:<DATETIME day_offset="+1" part_of_day="PM" hour="15">내일 오후 3시</DATETIME>에 전화주세요
+다음 주 월요일 오전 10시 반에 연락해주세요
+    agent:callback:<DATETIME week_offset="+1" weekday="MON" part_of_day="AM" hour="10" minute="30">다음 주 월요일 오전 10시 반</DATETIME>에 연락해주세요
+3월 5일 저녁 7시에 전화해주세요
+    agent:callback:<DATETIME month="3" day="5" part_of_day="EVENING" hour="19">3월 5일 저녁 7시</DATETIME>에 전화해주세요
+call me back tomorrow at 3pm
+    agent:callback:call me back <DATETIME day_offset="+1" hour="15" part_of_day="PM">tomorrow at 3pm</DATETIME>
+call me back next friday morning
+    agent:callback:call me back <DATETIME week_offset="+1" weekday="FRI" part_of_day="MORNING">next friday morning</DATETIME>
+call me back at noon
+    agent:callback:call me back at <DATETIME hour="12" minute="0">noon</DATETIME>
