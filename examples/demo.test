@@ -10,6 +10,8 @@ I lost my debit card
     card:lost:I lost my <card type="DEBIT">debit card</card>
 마스터 체크카드를 분실했어요
     card:lost:<card brand="MASTERCARD" type="DEBIT">마스터 체크카드</card>를 분실했어요
+체크카드을 분실했어요
+    -
 Freeze my card ending in 1234
     card:freeze:Freeze my card ending in <last4>1234</last4>
 끝자리 5678 카드 정지해주세요
@@ -48,6 +50,8 @@ what is the yen exchange rate
 # so a name that only contains one matches neither.
 적금 해지하고 싶어요
     account:close:product:<product value="savings">적금</product> 해지하고 싶어요
+적금를 해지하고 싶어요
+    -
 정기적금을 해지해주세요
     account:close:product:<product value="savings">정기적금</product>을 해지해주세요
 close my fixed deposit account

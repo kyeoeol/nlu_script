@@ -81,6 +81,12 @@
       `account:close` excluded only the Korean product names, so
       `deposit 해지해주세요` matched both labels. The exclusion now uses
       `@{product}`
+- [x] Korean particle pairs (`을/를`, `이/가`, `으로/로`, ...) pick the form
+      that fits the preceding syllable's final consonant, also after
+      entities and wildcards. Compiled as guard edges (epsilon edges that
+      test the previous input character), which the lazy DFA, Pike VM and
+      lint follow. The demo uses them instead of `::(을|를)`, so wrong pairs
+      like `적금를` no longer match
 
 ## Next
 
@@ -105,12 +111,6 @@
 - [ ] Search mode: find slots inside free text without `<?>*?` padding
 - [ ] Let an exclusion reach a wildcard inside a following slot
       (`\X <slot><?>*?</slot>`); today the exclusion has to go inside the slot
-- [ ] Korean particle selection: one syntax (e.g. `::{을}`) that picks
-      을/를, 이/가, 은/는, 으로/로 from whether the preceding syllable has a
-      final consonant, instead of writing `::(을|를)` by hand and accepting
-      wrong pairs like `적금를`. Entity values are known at compile time;
-      after a wildcard, split its last character into syllables with and
-      without a final consonant
 - [ ] Full Unicode NFC beyond Hangul (e.g. `e` + U+0301 for `é`): needs the
       Unicode composition tables, which Hangul's algorithmic composition did
       not
@@ -127,6 +127,11 @@
       `--lint` can gate CI; today any overlap exits with 1, and the demo has
       three from its catch-all wildcards
 - [ ] Lint from the C API and Python
+- [ ] Particle pairs inside exclusions: needs exclusion character classes
+      split by final consonant (today a compile error)
+- [ ] A wildcard before an optional particle swallows a wrong particle
+      (`<?>+?(을/를)` matches `청약통장를` with `를` in the wildcard); consider
+      keeping particle syllables out of a wildcard's last character
 - [ ] Report all compile errors at once instead of stopping at the first
 - [ ] `include` directive to split large rule sets across files
 - [ ] Explain mode for a non-matching input: the rule that consumed the

@@ -113,6 +113,13 @@ TEST(slot_spans_decomposed_hangul_in_the_original_input) {
   CHECK_EQ(found[0].tagged, "<card>" + card + "</card>" + input.substr(card.size()));
 }
 
+TEST(slot_ends_before_a_particle_pair) {
+  nlu::Script s = nlu::Script::compile(
+      "card:lost\n    <card>[신용|체크]카드</card>을/를 분실했어요\n");
+  CHECK_EQ(tagged(s, "체크카드를 분실했어요"),
+           std::string("card:lost:<card>체크카드</card>를 분실했어요"));
+}
+
 TEST(slot_text_keeps_original_case_and_spacing) {
   nlu::Script s = nlu::Script::compile(
       "payment:cancel\n    cancel payment at <merchant><?>+?</merchant>\n");

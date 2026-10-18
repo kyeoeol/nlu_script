@@ -21,6 +21,34 @@ std::string utf8(char32_t c) {
 
 std::string quote(char32_t c) { return "'" + utf8(c) + "'"; }
 
+// Korean particles whose form depends on the preceding syllable: the first
+// form follows a final consonant, the second a vowel.
+struct ParticlePair {
+  const char32_t* after_consonant;
+  const char32_t* after_vowel;
+  bool rieul_as_vowel;  // a final ㄹ takes the vowel form (서울로)
+};
+
+const ParticlePair kParticlePairs[] = {
+    {U"은", U"는", false},     {U"이", U"가", false},     {U"을", U"를", false},
+    {U"과", U"와", false},     {U"아", U"야", false},     {U"이나", U"나", false},
+    {U"이랑", U"랑", false},   {U"이라고", U"라고", false}, {U"이에요", U"예요", false},
+    {U"으로", U"로", true},    {U"으로서", U"로서", true},  {U"으로써", U"로써", true},
+};
+
+std::string particle_pair_list() {
+  std::string out;
+  for (const ParticlePair& p : kParticlePairs) {
+    if (!out.empty()) out += ", ";
+    out += to_utf8(p.after_consonant) + "/" + to_utf8(p.after_vowel);
+  }
+  return out;
+}
+
+bool ends_with(const std::u32string& s, const std::u32string& suffix) {
+  return s.size() >= suffix.size() && s.compare(s.size() - suffix.size(), suffix.size(), suffix) == 0;
+}
+
 class Parser {
  public:
   Parser(const std::u32string& text, int line, int column)
@@ -208,10 +236,16 @@ class Parser {
     unexpected();
   }
 
+  bool literal_char(char32_t c, bool in_permute) const {
+    return !is_special(c) && !is_space(c) && !(in_permute && c == U',');
+  }
+
   std::shared_ptr<Node> parse_literal(bool in_permute) {
-    auto lit = make(Node::Kind::Literal, i_);
+    const std::size_t start = i_;
+    auto lit = make(Node::Kind::Literal, start);
     while (!at_end()) {
       char32_t c = peek();
+      if (c == U'/' && !lit->text.empty()) return parse_particle(lit, start, in_permute);
       if (c == U'"') {
         std::size_t open = i_++;
         while (!at_end() && peek() != U'"') {
@@ -225,7 +259,7 @@ class Parser {
         }
         if (at_end()) error_at(open, "unterminated quote");
         ++i_;
-      } else if (!is_special(c) && !is_space(c) && !(in_permute && c == U',')) {
+      } else if (literal_char(c, in_permute)) {
         lit->text += fold_case(c);
         ++i_;
       } else {
@@ -233,6 +267,42 @@ class Parser {
       }
     }
     return lit;
+  }
+
+  // A particle pair such as 을/를 ends the literal `lit`, which holds the text
+  // up to the '/' (e.g. 적금을). Returns the particle, after the rest of the
+  // literal if there is any, joined without a space.
+  std::shared_ptr<Node> parse_particle(std::shared_ptr<Node> lit, std::size_t start,
+                                       bool in_permute) {
+    const std::size_t slash = i_++;
+    std::u32string after;
+    while (!at_end() && literal_char(peek(), in_permute)) after += text_[i_++];
+    const ParticlePair* pair = nullptr;
+    bool written_vowel_first = false;
+    for (const ParticlePair& p : kParticlePairs) {
+      if (after == p.after_vowel && ends_with(lit->text, p.after_consonant)) {
+        pair = &p;
+      } else if (after == p.after_consonant && ends_with(lit->text, p.after_vowel)) {
+        pair = &p;
+        written_vowel_first = true;
+      }
+      if (pair) break;
+    }
+    if (!pair)
+      error_at(slash, "unknown particle pair ending in '/" + to_utf8(after) +
+                          "'; available: " + particle_pair_list());
+    const std::u32string before =
+        written_vowel_first ? pair->after_vowel : pair->after_consonant;
+    auto particle = make(Node::Kind::Particle, slash - before.size());
+    particle->text = pair->after_consonant;
+    particle->vowel_text = pair->after_vowel;
+    particle->rieul_as_vowel = pair->rieul_as_vowel;
+    lit->text.erase(lit->text.size() - before.size());
+    if (lit->text.empty()) return particle;
+    auto seq = make(Node::Kind::Sequence, start);
+    seq->children = {lit, particle};
+    seq->hard_joins = {true};
+    return seq;
   }
 
   // [body]^(min,max) | [body]^<n | [body]^>n

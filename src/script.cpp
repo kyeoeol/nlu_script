@@ -212,7 +212,7 @@ class LazyDfa {
         for (int s : states_[d].set)
           for (const Edge& e : nfa_.states[s].edges)
             if (e.consumes() && nfa_.matches(e, c)) targets.push_back(e.to);
-        std::vector<int> set = closure_(std::move(targets));
+        std::vector<int> set = closure_(std::move(targets), c);
         if (states_.size() >= kMaxStates) {
           reset();
           d = intern(std::move(set));
@@ -250,7 +250,7 @@ class LazyDfa {
     states_.clear();
     index_.clear();
     ++epoch_;
-    start_ = intern(closure_({start_nfa_}));
+    start_ = intern(closure_({start_nfa_}, 0));
   }
 
   int intern(std::vector<int> set) {
@@ -293,14 +293,14 @@ class PikeVm {
   bool run(int start, const std::u32string& text, std::vector<Event>& events) {
     std::vector<Thread> current;
     std::vector<Thread> next;
-    add(current, start, nullptr, 0);
+    add(current, start, nullptr, 0, 0);
     for (std::size_t i = 0; i < text.size() && !current.empty(); ++i) {
       next.clear();
       ++generation_;
       for (const Thread& t : current) {
         if (t.edge < 0) continue;
         const Edge& e = nfa_.states[t.state].edges[t.edge];
-        if (nfa_.matches(e, text[i])) add(next, e.to, t.log, static_cast<int>(i) + 1);
+        if (nfa_.matches(e, text[i])) add(next, e.to, t.log, static_cast<int>(i) + 1, text[i]);
       }
       std::swap(current, next);
     }
@@ -332,8 +332,9 @@ class PikeVm {
   std::vector<unsigned> mark_;
   unsigned generation_ = 1;
 
-  // Depth-first, in edge order, so threads are listed by priority.
-  void add(std::vector<Thread>& list, int state, Log log, int pos) {
+  // Depth-first, in edge order, so threads are listed by priority. `prev` is
+  // the character consumed last, which guard edges test.
+  void add(std::vector<Thread>& list, int state, Log log, int pos, char32_t prev) {
     std::vector<Item> stack;
     stack.push_back({true, state, -1, std::move(log)});
     std::vector<Item> children;
@@ -353,6 +354,8 @@ class PikeVm {
         const Edge& e = st.edges[k];
         if (e.kind == Edge::Kind::Epsilon) {
           children.push_back({true, e.to, -1, item.log});
+        } else if (e.kind == Edge::Kind::Guard) {
+          if (guard_holds(e.guard, prev)) children.push_back({true, e.to, -1, item.log});
         } else if (e.kind == Edge::Kind::Action) {
           children.push_back({true, e.to, -1, std::make_shared<const LogNode>(LogNode{e.action, pos, item.log})});
         } else {
