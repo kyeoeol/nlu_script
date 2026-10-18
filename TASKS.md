@@ -204,8 +204,19 @@
       the spec. A wildcard is rejected only when the exclusion matches its
       whole text. Use `\[<?>*? X <?>*?]` to exclude
       text that contains `X`.
-- [ ] Should `#{form}` and `${action.method}` (answer templates in the chatbot
+- [x] Should `#{form}` and `${action.method}` (answer templates in the chatbot
       builder) be part of this library, or stay with the response layer?
-- [ ] The original description mentions the OpenFst library. The automaton is
-      implemented in-house (no dependency). Revisit if OpenFst interop or
-      weighted rules are needed.
+      Decided: they stay with the response layer. This library turns a
+      sentence into labels, slots and normalized attributes (values,
+      currencies, resolved dates); what to answer depends on dialogue state
+      and the caller's own data and actions, which it doesn't know. The
+      matches it returns are the input a template engine needs, and filling
+      `#{form}` from a slot is a few lines in the caller.
+- [x] The original description mentions the OpenFst library. The automaton is
+      implemented in-house (no dependency). Decided: keep it in-house. The
+      features OpenFst would bring are covered without it: one automaton for
+      all rules with a lazy DFA, exclusions by product construction, lint by
+      searching the determinized automaton, and ranking by `specificity`
+      (`match_best()`) instead of weighted rules. It would add a large C++
+      dependency to every wheel. Revisit only if weighted or probabilistic
+      scoring becomes a requirement.
