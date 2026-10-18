@@ -80,6 +80,25 @@ rules.test:2: I lost my debit card
 The exit status is 0 when every case passes and 1 otherwise, so the command
 can run in CI.
 
+## Linting scripts
+
+`--lint` reports labels that match the same input, and entities and
+variables that no rule uses:
+
+```sh
+./build/nlu_script_cli --lint examples/demo.nlu
+# examples/demo.nlu:32: transfer:send and payment:refund (line 41) both match "send x won to 결제 환불해줘"
+# ...
+```
+
+Each overlap names the first rule of each label that matches, and gives the
+shortest input that both match (normalized, so in lowercase), with `x`
+standing in for any text a wildcard accepts. Some overlaps are intended, and
+wildcards produce many. Read each one and decide whether a label needs an
+exclusion. The search explores the automaton of all rules, up to 100,000
+states. If it stops there, the output says that more overlaps may exist. The
+exit status is 1 when there are findings.
+
 ## Script files
 
 A script is a list of labels, each followed by its indented patterns, plus
@@ -253,6 +272,9 @@ for (const nlu::Match& m : script.match("I lost my debit card")) {
   for (const nlu::Slot& s : m.slots) { /* s.name, s.text, s.begin, s.end, s.attributes */ }
 }
 ```
+
+`Script::lint()` returns the same checks as `--lint` as an `nlu::LintReport`
+(overlaps, unused definitions, and whether the search was complete).
 
 `Script::match` is thread-safe, and concurrent calls run in parallel. A call
 waits only while another thread adds a state to the shared DFA cache, which

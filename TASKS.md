@@ -74,6 +74,13 @@
 - [x] Decomposed Hangul (NFD conjoining jamo) is composed into syllables in
       input and scripts before matching; slot text and offsets still refer
       to the original bytes
+- [x] Lint (`Script::lint()`, `nlu_script_cli --lint`): label pairs that match
+      a common input, each with the shortest such input (searched over the
+      automaton of all rules, with `x` at wildcard positions), and entities
+      and variables no rule uses. It found a real gap in the demo:
+      `account:close` excluded only the Korean product names, so
+      `deposit 해지해주세요` matched both labels. The exclusion now uses
+      `@{product}`
 
 ## Next
 
@@ -115,9 +122,11 @@
       characters vs wildcards) on each `Match`, and an option to return only
       the most specific label. Would replace exclusion workarounds such as
       `account:close` skipping `account:close:product` in the demo
-- [ ] Lint for scripts: report label pairs whose patterns overlap, with a
-      generated sentence that both match (product of the two automata);
-      rules subsumed by another rule; unused entities and variables
+- [ ] Lint: rules subsumed by another rule of the same label (dead rules)
+- [ ] Lint: a way to mark intended overlaps (e.g. a comment on the label) so
+      `--lint` can gate CI; today any overlap exits with 1, and the demo has
+      three from its catch-all wildcards
+- [ ] Lint from the C API and Python
 - [ ] Report all compile errors at once instead of stopping at the first
 - [ ] `include` directive to split large rule sets across files
 - [ ] Explain mode for a non-matching input: the rule that consumed the

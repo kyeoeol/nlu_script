@@ -1,0 +1,209 @@
+#include "lint.hpp"
+
+#include <algorithm>
+#include <functional>
+#include <map>
+#include <queue>
+#include <set>
+#include <utility>
+
+#include "unicode.hpp"
+
+namespace nlu {
+namespace detail {
+
+namespace {
+
+// What the input ended with. Normalized input never starts with a space,
+// never has two in a row and never ends with one.
+enum Prev { kStart, kSpace, kWord };
+
+// Costs order inputs by the number of characters, then by how many of them
+// directly follow another character (so a space goes wherever the patterns
+// allow one), then by how many are not the placeholder that stands for any
+// other character (so wildcards read as `x` rather than borrowing characters
+// from other rules). Inputs are far shorter than 2^20 characters.
+using Cost = long long;
+Cost step_cost(char32_t c, bool placeholder, int prev) {
+  if (c == U' ') return 0;
+  return (Cost{1} << 40) + (prev == kWord ? Cost{1} << 20 : 0) + (placeholder ? 0 : 1);
+}
+
+struct Transition {
+  char32_t ch;
+  bool placeholder;  // ch stands for every character the state does not mention
+  int to;
+};
+
+// Subset construction over the whole script, built on demand. Transitions
+// are listed per state over its own alphabet: every character its edges
+// mention, the space, and one character standing for all the others.
+class Determinizer {
+ public:
+  Determinizer(const Nfa& nfa, std::size_t max_states) : nfa_(nfa), closure_(nfa),
+                                                        max_states_(max_states) {}
+
+  // Returns the state for the closure of `targets`, -1 for the dead state or
+  // when the state limit is reached.
+  int intern(std::vector<int> targets) {
+    std::vector<int> set = closure_(std::move(targets));
+    if (set.empty()) return -1;
+    auto it = index_.find(set);
+    if (it != index_.end()) return it->second;
+    if (sets_.size() >= max_states_) {
+      complete_ = false;
+      return -1;
+    }
+    std::vector<int> accepts;
+    for (int s : set)
+      if (nfa_.states[s].accept_rule >= 0) accepts.push_back(nfa_.states[s].accept_rule);
+    std::sort(accepts.begin(), accepts.end());
+    int id = static_cast<int>(sets_.size());
+    index_.emplace(set, id);
+    sets_.push_back(std::move(set));
+    accepts_.push_back(std::move(accepts));
+    transitions_.emplace_back();
+    expanded_.push_back(false);
+    return id;
+  }
+
+  const std::vector<int>& accepts(int d) const { return accepts_[d]; }
+  bool complete() const { return complete_; }
+
+  const std::vector<Transition>& transitions(int d) {
+    if (expanded_[d]) return transitions_[d];
+    expanded_[d] = true;
+    std::set<char32_t> chars;
+    bool any = false;
+    for (int s : sets_[d]) {
+      for (const Edge& e : nfa_.states[s].edges) {
+        if (e.kind == Edge::Kind::Char) chars.insert(e.ch);
+        if (e.kind == Edge::Kind::Space) chars.insert(U' ');
+        if (e.kind == Edge::Kind::Any) {
+          any = true;
+          if (e.set >= 0) chars.insert(nfa_.sets[e.set].begin(), nfa_.sets[e.set].end());
+        }
+      }
+    }
+    std::vector<char32_t> alphabet(chars.begin(), chars.end());
+    if (any) alphabet.push_back(other_than(chars));
+    std::vector<Transition> out;
+    for (std::size_t i = 0; i < alphabet.size(); ++i) {
+      const char32_t c = alphabet[i];
+      std::vector<int> targets;
+      for (int s : sets_[d])
+        for (const Edge& e : nfa_.states[s].edges)
+          if (e.consumes() && nfa_.matches(e, c)) targets.push_back(e.to);
+      int next = intern(std::move(targets));
+      if (next >= 0) out.push_back({c, any && i + 1 == alphabet.size(), next});
+    }
+    transitions_[d] = std::move(out);
+    return transitions_[d];
+  }
+
+ private:
+  // A readable character that no edge of the state mentions, so it stands
+  // for every such character.
+  static char32_t other_than(const std::set<char32_t>& chars) {
+    for (char32_t c : std::u32string(U"xyzqjkvw"))
+      if (!chars.count(c)) return c;
+    char32_t c = 0x4E00;
+    while (chars.count(c)) ++c;
+    return c;
+  }
+
+  const Nfa& nfa_;
+  Closure closure_;
+  std::size_t max_states_;
+  bool complete_ = true;
+  std::map<std::vector<int>, int> index_;
+  std::vector<std::vector<int>> sets_;
+  std::vector<std::vector<int>> accepts_;
+  std::vector<std::vector<Transition>> transitions_;
+  std::vector<bool> expanded_;
+};
+
+}  // namespace
+
+OverlapSearch find_overlaps(const Nfa& nfa, int start, const std::vector<std::string>& labels,
+                            const std::vector<int>& lines, std::size_t max_states) {
+  OverlapSearch out;
+  Determinizer dfa(nfa, max_states);
+
+  // Dijkstra over (DFA state, what the input ended with).
+  struct Node {
+    int state;
+    int prev;
+    int parent;  // node reached before this one, -1 at the start
+    char32_t ch;  // character consumed from the parent
+  };
+  std::vector<Node> nodes;
+  std::vector<Cost> cost;
+  std::map<std::pair<int, int>, int> index;
+  using Entry = std::pair<Cost, int>;  // (cost, node)
+  std::priority_queue<Entry, std::vector<Entry>, std::greater<Entry>> queue;
+  auto reach = [&](int state, int prev, int parent, char32_t ch, Cost c) {
+    auto key = std::make_pair(state, prev);
+    auto it = index.find(key);
+    if (it != index.end() && cost[it->second] <= c) return;
+    int id;
+    if (it == index.end()) {
+      id = static_cast<int>(nodes.size());
+      index.emplace(key, id);
+      nodes.push_back({state, prev, parent, ch});
+      cost.push_back(c);
+    } else {
+      id = it->second;
+      nodes[id] = {state, prev, parent, ch};
+      cost[id] = c;
+    }
+    queue.push({c, id});
+  };
+  auto example_of = [&](int id) {
+    std::u32string text;
+    for (; nodes[id].parent >= 0; id = nodes[id].parent) text += nodes[id].ch;
+    std::reverse(text.begin(), text.end());
+    return to_utf8(text);
+  };
+
+  int first = dfa.intern({start});
+  if (first >= 0) reach(first, kStart, -1, 0, 0);
+  std::set<std::pair<std::string, std::string>> found;
+  while (!queue.empty()) {
+    Entry top = queue.top();
+    queue.pop();
+    const int id = top.second;
+    if (top.first != cost[id]) continue;  // superseded
+    const Node node = nodes[id];
+
+    if (node.prev != kSpace) {
+      // The first rule of each label that accepts here, in script order.
+      std::vector<int> firsts;
+      std::set<std::string> seen;
+      for (int rule : dfa.accepts(node.state))
+        if (seen.insert(labels[rule]).second) firsts.push_back(rule);
+      for (std::size_t i = 0; i < firsts.size(); ++i) {
+        for (std::size_t k = i + 1; k < firsts.size(); ++k) {
+          const int a = firsts[i], b = firsts[k];
+          if (!found.insert({labels[a], labels[b]}).second) continue;
+          out.overlaps.push_back({labels[a], lines[a], labels[b], lines[b], example_of(id)});
+        }
+      }
+    }
+
+    for (const Transition& t : dfa.transitions(node.state)) {
+      if (t.ch == U' ' && node.prev != kWord) continue;
+      reach(t.to, t.ch == U' ' ? kSpace : kWord, id, t.ch,
+            top.first + step_cost(t.ch, t.placeholder, node.prev));
+    }
+  }
+
+  std::sort(out.overlaps.begin(), out.overlaps.end(), [](const Overlap& x, const Overlap& y) {
+    return std::make_pair(x.line, x.other_line) < std::make_pair(y.line, y.other_line);
+  });
+  out.complete = dfa.complete();
+  return out;
+}
+
+}  // namespace detail
+}  // namespace nlu

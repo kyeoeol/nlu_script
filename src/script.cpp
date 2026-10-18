@@ -17,6 +17,7 @@
 #include <unordered_map>
 
 #include "compiler.hpp"
+#include "lint.hpp"
 #include "nlu_script/nlu_script.hpp"
 #include "parser.hpp"
 #include "unicode.hpp"
@@ -485,6 +486,39 @@ Match build_match(const Nfa& nfa, const std::string& label, int line,
   return m;
 }
 
+// --- lint ---------------------------------------------------------------------
+
+// Definitions that no rule reaches, directly or through other definitions.
+std::vector<UnusedDefinition> unused_definitions(const ParsedScript& parsed) {
+  std::set<std::string> entities, variables;
+  std::vector<const Node*> pending;
+  for (const Rule& rule : parsed.rules) pending.push_back(rule.pattern.get());
+  auto use = [&](std::set<std::string>& used, const std::map<std::string, Definition>& table,
+                 const std::string& name) {
+    auto it = table.find(name);
+    if (it != table.end() && it->second.body && used.insert(name).second)
+      pending.push_back(it->second.body.get());
+  };
+  while (!pending.empty()) {
+    const Node* n = pending.back();
+    pending.pop_back();
+    if (n->kind == Node::Kind::EntityRef) use(entities, parsed.defs.entities, n->name);
+    if (n->kind == Node::Kind::VarRef) use(variables, parsed.defs.variables, n->name);
+    for (const NodePtr& child : n->children) pending.push_back(child.get());
+    if (n->exclusion) pending.push_back(n->exclusion.get());
+  }
+
+  std::vector<UnusedDefinition> out;
+  for (const auto& kv : parsed.defs.entities)
+    if (!entities.count(kv.first)) out.push_back({"@" + kv.first, kv.second.pos.line});
+  for (const auto& kv : parsed.defs.variables)
+    if (!variables.count(kv.first)) out.push_back({"@var." + kv.first, kv.second.pos.line});
+  std::sort(out.begin(), out.end(), [](const UnusedDefinition& a, const UnusedDefinition& b) {
+    return a.line < b.line;
+  });
+  return out;
+}
+
 }  // namespace
 
 // --- Script -----------------------------------------------------------------
@@ -500,6 +534,7 @@ struct CompiledRule {
 struct Script::Impl {
   Nfa nfa;
   std::vector<CompiledRule> rules;
+  std::vector<UnusedDefinition> unused;
   int start = 0;
   mutable std::unique_ptr<LazyDfa> dfa;
 };
@@ -524,6 +559,7 @@ Script Script::compile(const std::string& source) {
     impl->nfa.epsilon(impl->start, r.start);
     impl->rules.push_back(std::move(r));
   }
+  impl->unused = unused_definitions(parsed);
   impl->dfa = std::make_unique<LazyDfa>(impl->nfa, impl->start);
   return Script(std::move(impl));
 }
@@ -537,6 +573,17 @@ Script Script::compile_file(const std::string& path) {
 }
 
 std::size_t Script::rule_count() const { return impl_->rules.size(); }
+
+LintReport Script::lint(std::size_t max_states) const {
+  std::vector<std::string> labels;
+  std::vector<int> lines;
+  for (const CompiledRule& r : impl_->rules) {
+    labels.push_back(r.label);
+    lines.push_back(r.line);
+  }
+  OverlapSearch search = find_overlaps(impl_->nfa, impl_->start, labels, lines, max_states);
+  return LintReport{std::move(search.overlaps), impl_->unused, search.complete};
+}
 
 std::vector<Match> Script::match(const std::string& text) const {
   NormalizedText norm = normalize(text);
