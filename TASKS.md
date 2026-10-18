@@ -110,6 +110,14 @@
       `CompileError.errors`, `path:line:column:` lines from the CLI). Broken
       label and definition lines don't cascade, and rules using a broken
       definition are skipped
+- [x] Fuzzing: `fuzz/fuzz_script.cpp` (compile, match, lint) and
+      `fuzz/fuzz_match.cpp` (every feature and system entity), run for a minute
+      each in CI with libFuzzer, ASan and UBSan, plus a standalone mutation
+      driver for Apple clang. Local runs (90k inputs) found no crashes; probing
+      found that nested repetitions could take gigabytes (4 levels: 9.7 GB),
+      so rules are capped at 500,000 automaton states and scripts at 10
+      million. System entities now use a linear-size `Chain` node (KO_NUMBER
+      went from about 25,000 states per use to under 5,000)
 
 ## Next
 
@@ -154,8 +162,6 @@
 - [ ] `include` directive to split large rule sets across files
 - [ ] Explain mode for a non-matching input: the rule that consumed the
       longest prefix and where it stopped
-- [ ] Fuzz the parser and matcher (libFuzzer with ASan/UBSan), since scripts
-      and inputs come from users
 - [ ] The lazy DFA cache resets completely at 20,000 states (`kMaxStates`),
       so throughput drops right after a reset; consider evicting part of it
 - [ ] Python access to script test files (e.g. `Script.run_tests(path)`)

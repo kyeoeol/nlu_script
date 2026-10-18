@@ -40,6 +40,8 @@ struct Node {
     VarRef,     // @var.{name}
     SystemRef,  // `@{name}
     Particle,   // 을/를: `text` after a final consonant, `vowel_text` otherwise
+    Chain,      // one or more of children, in order, joined by optional spaces
+                // (built for system entities; not written in patterns)
   };
   enum class WildKind { One, Star, Plus };
 

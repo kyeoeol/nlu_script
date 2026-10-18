@@ -4,6 +4,7 @@
 #include <map>
 #include <memory>
 #include <set>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -16,6 +17,11 @@ namespace detail {
 namespace {
 
 constexpr std::size_t kMaxExclusionStates = 20000;
+
+// Repetitions multiply a rule's automaton, so nested ones grow it fast
+// ([[[[a]^(1,100)]^(1,100)]^(1,100)]^(1,100) would take gigabytes). Compiling
+// stops with an error once a rule passes this many states.
+constexpr std::size_t kMaxRuleStates = 500000;
 
 [[noreturn]] void fail(const SourcePos& pos, const std::string& message) {
   throw CompileError(message, pos.line, pos.column);
@@ -83,9 +89,12 @@ struct Frag {
 class Compiler {
  public:
   Compiler(Nfa& nfa, const Definitions& defs, bool with_actions)
-      : nfa_(nfa), defs_(defs), with_actions_(with_actions) {}
+      : nfa_(nfa), defs_(defs), with_actions_(with_actions), first_state_(nfa.states.size()) {}
 
   Frag compile(const Node& n) {
+    if (nfa_.states.size() - first_state_ > kMaxRuleStates)
+      fail(n.pos, "rule is too large to compile (over " + std::to_string(kMaxRuleStates) +
+                      " automaton states); lower its repetition counts");
     Frag f = compile_body(n);
     if (!with_actions_) return f;
     for (const Assignment& a : n.assignments) {
@@ -116,6 +125,7 @@ class Compiler {
   Nfa& nfa_;
   const Definitions& defs_;
   bool with_actions_;
+  std::size_t first_state_;  // the rule's first state
   std::vector<std::string> var_stack_;
   bool in_exclusion_ = false;
   int slot_depth_ = 0;
@@ -186,6 +196,21 @@ class Compiler {
         Frag f = compile(*it->second.body);
         var_stack_.pop_back();
         return f;
+      }
+      case Node::Kind::Chain: {
+        // Each child is compiled once: any child can start the chain, and
+        // after one the chain goes on with a later child (preferring the
+        // next) or stops. Spaces only ever join two children.
+        int in = nfa_.add_state();
+        int out = nfa_.add_state();
+        std::vector<Frag> parts;
+        for (const NodePtr& child : n.children) parts.push_back(compile(*child));
+        for (std::size_t i = 0; i < parts.size(); ++i) {
+          nfa_.epsilon(in, parts[i].in);
+          for (std::size_t j = i + 1; j < parts.size(); ++j) join(parts[i].out, parts[j].in, false);
+          nfa_.epsilon(parts[i].out, out);
+        }
+        return {in, out};
       }
       case Node::Kind::Particle: {
         // Exclusions are determinized over character classes that don't

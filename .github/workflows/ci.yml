@@ -35,13 +35,51 @@ jobs:
       - name: Test
         run: ctest --test-dir build -C Release --output-on-failure
 
+  # Fuzzes the script compiler and the matcher for a minute each, with
+  # AddressSanitizer and UndefinedBehaviorSanitizer. The demo script and the
+  # sentences in its test file seed the corpora. Crashing inputs are uploaded.
+  fuzz:
+    name: fuzz
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Configure
+        run: >
+          cmake -S . -B build-fuzz -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+          -DNLU_SCRIPT_BUILD_TESTS=OFF -DNLU_SCRIPT_BUILD_FUZZERS=ON
+          "-DCMAKE_CXX_FLAGS=-fsanitize=fuzzer-no-link,address,undefined -fno-sanitize-recover=undefined"
+          "-DCMAKE_EXE_LINKER_FLAGS=-fsanitize=address,undefined"
+      - name: Build
+        run: cmake --build build-fuzz --parallel --target fuzz_script fuzz_match
+      - name: Seed corpora
+        run: |
+          mkdir -p corpus/script corpus/match crashes
+          cp examples/demo.nlu corpus/script/
+          awk 'NF && !/^#/ && !/^ /' examples/demo.test | split -l 1 - corpus/match/line-
+      - name: Fuzz the matcher
+        run: >
+          ./build-fuzz/fuzz_match -max_total_time=60 -timeout=10 -rss_limit_mb=2560
+          -artifact_prefix=crashes/ corpus/match
+      - name: Fuzz scripts
+        run: >
+          ./build-fuzz/fuzz_script -max_total_time=60 -timeout=10 -rss_limit_mb=2560
+          -artifact_prefix=crashes/ corpus/script
+      - name: Upload crashing inputs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fuzz-crashes
+          path: crashes/
+          retention-days: 7
+
   # The one check to mark as required for merging into main, so the branch
   # rule doesn't have to list (and track) every matrix job. It runs even when
   # a job it needs fails, because a skipped required check counts as passing.
   ci-passed:
     name: CI passed
     if: always()
-    needs: [build-and-test]
+    needs: [build-and-test, fuzz]
     runs-on: ubuntu-latest
     steps:
       - name: Fail unless every job succeeded

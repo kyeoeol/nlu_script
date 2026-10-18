@@ -204,6 +204,13 @@ TEST(repetition_above) {
   CHECK(matches(en, "pleasepleasepleaseplease"));
 }
 
+TEST(oversized_rules_are_errors) {
+  // Each level multiplies the automaton by 100; compiling stops early with an
+  // error instead of running out of memory.
+  CHECK_THROWS(nlu::CompileError, rule("[[[[a]^(1,100)]^(1,100)]^(1,100)]^(1,100)"));
+  CHECK(matches("[[a]^(1,100)]^(1,100)", "aaaa"));
+}
+
 TEST(repetition_rejects_empty_ranges) {
   CHECK_THROWS(nlu::CompileError, rule("[a]^(3,2)"));
   CHECK_THROWS(nlu::CompileError, rule("[a]^<1"));
