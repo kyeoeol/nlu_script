@@ -4,6 +4,7 @@
 #include <map>
 #include <memory>
 #include <set>
+#include <utility>
 #include <vector>
 
 #include "nlu_script/nlu_script.hpp"
@@ -97,7 +98,8 @@ bool class_matches(const Nfa& nfa, const Edge& e, std::size_t cls,
   return nfa.matches(e, chars[cls - 2]);
 }
 
-// Accepting states are the NFA states with an accept_rule.
+// Accepting states are the NFA states with an accept_rule. Exclusions contain
+// no guard edges, so closures need no previous character.
 Dfa determinize(const Nfa& nfa, int start, const std::vector<char32_t>& chars,
                 const SourcePos& pos) {
   const std::size_t classes = chars.size() + 2;
@@ -117,7 +119,7 @@ Dfa determinize(const Nfa& nfa, int start, const std::vector<char32_t>& chars,
     sets.push_back(std::move(set));
     return id;
   };
-  intern(closure({start}));
+  intern(closure({start}, 0));
   for (std::size_t d = 0; d < sets.size(); ++d) {
     for (std::size_t cls = 0; cls < classes; ++cls) {
       std::vector<int> targets;
@@ -125,7 +127,7 @@ Dfa determinize(const Nfa& nfa, int start, const std::vector<char32_t>& chars,
         for (const Edge& e : nfa.states[s].edges)
           if (e.consumes() && class_matches(nfa, e, cls, chars)) targets.push_back(e.to);
       if (targets.empty()) continue;
-      int target = intern(closure(std::move(targets)));
+      int target = intern(closure(std::move(targets), 0));
       dfa.next[d][cls] = target;
     }
   }
@@ -176,6 +178,7 @@ class Compiler {
   const Definitions& defs_;
   bool with_actions_;
   std::vector<std::string> var_stack_;
+  bool in_exclusion_ = false;
   int slot_depth_ = 0;
   std::set<std::string> slots_seen_;
   std::vector<Assignment> qualified_;
@@ -187,16 +190,8 @@ class Compiler {
 
   Frag compile_body(const Node& n) {
     switch (n.kind) {
-      case Node::Kind::Literal: {
-        int in = nfa_.add_state();
-        int cur = in;
-        for (char32_t c : n.text) {
-          int next = nfa_.add_state();
-          nfa_.add_edge(cur, c == U' ' ? Edge::Kind::Space : Edge::Kind::Char, next, c);
-          cur = next;
-        }
-        return {in, cur};
-      }
+      case Node::Kind::Literal:
+        return compile_literal(n.text);
       case Node::Kind::Sequence: {
         if (n.children.empty()) {
           int s = nfa_.add_state();
@@ -253,6 +248,23 @@ class Compiler {
         var_stack_.pop_back();
         return f;
       }
+      case Node::Kind::Particle: {
+        // Exclusions are determinized over character classes that don't
+        // tell syllables with a final consonant from those without.
+        if (in_exclusion_) fail(n.pos, "particle pairs cannot be used inside an exclusion");
+        int in = nfa_.add_state();
+        int out = nfa_.add_state();
+        const bool ro = n.rieul_as_vowel;
+        const std::pair<Guard, const std::u32string*> forms[] = {
+            {ro ? Guard::AfterFinalExceptRieul : Guard::AfterFinal, &n.text},
+            {ro ? Guard::AfterNoFinalOrRieul : Guard::AfterNoFinal, &n.vowel_text}};
+        for (const auto& form : forms) {
+          Frag f = compile_literal(*form.second);
+          nfa_.guard(in, form.first, f.in);
+          nfa_.epsilon(f.out, out);
+        }
+        return {in, out};
+      }
       case Node::Kind::SystemRef: {
         const auto& system = system_entities();
         auto it = system.find(n.name);
@@ -265,6 +277,17 @@ class Compiler {
       }
     }
     fail(n.pos, "internal error: unknown node");
+  }
+
+  Frag compile_literal(const std::u32string& text) {
+    int in = nfa_.add_state();
+    int cur = in;
+    for (char32_t c : text) {
+      int next = nfa_.add_state();
+      nfa_.add_edge(cur, c == U' ' ? Edge::Kind::Space : Edge::Kind::Char, next, c);
+      cur = next;
+    }
+    return {in, cur};
   }
 
   Frag compile_slot(const std::string& name, const Node& body) {
@@ -367,6 +390,7 @@ class Compiler {
     Nfa scratch;
     Compiler sub(scratch, defs_, false);
     sub.var_stack_ = var_stack_;
+    sub.in_exclusion_ = true;
     Frag x = sub.compile(*n.exclusion);
     Frag w = sub.compile_wildcard(n.wild);
     scratch.states[x.out].accept_rule = 0;

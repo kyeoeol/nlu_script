@@ -39,6 +39,7 @@ struct Node {
     EntityRef,  // @{name}
     VarRef,     // @var.{name}
     SystemRef,  // `@{name}
+    Particle,   // 을/를: `text` after a final consonant, `vowel_text` otherwise
   };
   enum class WildKind { One, Star, Plus };
 
@@ -53,6 +54,8 @@ struct Node {
   WildKind wild = WildKind::One;
   NodePtr exclusion;             // Wildcard: text it must not match in full
   std::string name;
+  std::u32string vowel_text;     // Particle: the form after a vowel
+  bool rieul_as_vowel = false;   // Particle: a final ㄹ takes the vowel form (으로/로)
   std::vector<Assignment> assignments;  // performed after matching this node
 };
 

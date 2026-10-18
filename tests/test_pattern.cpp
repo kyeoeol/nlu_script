@@ -382,3 +382,67 @@ TEST(decomposed_hangul_matches_composed_hangul) {
   CHECK(matches("<?>드 분실", decomposed));              // one syllable is one character
   CHECK(!matches("카드 분실", "카드 부실"));  // 부실, not 분실
 }
+
+TEST(particle_pair_follows_the_final_consonant) {
+  nlu::Script s = rule("[적금|예금|카드|계좌]을/를 해지");
+  CHECK(matches(s, "적금을 해지"));
+  CHECK(matches(s, "카드를 해지"));
+  CHECK(matches(s, "계좌를해지"));
+  CHECK(!matches(s, "적금를 해지"));
+  CHECK(!matches(s, "카드을 해지"));
+  CHECK(!matches(s, "적금 을 해지"));  // a particle stays on its word
+  CHECK(!matches(s, "적금 해지"));
+}
+
+TEST(particle_pair_may_be_written_in_either_order) {
+  nlu::Script s = rule("[적금|카드]는/은 어떻게 해지해요");
+  CHECK(matches(s, "적금은 어떻게 해지해요"));
+  CHECK(matches(s, "카드는 어떻게 해지해요"));
+  CHECK(!matches(s, "카드은 어떻게 해지해요"));
+}
+
+TEST(particle_pairs_with_ro_treat_final_rieul_like_a_vowel) {
+  nlu::Script s = rule("[서울|부산|대구] 지점으로/로 [가요|연결해주세요]");
+  CHECK(matches(s, "서울 지점으로 가요"));
+  CHECK(!matches(s, "서울 지점로 가요"));
+  s = rule("[서울|부산|대구]으로/로 송금");
+  CHECK(matches(s, "서울로 송금"));
+  CHECK(!matches(s, "서울으로 송금"));
+  CHECK(matches(s, "부산으로 송금"));
+  CHECK(!matches(s, "부산로 송금"));
+  CHECK(matches(s, "대구로 송금"));
+}
+
+TEST(particle_pair_follows_wildcards_and_entities) {
+  nlu::Script s = rule("<?>+?을/를 해지해주세요");
+  CHECK(matches(s, "청약통장을 해지해주세요"));
+  CHECK(matches(s, "정기예금 상품을 해지해주세요"));
+  CHECK(!matches(s, "청약통장를 해지해주세요"));
+  s = rule("@{product}이/가 만기됐어요", "@product: [적금|정기예금|청약]\n");
+  CHECK(matches(s, "적금이 만기됐어요"));
+  CHECK(matches(s, "청약이 만기됐어요"));
+  CHECK(!matches(s, "정기예금가 만기됐어요"));
+}
+
+TEST(particle_pair_after_other_characters_accepts_either_form) {
+  // Whether `OTP` ends in a consonant depends on how it is read.
+  nlu::Script s = rule("[OTP|ATM 카드]을/를 재발급");
+  CHECK(matches(s, "OTP를 재발급"));
+  CHECK(matches(s, "otp을 재발급"));
+  CHECK(!matches(s, "ATM 카드을 재발급"));
+}
+
+TEST(optional_particle_pair) {
+  nlu::Script s = rule("[적금|카드](을/를) 해지");
+  CHECK(matches(s, "적금 해지"));
+  CHECK(matches(s, "적금을 해지"));
+  CHECK(matches(s, "카드를 해지"));
+  CHECK(!matches(s, "적금를 해지"));
+}
+
+TEST(unknown_or_misplaced_particle_pairs_are_errors) {
+  CHECK_THROWS(nlu::CompileError, rule("카드을/는 분실"));
+  CHECK_THROWS(nlu::CompileError, rule("카드을/를해지"));
+  CHECK_THROWS(nlu::CompileError, rule("카드 /를 분실"));
+  CHECK_THROWS(nlu::CompileError, rule("\\[적금을/를] <?>+? 해지"));
+}

@@ -149,7 +149,8 @@ line of that rule, so you can tell which pattern produced it.
 
 ## Pattern language
 
-Special symbols (quote them, e.g. `"?"` or `"-"`, to match them literally):
+Special symbols (quote them, e.g. `"?"` or `"-"`, to match them literally;
+`/` also writes a particle pair like `을/를`):
 
 ```
 ( ) { } [ ] < > \ : + * ^ ~ = . | & - / `
@@ -178,6 +179,27 @@ seized), and `[log|sign]::in page is down` matches `login page is down` but
 not `log in page is down`.
 
 `::` must touch both tokens: `환불 ::[해줘]` is an error.
+
+### Particles
+
+A Korean particle pair such as `을/를` matches the form that fits the
+syllable right before it: the first form after a final consonant (받침), the
+second after a vowel. Either order works (`을/를` or `를/을`). The particle
+always stays on its word, with no space before it, and can be optional:
+`(을/를)`.
+
+```
+[적금|카드]을/를 해지     -> 적금을 해지, 카드를 해지 (not 적금를, 카드을, 적금 을)
+<?>+?이/가 만기됐어요     -> 청약이 만기됐어요, 정기예금이 만기됐어요
+@{product}(을/를) 해지    -> 적금 해지, 적금을 해지 (not 적금를 해지)
+[서울|부산]으로/로 송금    -> 서울로 송금, 부산으로 송금 (a final ㄹ takes 로)
+```
+
+Pairs: 은/는, 이/가, 을/를, 과/와, 아/야, 이나/나, 이랑/랑, 이라고/라고,
+이에요/예요, 으로/로, 으로서/로서, 으로써/로써. After anything other than a
+Hangul syllable, such as `OTP` or a phone number, either form matches,
+because the right one depends on how it is read. Particle pairs can't be
+used inside an exclusion.
 
 ### Groups
 

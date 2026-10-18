@@ -116,3 +116,23 @@ TEST(lint_reports_an_incomplete_search) {
   CHECK(!s.lint(2).complete);
   CHECK(s.lint().complete);
 }
+
+TEST(lint_follows_particle_pairs) {
+  nlu::Script s = nlu::Script::compile(
+      "close:proper\n"
+      "    적금을/를 해지\n"
+      "close:typo\n"
+      "    적금를 해지\n");
+  CHECK(s.lint().overlaps.empty());
+
+  s = nlu::Script::compile(
+      "close:any\n"
+      "    <?>을/를 해지\n"
+      "close:vowel\n"
+      "    <?>를 해지\n");
+  nlu::LintReport report = s.lint();
+  CHECK_EQ(report.overlaps.size(), 1u);
+  if (report.overlaps.size() != 1) return;
+  CHECK_EQ(labels(s, report.overlaps[0].example),
+           (std::vector<std::string>{"close:any", "close:vowel"}));
+}

@@ -22,7 +22,7 @@
 card:lost
     report a lost <card>([visa{brand=VISA}|mastercard{brand=MASTERCARD}]) [credit{type=CREDIT}|debit{type=DEBIT}] card</card>
     I lost my <card>[credit{type=CREDIT}|debit{type=DEBIT}] card</card>
-    <card>([비자{brand=VISA}|마스터{brand=MASTERCARD}]) [신용{type=CREDIT}|체크{type=DEBIT}]카드</card>::(를) [분실했어요|잃어버렸어요]
+    <card>([비자{brand=VISA}|마스터{brand=MASTERCARD}]) [신용{type=CREDIT}|체크{type=DEBIT}]카드</card>(을/를) [분실했어요|잃어버렸어요]
 
 card:freeze
     [freeze|lock] my card (ending in <last4>@var.{digit}@var.{digit}@var.{digit}@var.{digit}</last4>)
@@ -33,7 +33,7 @@ transfer:send
     <recipient><?>+?</recipient>::[한테|에게] <amount><?>+?</amount> [달러{amount.currency=USD}|원{amount.currency=KRW}] [보내줘|송금해줘]
 
 transfer:status
-    [송금|이체]::(이) [안 들어갔어요|됐나요]
+    [송금|이체](이/가) [안 들어갔어요|됐나요]
     [did my transfer go|has my transfer gone] through
 
 payment:refund
@@ -53,19 +53,19 @@ exchange:rate
 # Savings and deposits have their own label; the general rule skips any
 # account name that mentions them.
 account:close:product
-    @{product}::(을|를) 해지 (하고 싶어요|해주세요)
+    @{product}(을/를) 해지 (하고 싶어요|해주세요)
     close my @{product} account
 
 account:close
-    <account>\[<?>*? @{product} <?>*?] <?>+?</account>::(을|를) 해지 (하고 싶어요|해주세요)
+    <account>\[<?>*? @{product} <?>*?] <?>+?</account>(을/를) 해지 (하고 싶어요|해주세요)
     close my <account>\[<?>*? @{product} <?>*?] <?>+?</account> account
 
 account:phone
-    휴대폰 번호 `@{TELNUM}::(으로|로) [변경해주세요|바꿔주세요]
+    휴대폰 번호 `@{TELNUM}(으로/로) [변경해주세요|바꿔주세요]
     change my phone number to `@{TELNUM}
 
 account:login
-    [로그인|접속]::(이) 안 [돼요|됩니다]
+    [로그인|접속](이/가) 안 [돼요|됩니다]
     I can't [log in|sign in]
 
 account:password:reset

@@ -20,20 +20,24 @@ enum Prev { kStart, kSpace, kWord };
 
 // Costs order inputs by the number of characters, then by how many of them
 // directly follow another character (so a space goes wherever the patterns
-// allow one), then by how many are not the placeholder that stands for any
-// other character (so wildcards read as `x` rather than borrowing characters
-// from other rules). Inputs are far shorter than 2^20 characters.
+// allow one), then by how the characters rank: the placeholder `x` first, so
+// wildcards read as `x` rather than borrowing characters from other rules,
+// then placeholder syllables, then characters the patterns mention. Inputs
+// are far shorter than 2^20 characters.
 using Cost = long long;
-Cost step_cost(char32_t c, bool placeholder, int prev) {
-  if (c == U' ') return 0;
-  return (Cost{1} << 40) + (prev == kWord ? Cost{1} << 20 : 0) + (placeholder ? 0 : 1);
-}
+
+enum Rank { kPlaceholder, kSyllablePlaceholder, kMentioned };
 
 struct Transition {
   char32_t ch;
-  bool placeholder;  // ch stands for every character the state does not mention
+  int rank;
   int to;
 };
+
+Cost step_cost(const Transition& t, int prev) {
+  if (t.ch == U' ') return 0;
+  return (Cost{1} << 40) + (prev == kWord ? Cost{1} << 20 : 0) + t.rank;
+}
 
 // Subset construction over the whole script, built on demand. Transitions
 // are listed per state over its own alphabet: every character its edges
@@ -43,10 +47,10 @@ class Determinizer {
   Determinizer(const Nfa& nfa, std::size_t max_states) : nfa_(nfa), closure_(nfa),
                                                         max_states_(max_states) {}
 
-  // Returns the state for the closure of `targets`, -1 for the dead state or
-  // when the state limit is reached.
-  int intern(std::vector<int> targets) {
-    std::vector<int> set = closure_(std::move(targets));
+  // Returns the state for the closure of `targets` after consuming `prev`,
+  // -1 for the dead state or when the state limit is reached.
+  int intern(std::vector<int> targets, char32_t prev) {
+    std::vector<int> set = closure_(std::move(targets), prev);
     if (set.empty()) return -1;
     auto it = index_.find(set);
     if (it != index_.end()) return it->second;
@@ -86,7 +90,15 @@ class Determinizer {
       }
     }
     std::vector<char32_t> alphabet(chars.begin(), chars.end());
-    if (any) alphabet.push_back(other_than(chars));
+    const std::size_t mentioned = alphabet.size();
+    if (any) {
+      alphabet.push_back(other_than(chars));
+      // Guards tell syllables apart by their final consonant, so each kind
+      // needs a character of its own.
+      if (nfa_.has_guards)
+        for (char32_t first : {U'가', U'갈', U'각'})
+          alphabet.push_back(syllable_other_than(chars, first));
+    }
     std::vector<Transition> out;
     for (std::size_t i = 0; i < alphabet.size(); ++i) {
       const char32_t c = alphabet[i];
@@ -94,8 +106,11 @@ class Determinizer {
       for (int s : sets_[d])
         for (const Edge& e : nfa_.states[s].edges)
           if (e.consumes() && nfa_.matches(e, c)) targets.push_back(e.to);
-      int next = intern(std::move(targets));
-      if (next >= 0) out.push_back({c, any && i + 1 == alphabet.size(), next});
+      int next = intern(std::move(targets), c);
+      const int rank = i < mentioned ? kMentioned
+                       : i == mentioned ? kPlaceholder
+                                        : kSyllablePlaceholder;
+      if (next >= 0) out.push_back({c, rank, next});
     }
     transitions_[d] = std::move(out);
     return transitions_[d];
@@ -109,6 +124,14 @@ class Determinizer {
       if (!chars.count(c)) return c;
     char32_t c = 0x4E00;
     while (chars.count(c)) ++c;
+    return c;
+  }
+
+  // The first syllable from `first` on, with the same final consonant, that
+  // no edge of the state mentions.
+  static char32_t syllable_other_than(const std::set<char32_t>& chars, char32_t first) {
+    char32_t c = first;
+    while (chars.count(c)) c += 28;
     return c;
   }
 
@@ -166,7 +189,7 @@ OverlapSearch find_overlaps(const Nfa& nfa, int start, const std::vector<std::st
     return to_utf8(text);
   };
 
-  int first = dfa.intern({start});
+  int first = dfa.intern({start}, 0);
   if (first >= 0) reach(first, kStart, -1, 0, 0);
   std::set<std::pair<std::string, std::string>> found;
   while (!queue.empty()) {
@@ -194,7 +217,7 @@ OverlapSearch find_overlaps(const Nfa& nfa, int start, const std::vector<std::st
     for (const Transition& t : dfa.transitions(node.state)) {
       if (t.ch == U' ' && node.prev != kWord) continue;
       reach(t.to, t.ch == U' ' ? kSpace : kWord, id, t.ch,
-            top.first + step_cost(t.ch, t.placeholder, node.prev));
+            top.first + step_cost(t, node.prev));
     }
   }
 
