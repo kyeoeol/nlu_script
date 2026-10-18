@@ -75,6 +75,13 @@ NodePtr literals(const char32_t* const* words) {
   return choice(std::move(options));
 }
 
+// One or more of `items`, in their order, separated by optional spaces.
+NodePtr in_order(std::vector<NodePtr> items) {
+  auto n = node(Node::Kind::Chain);
+  n->children = std::move(items);
+  return n;
+}
+
 // Numbers written with digits and Korean numerals: 35000, 35,000, 3만 5천,
 // 삼만오천, 2,500만, 1억 2천만. Below 만 a number is either digits or
 // numerals (with single digits allowed for numerals: 3천5백); 만, 억 and 조
@@ -97,18 +104,9 @@ NodePtr korean_number() {
   NodePtr thousand = glued({optional(d), literal(U"천"), optional(choice({hundred, ten, d}))});
   NodePtr small = choice({arabic, thousand, hundred, ten, sino});
 
-  // [small]만 [small], [small]억 [만 part | small], [small]조 [억 part | ...].
+  // [small]조 [small]억 [small]만 [small], highest unit first, any of them.
   auto group = [&](const char32_t* unit) { return glued({optional(small), literal(unit)}); };
-  auto part = [&](const char32_t* unit, std::vector<NodePtr> lower) {
-    std::vector<NodePtr> options;
-    for (NodePtr& l : lower) options.push_back(spaced({group(unit), l}));
-    options.push_back(group(unit));
-    return choice(std::move(options));
-  };
-  NodePtr man = part(U"만", {small});
-  NodePtr eok = part(U"억", {man, small});
-  NodePtr jo = part(U"조", {eok, man, small});
-  return choice({jo, eok, man, small});
+  return in_order({group(U"조"), group(U"억"), group(U"만"), small});
 }
 
 // --- DATETIME ---------------------------------------------------------------
@@ -118,13 +116,6 @@ NodePtr range(char32_t first, char32_t last) {
   std::vector<NodePtr> options;
   for (char32_t c = first; c <= last; ++c) options.push_back(literal(std::u32string(1, c)));
   return choice(std::move(options));
-}
-
-// One or more of `items`, in their order, separated by optional spaces.
-NodePtr in_order(const std::vector<NodePtr>& items, std::size_t from = 0) {
-  if (from + 1 == items.size()) return items[from];
-  NodePtr rest = in_order(items, from + 1);
-  return choice({spaced({items[from], rest}), items[from], rest});
 }
 
 // Two-digit fields within their ranges, with an optional leading zero.

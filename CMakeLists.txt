@@ -11,6 +11,9 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
 endif()
 
 option(NLU_SCRIPT_BUILD_TESTS "Build the test suite" ON)
+# libFuzzer targets; needs clang, and the sources built with
+# -fsanitize=fuzzer-no-link (see the fuzz job in .github/workflows/ci.yml).
+option(NLU_SCRIPT_BUILD_FUZZERS "Build the libFuzzer targets" OFF)
 
 find_package(Threads REQUIRED)
 
@@ -100,6 +103,14 @@ if(NLU_SCRIPT_BUILD_TESTS)
     set_tests_properties(nlu_script_python_tests PROPERTIES
       ENVIRONMENT "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}/python;NLU_SCRIPT_LIBRARY=$<TARGET_FILE:nlu_script>")
   endif()
+endif()
+
+if(NLU_SCRIPT_BUILD_FUZZERS)
+  foreach(target fuzz_script fuzz_match)
+    add_executable(${target} fuzz/${target}.cpp)
+    target_link_libraries(${target} PRIVATE nlu_script_static)
+    target_link_options(${target} PRIVATE -fsanitize=fuzzer)
+  endforeach()
 endif()
 
 include(GNUInstallDirs)

@@ -662,12 +662,22 @@ Script::Script(Script&&) noexcept = default;
 Script& Script::operator=(Script&&) noexcept = default;
 Script::~Script() = default;
 
+// The automaton of a whole script stays below this many states (about 1.3 GB),
+// so a script can't exhaust memory with many large rules.
+constexpr std::size_t kMaxScriptStates = 10000000;
+
 Script Script::compile(const std::string& source) {
   ParsedScript parsed = parse_script(source);
   auto impl = std::make_unique<Impl>();
   impl->start = impl->nfa.add_state();
   std::vector<Diagnostic> errors = std::move(parsed.errors);
   for (const Rule& rule : parsed.rules) {
+    if (impl->nfa.states.size() > kMaxScriptStates) {
+      errors.push_back({rule.line, 1, "script is too large to compile (over " +
+                                          std::to_string(kMaxScriptStates) +
+                                          " automaton states)"});
+      break;
+    }
     if (uses_broken_definition(*rule.pattern, parsed)) continue;
     CompiledRule r;
     r.label = rule.label;

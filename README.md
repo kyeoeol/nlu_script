@@ -34,6 +34,21 @@ when building and testing: `cmake --build build --config Release` and
 Targets: `nlu_script` (shared library, C API), `nlu_script_static` (static
 library, C++ API), `nlu_script_cli`, and the tests.
 
+The parser and matcher are fuzzed in CI (`fuzz/`, libFuzzer with
+AddressSanitizer and UndefinedBehaviorSanitizer). To fuzz locally with clang:
+
+```sh
+cmake -S . -B build-fuzz -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+  -DNLU_SCRIPT_BUILD_FUZZERS=ON -DNLU_SCRIPT_BUILD_TESTS=OFF \
+  "-DCMAKE_CXX_FLAGS=-fsanitize=fuzzer-no-link,address,undefined" \
+  "-DCMAKE_EXE_LINKER_FLAGS=-fsanitize=address,undefined"
+cmake --build build-fuzz --target fuzz_script fuzz_match
+./build-fuzz/fuzz_match -max_total_time=60 corpus/
+```
+
+Apple clang has no libFuzzer; `fuzz/standalone.cpp` is a small mutation
+driver to link with a fuzz target instead (see its header comment).
+
 Try the demo script, which handles customer-support inquiries for a banking
 or payment app:
 
@@ -246,7 +261,10 @@ used inside an exclusion.
 | `[k]^<n` | `k` repeated 1 to `n-1` times | `[정말]^<3 급해요`, `[very]^<3 urgent` |
 | `[k]^>n` | `k` repeated more than `n` times | `[제발]^>2`, `[please]^>2` |
 
-Groups nest. Repetition counts are capped at 100.
+Groups nest. Repetition counts are capped at 100. Since nested repetitions
+multiply, a rule may compile to at most 500,000 automaton states and a whole
+script to 10 million (about 1.3 GB); past that, compiling reports an error
+instead of exhausting memory.
 
 ### Wildcards and exclusions
 
