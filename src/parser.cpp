@@ -53,8 +53,12 @@ bool ends_with(const std::u32string& s, const std::u32string& suffix) {
 
 class Parser {
  public:
-  Parser(const std::u32string& text, const SourcePos& start)
-      : text_(text), line_(start.line), column_(start.column), file_(start.file) {}
+  Parser(const std::u32string& text, const SourcePos& start, bool width_folding)
+      : text_(text),
+        line_(start.line),
+        column_(start.column),
+        file_(start.file),
+        width_folding_(width_folding) {}
 
   NodePtr parse() {
     std::shared_ptr<Node> node = parse_alternation(false);
@@ -68,6 +72,7 @@ class Parser {
   int line_;
   int column_;
   const std::string* file_;
+  bool width_folding_;
   std::size_t i_ = 0;
   int depth_ = 0;  // groups open around the current position
 
@@ -210,6 +215,12 @@ class Parser {
         std::shared_ptr<Node> body = parse_alternation(false);
         expect(U']', "to close '['");
         if (peek() == U'^') return parse_repeat(body, start);
+        if (peek() == U'&') {
+          ++i_;
+          auto typo = make(Node::Kind::Typo, start);
+          typo->children.push_back(body);
+          return typo;
+        }
         return body;
       }
       case U'(': {
@@ -245,6 +256,8 @@ class Parser {
     unexpected();
   }
 
+  char32_t fold(char32_t c) const { return fold_case(width_folding_ ? fold_width(c) : c); }
+
   bool literal_char(char32_t c, bool in_permute) const {
     return !is_special(c) && !is_space(c) && !(in_permute && c == U',');
   }
@@ -262,14 +275,14 @@ class Parser {
           if (is_space(q)) {
             if (lit->text.empty() || lit->text.back() != U' ') lit->text += U' ';
           } else {
-            lit->text += fold_case(q);
+            lit->text += fold(q);
           }
           ++i_;
         }
         if (at_end()) error_at(open, "unterminated quote");
         ++i_;
       } else if (literal_char(c, in_permute)) {
-        lit->text += fold_case(c);
+        lit->text += fold(c);
         ++i_;
       } else {
         break;
@@ -418,16 +431,34 @@ class Parser {
       excluded->children.push_back(parse_item(false));
       skip_spaces();
     }
-    if (!looking_at(U"<?>")) {
-      if (peek() == U'<' && peek(1) != U'/')
-        error_at(start, "an exclusion '\\' must be followed directly by a wildcard '<?>'; "
-                        "to capture the wildcard, put the exclusion inside the slot: "
-                        "<slot>\\[...] <?>*?</slot>");
-      error_at(start, "an exclusion '\\' must be followed by a wildcard '<?>'");
+    if (peek() == U'<' && peek(1) != U'?' && peek(1) != U'/') {
+      // \X <slot><?>*?...</slot>: the exclusion applies to the wildcard the
+      // slot (or a slot nested at its start) begins with.
+      std::shared_ptr<Node> slot = parse_slot();
+      Node* wild = leading_wildcard(slot.get());
+      if (!wild || wild->exclusion)
+        error_at(start, "an exclusion '\\' must be followed by a wildcard '<?>', or by a slot "
+                        "that starts with one");
+      wild->exclusion = excluded;
+      return slot;
     }
+    if (!looking_at(U"<?>")) error_at(start, "an exclusion '\\' must be followed by a wildcard '<?>'");
     std::shared_ptr<Node> wild = parse_wildcard();
     wild->exclusion = excluded;
     return wild;
+  }
+
+  // The wildcard a slot's text starts with, looking into nested slots and
+  // sequences; null if it starts with something else. The nodes were made by
+  // this parser and are not shared yet, so changing them is safe.
+  static Node* leading_wildcard(Node* n) {
+    while (n) {
+      if (n->kind == Node::Kind::Wildcard) return n;
+      if ((n->kind != Node::Kind::Slot && n->kind != Node::Kind::Sequence) || n->children.empty())
+        return nullptr;
+      n = const_cast<Node*>(n->children[0].get());
+    }
+    return nullptr;
   }
 
   // @{entity} or @var.{variable}
@@ -514,8 +545,8 @@ void throw_at(const SourcePos& pos, const std::string& message) {
   throw CompileError({{pos.line, pos.column, message, pos.file ? *pos.file : std::string()}});
 }
 
-NodePtr parse_pattern(const std::u32string& text, const SourcePos& start) {
-  return Parser(text, start).parse();
+NodePtr parse_pattern(const std::u32string& text, const SourcePos& start, bool width_folding) {
+  return Parser(text, start, width_folding).parse();
 }
 
 std::vector<std::pair<std::size_t, std::u32string>> split_top_level_commas(

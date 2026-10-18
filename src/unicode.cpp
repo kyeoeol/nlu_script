@@ -1,5 +1,8 @@
 #include "unicode.hpp"
 
+#include <algorithm>
+#include <utility>
+
 namespace nlu {
 namespace detail {
 
@@ -51,31 +54,120 @@ std::vector<DecodedChar> decode_utf8(const std::string& text) {
   return out;
 }
 
-void compose_hangul(std::vector<DecodedChar>& chars) {
-  // Hangul syllable composition, Unicode section 3.12.
-  const char32_t kSBase = 0xAC00, kLBase = 0x1100, kVBase = 0x1161, kTBase = 0x11A7;
-  const char32_t kLCount = 19, kVCount = 21, kTCount = 28, kSCount = 11172;
-  std::size_t out = 0;
-  for (std::size_t i = 0; i < chars.size(); ++i) {
-    const char32_t c = chars[i].code;
-    if (out > 0) {
-      DecodedChar& last = chars[out - 1];
-      const char32_t l = last.code - kLBase, v = c - kVBase;
-      const char32_t s = last.code - kSBase, t = c - kTBase;
-      if (last.code >= kLBase && l < kLCount && c >= kVBase && v < kVCount) {
-        last.code = kSBase + (l * kVCount + v) * kTCount;
-        last.end = chars[i].end;
-        continue;
-      }
-      if (last.code >= kSBase && s < kSCount && s % kTCount == 0 && c > kTBase && t < kTCount) {
-        last.code += t;
-        last.end = chars[i].end;
+namespace {
+
+struct CodePair {
+  char32_t from, to;
+};
+
+struct CodeTriple {
+  char32_t a, b, c;
+};
+
+#include "unicode_tables.inc"
+
+template <typename Row, std::size_t N>
+const Row* find_row(const Row (&table)[N], char32_t c) {
+  const Row* end = table + N;
+  const Row* it = std::lower_bound(table, end, c, [](const Row& r, char32_t v) {
+    return static_cast<char32_t>(r.from) < v;
+  });
+  return it != end && it->from == c ? it : nullptr;
+}
+
+int combining_class(char32_t c) {
+  if (c < 0x300) return 0;
+  const CodePair* row = find_row(kCombiningClasses, c);
+  return row ? static_cast<int>(row->to) : 0;
+}
+
+// Hangul syllable composition, Unicode section 3.12.
+constexpr char32_t kSBase = 0xAC00, kLBase = 0x1100, kVBase = 0x1161, kTBase = 0x11A7;
+constexpr char32_t kLCount = 19, kVCount = 21, kTCount = 28, kSCount = 11172;
+
+// The canonical composition of `a` and `b`, or 0.
+char32_t compose(char32_t a, char32_t b) {
+  if (a >= kLBase && a - kLBase < kLCount && b >= kVBase && b - kVBase < kVCount)
+    return kSBase + ((a - kLBase) * kVCount + (b - kVBase)) * kTCount;
+  if (a >= kSBase && a - kSBase < kSCount && (a - kSBase) % kTCount == 0 && b > kTBase &&
+      b - kTBase < kTCount)
+    return a + (b - kTBase);
+  const CodeTriple* end = kCompositions + sizeof kCompositions / sizeof kCompositions[0];
+  const CodeTriple* it = std::lower_bound(
+      kCompositions, end, std::make_pair(a, b), [](const CodeTriple& r, std::pair<char32_t, char32_t> v) {
+        return std::make_pair(r.a, r.b) < v;
+      });
+  return it != end && it->a == a && it->b == b ? it->c : 0;
+}
+
+void decompose(const DecodedChar& d, std::vector<DecodedChar>& out) {
+  if (d.code >= 0xC0) {
+    const CodeTriple* end = kDecompositions + sizeof kDecompositions / sizeof kDecompositions[0];
+    const CodeTriple* it = std::lower_bound(
+        kDecompositions, end, d.code, [](const CodeTriple& r, char32_t v) { return r.a < v; });
+    if (it != end && it->a == d.code) {
+      decompose({it->b, d.begin, d.end}, out);
+      if (it->c) decompose({it->c, d.begin, d.end}, out);
+      return;
+    }
+  }
+  out.push_back(d);
+}
+
+}  // namespace
+
+void normalize_nfc(std::vector<DecodedChar>& chars) {
+  // Most text is already composed and has no combining marks.
+  bool simple = true;
+  for (const DecodedChar& d : chars) simple = simple && d.code < 0x300;
+  if (simple) return;
+
+  std::vector<DecodedChar> out;
+  out.reserve(chars.size());
+  for (const DecodedChar& d : chars) decompose(d, out);
+  // Canonical ordering: stable sort of each run of combining marks by class.
+  for (std::size_t i = 0; i < out.size();) {
+    if (!combining_class(out[i].code)) {
+      ++i;
+      continue;
+    }
+    std::size_t j = i;
+    while (j < out.size() && combining_class(out[j].code)) ++j;
+    std::stable_sort(out.begin() + i, out.begin() + j, [](const DecodedChar& x, const DecodedChar& y) {
+      return combining_class(x.code) < combining_class(y.code);
+    });
+    i = j;
+  }
+  // Canonical composition: a character joins the last starter unless a
+  // character between them is a starter or has the same or a higher class.
+  std::size_t n = 0;  // composed characters kept in out[0, n)
+  std::size_t starter = 0;
+  bool have_starter = false;
+  int last_class = 0;  // class of the last character kept after the starter
+  for (std::size_t i = 0; i < out.size(); ++i) {
+    const DecodedChar d = out[i];
+    const int cls = combining_class(d.code);
+    const bool adjacent = have_starter && n == starter + 1;
+    if (have_starter && (adjacent || (last_class != 0 && last_class < cls))) {
+      DecodedChar& s = out[starter];
+      if (char32_t c = compose(s.code, d.code)) {
+        s.code = c;
+        s.begin = std::min(s.begin, d.begin);
+        s.end = std::max(s.end, d.end);
         continue;
       }
     }
-    chars[out++] = chars[i];
+    if (cls == 0) {
+      starter = n;
+      have_starter = true;
+      last_class = 0;
+    } else {
+      last_class = cls;
+    }
+    out[n++] = d;
   }
-  chars.resize(out);
+  out.resize(n);
+  chars = std::move(out);
 }
 
 void append_utf8(char32_t c, std::string& out) {
@@ -119,15 +211,24 @@ bool is_space(char32_t c) {
 }
 
 char32_t fold_case(char32_t c) {
-  if (c >= U'A' && c <= U'Z') return c + (U'a' - U'A');
-  return c;
+  if (c < 0x80) return c >= U'A' && c <= U'Z' ? c + (U'a' - U'A') : c;
+  const CodePair* row = find_row(kCaseFolding, c);
+  return row ? row->to : c;
 }
 
-NormalizedText normalize(const std::string& text) {
+char32_t fold_width(char32_t c) {
+  if (c < 0xFF00 || c > 0xFFEF) return c;
+  const CodePair* row = find_row(kWidthFolding, c);
+  return row ? row->to : c;
+}
+
+NormalizedText normalize(const std::string& text, bool width_folding) {
   NormalizedText out;
   bool pending_space = false;
   std::vector<DecodedChar> chars = decode_utf8(text);
-  compose_hangul(chars);
+  if (width_folding)
+    for (DecodedChar& d : chars) d.code = fold_width(d.code);
+  normalize_nfc(chars);
   for (const DecodedChar& d : chars) {
     if (is_space(d.code)) {
       pending_space = !out.text.empty();

@@ -44,6 +44,14 @@ NLU_SCRIPT_API nlu_script* nlu_script_compile(const char* source, char** error, 
 NLU_SCRIPT_API nlu_script* nlu_script_compile_file(const char* path, char** error, int* line,
                                                    int* column);
 NLU_SCRIPT_API void nlu_script_free(nlu_script* script);
+
+/* Saves a compiled script as bytes for nlu_script_load (as Script::save in
+ * C++). Returns a buffer to release with nlu_string_free and stores its
+ * length in `size`, or NULL on failure. */
+NLU_SCRIPT_API char* nlu_script_save(const nlu_script* script, size_t* size);
+/* Loads bytes from nlu_script_save. On failure returns NULL and, if `error`
+ * is not NULL, stores a message to release with nlu_string_free. */
+NLU_SCRIPT_API nlu_script* nlu_script_load(const char* data, size_t size, char** error);
 NLU_SCRIPT_API size_t nlu_script_rule_count(const nlu_script* script);
 
 /* Matches `text` against every rule. Returns NULL if `script` is NULL or on
@@ -52,6 +60,9 @@ NLU_SCRIPT_API nlu_result* nlu_script_match(const nlu_script* script, const char
 /* Keeps only the labels whose most specific rule has the highest
  * specificity (see nlu_result_specificity). */
 NLU_SCRIPT_API nlu_result* nlu_script_match_best(const nlu_script* script, const char* text);
+/* Finds rules inside free text, as Script::search in C++: each result is a
+ * span of `text` (nlu_result_begin, nlu_result_end), tagged on its own. */
+NLU_SCRIPT_API nlu_result* nlu_script_search(const nlu_script* script, const char* text);
 NLU_SCRIPT_API void nlu_result_free(nlu_result* result);
 
 /* One entry per matched label. */
@@ -63,6 +74,9 @@ NLU_SCRIPT_API const char* nlu_result_tagged(const nlu_result* result, size_t ma
  * a script compiled from a string. */
 NLU_SCRIPT_API int nlu_result_line(const nlu_result* result, size_t match);
 NLU_SCRIPT_API const char* nlu_result_file(const nlu_result* result, size_t match);
+/* Byte offsets of the matched text in the input. */
+NLU_SCRIPT_API size_t nlu_result_begin(const nlu_result* result, size_t match);
+NLU_SCRIPT_API size_t nlu_result_end(const nlu_result* result, size_t match);
 /* Input characters, not counting spaces, that the rule matched with pattern
  * text rather than wildcards. */
 NLU_SCRIPT_API int nlu_result_specificity(const nlu_result* result, size_t match);

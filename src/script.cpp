@@ -8,6 +8,7 @@
 //     input with priorities (greedy groups, lazy wildcards) to recover slot
 //     spans and attribute assignments.
 #include <algorithm>
+#include <atomic>
 #include <deque>
 #include <fstream>
 #include <map>
@@ -69,7 +70,14 @@ struct LintDirective {
   std::vector<std::string> args;
 };
 
+// Set by `option` lines at the top of the main script.
+struct ScriptOptions {
+  bool ignore_trailing_punctuation = false;
+  bool fold_width = false;
+};
+
 struct ParsedScript {
+  ScriptOptions options;
   // Script file names, the main script first, then included files in the
   // order they are read. Positions point into this; a deque keeps them put.
   std::deque<std::string> files;
@@ -188,6 +196,7 @@ class ScriptParser {
   ParsedScript parse(const std::string& source, const std::string& main_file) {
     out_.files.push_back(main_file);
     if (!main_file.empty()) read_.insert(path_key(resolve("", main_file)));
+    read_options(source, &out_.files.back());
     parse_file(source, &out_.files.back());
     finish(out_.defs.entities, entity_values_, out_.broken_entities, "entity @");
     finish(out_.defs.variables, variable_values_, out_.broken_variables, "variable @var.");
@@ -196,6 +205,41 @@ class ScriptParser {
 
  private:
   enum class Block { None, Label, Entity, Variable, Broken };
+
+  // `option name` lines come before everything else in the main script, since
+  // they change how the patterns after them are read.
+  void read_options(const std::string& source, const std::string* name) {
+    std::istringstream lines(source);
+    std::string raw;
+    int line_no = 0;
+    bool content = false;  // a line other than an option, a comment or a blank
+    while (std::getline(lines, raw)) {
+      ++line_no;
+      if (!raw.empty() && raw.back() == '\r') raw.pop_back();
+      std::istringstream words(raw);
+      std::string first, option, extra;
+      if (!(words >> first) || first[0] == '#') continue;
+      if (first != "option" || raw.compare(0, 7, "option ") != 0) {
+        content = true;
+        continue;
+      }
+      const SourcePos pos{line_no, 1, name};
+      words >> option;
+      if (content) {
+        out_.errors.push_back({line_no, 1, "option lines must come before rules and definitions",
+                               file_name(pos)});
+      } else if (option == "ignore-trailing-punctuation" && !(words >> extra)) {
+        out_.options.ignore_trailing_punctuation = true;
+      } else if (option == "fold-width" && !(words >> extra)) {
+        out_.options.fold_width = true;
+      } else {
+        out_.errors.push_back(
+            {line_no, 8, "unknown option '" + option +
+                             "'; available: ignore-trailing-punctuation, fold-width",
+             file_name(pos)});
+      }
+    }
+  }
 
   ParsedScript out_;
   std::map<std::string, std::vector<NodePtr>> entity_values_;
@@ -218,7 +262,7 @@ class ScriptParser {
       ++line_no;
       if (!raw.empty() && raw.back() == '\r') raw.pop_back();
       std::vector<DecodedChar> chars = decode_utf8(raw);
-      compose_hangul(chars);
+      normalize_nfc(chars);
       std::u32string line;
       for (const DecodedChar& d : chars) line += d.code;
       std::size_t first = 0;
@@ -251,7 +295,7 @@ class ScriptParser {
       if (f.block == Block::None)
         throw_at(pos, "indented pattern outside of a label or definition");
       if (f.block == Block::Label) {
-        out_.rules.push_back({f.current, pos, parse_pattern(content, pos)});
+        out_.rules.push_back({f.current, pos, parse_pattern(content, pos, out_.options.fold_width)});
       } else {
         add_values(f, content, pos);
       }
@@ -259,6 +303,13 @@ class ScriptParser {
     }
 
     f.block = Block::Broken;
+    if (starts_with(line, U"option") && line.size() > 6 && is_space(line[6])) {
+      // Read by read_options() for the main script.
+      if (pos.file != &out_.files.front())
+        throw_at(pos, "option lines belong in the main script, not an included file");
+      f.block = Block::None;
+      return;
+    }
     if (starts_with(line, U"include") && line.size() > 7 && is_space(line[7])) {
       std::size_t lead = 0;
       std::u32string path = trim(line.substr(7), &lead);
@@ -305,7 +356,7 @@ class ScriptParser {
   // of values. `pos` locates text[0].
   void add_values(const File& f, const std::u32string& text, const SourcePos& pos) {
     if (f.block == Block::Variable) {
-      variable_values_[f.current].push_back(parse_pattern(text, pos));
+      variable_values_[f.current].push_back(parse_pattern(text, pos, out_.options.fold_width));
       return;
     }
     for (const auto& part : split_top_level_commas(text)) {
@@ -313,7 +364,7 @@ class ScriptParser {
       std::u32string value = trim(part.second, &lead);
       const SourcePos at{pos.line, pos.column + static_cast<int>(part.first + lead), pos.file};
       if (value.empty()) throw_at(at, "empty entity value");
-      entity_values_[f.current].push_back(parse_pattern(value, at));
+      entity_values_[f.current].push_back(parse_pattern(value, at, out_.options.fold_width));
     }
   }
 
@@ -357,10 +408,19 @@ class ScriptParser {
 
 // Threads share one cache. Lookups of cached transitions run under a shared
 // lock; a thread that needs a new transition switches to the exclusive lock
-// for the rest of its input.
+// for the rest of its input. When the cache reaches its limits it keeps the
+// states used since the last eviction, up to half of each limit, and drops
+// the rest, so states every input passes through survive.
 class LazyDfa {
  public:
-  LazyDfa(const Nfa& nfa, int start) : nfa_(nfa), closure_(nfa), start_nfa_(start) { reset(); }
+  LazyDfa(const Nfa& nfa, int start, const CacheOptions& options)
+      : nfa_(nfa),
+        closure_(nfa),
+        start_nfa_(start),
+        max_states_(std::max<std::size_t>(options.max_states, 2)),
+        max_bytes_(options.max_bytes) {
+    start_ = intern(closure_({start_nfa_}, 0));
+  }
 
   // Returns the ids of the rules accepting the whole text, ascending.
   std::vector<int> accepted_rules(const std::u32string& text) {
@@ -370,17 +430,19 @@ class LazyDfa {
     {
       std::shared_lock<std::shared_mutex> lock(mutex_);
       d = start_;
+      touch(d);
       for (; i < text.size(); ++i) {
         auto it = states_[d].next.find(text[i]);
         if (it == states_[d].next.end()) break;
         d = it->second;
+        touch(d);
         if (states_[d].set.empty()) return {};
       }
       if (i == text.size()) return states_[d].accepts;
       epoch = epoch_;
     }
     std::lock_guard<std::shared_mutex> lock(mutex_);
-    if (epoch != epoch_) {  // the cache was reset, so `d` is stale
+    if (epoch != epoch_) {  // states were evicted, so `d` is stale
       d = start_;
       i = 0;
     }
@@ -395,22 +457,30 @@ class LazyDfa {
           for (const Edge& e : nfa_.states[s].edges)
             if (e.consumes() && nfa_.matches(e, c)) targets.push_back(e.to);
         std::vector<int> set = closure_(std::move(targets), c);
-        if (states_.size() >= kMaxStates) {
-          reset();
+        if (states_.size() >= max_states_ || bytes_ >= max_bytes_) {
+          evict();
           d = intern(std::move(set));
         } else {
           int next = intern(std::move(set));
           states_[d].next.emplace(c, next);
+          ++transitions_;
+          bytes_ += kTransitionBytes;
           d = next;
         }
       }
+      touch(d);
       if (states_[d].set.empty()) return {};
     }
     return states_[d].accepts;
   }
 
+  CacheStats stats() {
+    std::shared_lock<std::shared_mutex> lock(mutex_);
+    return {states_.size(), transitions_, bytes_, evictions_};
+  }
+
  private:
-  static constexpr std::size_t kMaxStates = 20000;
+  static constexpr std::size_t kTransitionBytes = 32;  // an unordered_map node
 
   struct DState {
     std::vector<int> set;      // NFA states with consuming edges or accepting
@@ -420,33 +490,101 @@ class LazyDfa {
 
   const Nfa& nfa_;
   std::shared_mutex mutex_;
-  // Everything below is guarded by mutex_.
+  // Everything below is guarded by mutex_, except that readers holding the
+  // shared lock update used_.
   Closure closure_;
   int start_nfa_;
+  std::size_t max_states_, max_bytes_;
   int start_ = 0;
-  unsigned epoch_ = 0;  // bumped by reset(), which invalidates state ids
+  unsigned epoch_ = 0;  // bumped by evict(), which renumbers states
   std::vector<DState> states_;
-  std::map<std::vector<int>, int> index_;
+  std::unordered_multimap<std::size_t, int> index_;  // hash of a state's set -> state
+  // The round in which each state was last used; a deque keeps the atomics put.
+  std::deque<std::atomic<unsigned>> used_;
+  unsigned round_ = 1;  // bumped by each eviction
+  std::size_t transitions_ = 0;
+  std::size_t bytes_ = 0;
+  std::size_t evictions_ = 0;
 
-  void reset() {
-    states_.clear();
-    index_.clear();
-    ++epoch_;
-    start_ = intern(closure_({start_nfa_}, 0));
+  // Marks state `d` used in this round. Only the first use in a round writes,
+  // so states every input passes through stay quiet.
+  void touch(int d) {
+    std::atomic<unsigned>& u = used_[d];
+    if (u.load(std::memory_order_relaxed) != round_) u.store(round_, std::memory_order_relaxed);
+  }
+
+  static std::size_t hash(const std::vector<int>& set) {
+    std::size_t h = set.size();
+    for (int s : set) h = h * 1000003u ^ static_cast<std::size_t>(s);
+    return h;
+  }
+
+  static std::size_t state_bytes(const DState& d) {
+    return sizeof(DState) + (d.set.size() + d.accepts.size()) * sizeof(int) + 64;
   }
 
   int intern(std::vector<int> set) {
-    auto it = index_.find(set);
-    if (it != index_.end()) return it->second;
+    const std::size_t h = hash(set);
+    auto range = index_.equal_range(h);
+    for (auto it = range.first; it != range.second; ++it)
+      if (states_[it->second].set == set) return it->second;
     DState d;
     for (int s : set)
       if (nfa_.states[s].accept_rule >= 0) d.accepts.push_back(nfa_.states[s].accept_rule);
     std::sort(d.accepts.begin(), d.accepts.end());
-    d.set = set;
+    d.set = std::move(set);
+    bytes_ += state_bytes(d);
     int id = static_cast<int>(states_.size());
     states_.push_back(std::move(d));
-    index_.emplace(std::move(set), id);
+    used_.emplace_back(round_);
+    index_.emplace(h, id);
     return id;
+  }
+
+  // Keeps the start state and the states used in this round, up to half of
+  // each limit (in order of creation, so shallow states come first), with
+  // the transitions between them; drops the rest.
+  void evict() {
+    ++evictions_;
+    std::vector<int> renumber(states_.size(), -1);
+    std::vector<int> kept;
+    std::size_t kept_bytes = 0;
+    for (int id = 0; id < static_cast<int>(states_.size()); ++id) {
+      const bool wanted = id == start_ || used_[id].load(std::memory_order_relaxed) == round_;
+      const std::size_t b = state_bytes(states_[id]);
+      if (!wanted || (id != start_ && (kept.size() >= max_states_ / 2 ||
+                                       kept_bytes + b > max_bytes_ / 2)))
+        continue;
+      renumber[id] = static_cast<int>(kept.size());
+      kept.push_back(id);
+      kept_bytes += b;
+    }
+    std::vector<DState> states;
+    states.reserve(kept.size());
+    transitions_ = 0;
+    bytes_ = 0;
+    for (int id : kept) {
+      DState d = std::move(states_[id]);
+      std::unordered_map<char32_t, int> next;
+      for (const auto& kv : d.next) {
+        if (renumber[kv.second] < 0) continue;
+        next.emplace(kv.first, renumber[kv.second]);
+      }
+      d.next = std::move(next);
+      transitions_ += d.next.size();
+      bytes_ += state_bytes(d) + d.next.size() * kTransitionBytes;
+      states.push_back(std::move(d));
+    }
+    states_ = std::move(states);
+    index_.clear();
+    used_.clear();
+    ++round_;
+    for (int id = 0; id < static_cast<int>(states_.size()); ++id) {
+      index_.emplace(hash(states_[id].set), id);
+      used_.emplace_back(0);
+    }
+    start_ = renumber[start_];
+    ++epoch_;
   }
 };
 
@@ -777,14 +915,45 @@ struct CompiledRule {
 
 struct Script::Impl {
   Nfa nfa;
+  bool fold_width = false;  // `option fold-width`: input is width-folded too
   std::vector<CompiledRule> rules;
   std::vector<UnusedDefinition> unused;
   std::deque<std::string> files;  // what lint_directives' positions point into
   std::vector<LintDirective> lint_directives;
   int start = 0;
+
+  // The DFA cache: one shared, or one per thread (see cache()).
+  CacheOptions cache_options;
   mutable std::unique_ptr<LazyDfa> dfa;
+  // Per-thread caches are keyed by `id` and dropped once `alive` expires.
+  std::uint64_t id = next_id();
+  std::shared_ptr<const int> alive = std::make_shared<const int>(0);
+  unsigned cache_generation = 0;  // bumped by set_cache_options()
+
+  static std::uint64_t next_id() {
+    static std::atomic<std::uint64_t> counter{0};
+    return ++counter;
+  }
+
+  LazyDfa& cache() const {
+    if (!cache_options.per_thread) return *dfa;
+    struct ThreadCache {
+      std::weak_ptr<const int> alive;
+      unsigned generation;
+      std::unique_ptr<LazyDfa> dfa;
+    };
+    thread_local std::unordered_map<std::uint64_t, ThreadCache> caches;
+    auto it = caches.find(id);
+    if (it != caches.end() && it->second.generation == cache_generation) return *it->second.dfa;
+    for (auto i = caches.begin(); i != caches.end();)  // drop caches of scripts that are gone
+      i = i->second.alive.expired() ? caches.erase(i) : std::next(i);
+    ThreadCache& c = caches[id];
+    c = {alive, cache_generation, std::make_unique<LazyDfa>(nfa, start, cache_options)};
+    return *c.dfa;
+  }
 
   std::vector<Match> match(const std::string& text, bool best) const;
+  std::vector<Match> search(const std::string& text) const;
 };
 
 Script::Script(std::unique_ptr<Impl> impl) : impl_(std::move(impl)) {}
@@ -820,7 +989,8 @@ std::unique_ptr<Script::Impl> compile_source(const std::string& source, const st
     r.first = static_cast<int>(impl->nfa.states.size());
     try {
       r.start = compile_rule(impl->nfa, parsed.defs, *rule.pattern,
-                             static_cast<int>(impl->rules.size()));
+                             static_cast<int>(impl->rules.size()),
+                             parsed.options.ignore_trailing_punctuation);
     } catch (const CompileError& e) {
       errors.push_back(diagnostic(e));
       continue;
@@ -846,12 +1016,13 @@ std::unique_ptr<Script::Impl> compile_source(const std::string& source, const st
                  errors.end());
     throw CompileError(std::move(errors));
   }
+  impl->fold_width = parsed.options.fold_width;
   impl->unused = unused_definitions(parsed);
   // Moving a deque keeps its elements in place, so the directives' file
   // pointers stay valid.
   impl->files = std::move(parsed.files);
   impl->lint_directives = std::move(parsed.lint_directives);
-  impl->dfa = std::make_unique<LazyDfa>(impl->nfa, impl->start);
+  impl->dfa = std::make_unique<LazyDfa>(impl->nfa, impl->start, impl->cache_options);
   return impl;
 }
 
@@ -867,9 +1038,19 @@ Script Script::compile_file(const std::string& path) {
 
 std::size_t Script::rule_count() const { return impl_->rules.size(); }
 
+CacheStats Script::cache_stats() const { return impl_->cache().stats(); }
+
+void Script::set_cache_options(const CacheOptions& options) {
+  impl_->cache_options = options;
+  impl_->dfa = std::make_unique<LazyDfa>(impl_->nfa, impl_->start, options);
+  ++impl_->cache_generation;
+}
+
+CacheOptions Script::cache_options() const { return impl_->cache_options; }
+
 std::vector<Explanation> Script::explain(const std::string& text, std::size_t limit) const {
   const Impl& impl = *impl_;
-  const NormalizedText norm = normalize(text);
+  const NormalizedText norm = normalize(text, impl.fold_width);
   // The rule owning each NFA state: rules occupy contiguous, ascending ranges.
   auto rule_of = [&](int state) {
     auto it = std::upper_bound(impl.rules.begin(), impl.rules.end(), state,
@@ -1054,8 +1235,8 @@ std::vector<Match> Script::match_best(const std::string& text) const {
 // Picks one rule per matching label: its first matching rule, or with `best`
 // its most specific one. Labels keep the order of their first matching rule.
 std::vector<Match> Script::Impl::match(const std::string& text, bool best) const {
-  NormalizedText norm = normalize(text);
-  std::vector<int> accepted = dfa->accepted_rules(norm.text);
+  NormalizedText norm = normalize(text, fold_width);
+  std::vector<int> accepted = cache().accepted_rules(norm.text);
   if (accepted.empty()) return {};
   const int letters = static_cast<int>(
       norm.text.size() - std::count(norm.text.begin(), norm.text.end(), U' '));
@@ -1092,8 +1273,386 @@ std::vector<Match> Script::Impl::match(const std::string& text, bool best) const
     const CompiledRule& r = rules[f.rule];
     out.push_back(build_match(nfa, r.label, r.line, f.specificity, f.events, text, norm));
     out.back().file = r.file;
+    out.back().end = text.size();
   }
   return out;
+}
+
+std::vector<Match> Script::search(const std::string& text) const { return impl_->search(text); }
+
+std::vector<Match> Script::Impl::search(const std::string& text) const {
+  const NormalizedText norm = normalize(text, fold_width);
+  const std::u32string& t = norm.text;
+  const std::size_t n = t.size();
+  // Matches neither start nor end inside a run of ASCII letters and digits
+  // (input is case-folded already).
+  auto alnum = [](char32_t c) { return (c >= U'a' && c <= U'z') || (c >= U'0' && c <= U'9'); };
+  auto boundary = [&](std::size_t at) {
+    return at == 0 || at == n || t[at - 1] == U' ' || t[at] == U' ' ||
+           !(alnum(t[at - 1]) && alnum(t[at]));
+  };
+
+  // Every rule at once, determinized as needed for this call; the shared
+  // lazy DFA only answers whole-input matches.
+  Closure closure(nfa);
+  std::map<std::vector<int>, int> index;
+  std::vector<std::vector<int>> sets, accepts;
+  std::map<std::pair<int, char32_t>, int> next;
+  auto intern = [&](std::vector<int> set) {
+    if (set.empty()) return -1;
+    auto it = index.find(set);
+    if (it != index.end()) return it->second;
+    std::vector<int> accepted;
+    for (int s : set)
+      if (nfa.states[s].accept_rule >= 0) accepted.push_back(nfa.states[s].accept_rule);
+    std::sort(accepted.begin(), accepted.end());
+    int id = static_cast<int>(sets.size());
+    index.emplace(set, id);
+    sets.push_back(std::move(set));
+    accepts.push_back(std::move(accepted));
+    return id;
+  };
+  auto step = [&](int d, char32_t c) {
+    auto it = next.find({d, c});
+    if (it != next.end()) return it->second;
+    std::vector<int> targets;
+    for (int s : sets[d])
+      for (const Edge& e : nfa.states[s].edges)
+        if (e.consumes() && nfa.matches(e, c)) targets.push_back(e.to);
+    int to = intern(closure(std::move(targets), c));
+    next.emplace(std::make_pair(d, c), to);
+    return to;
+  };
+  const int first = intern(closure({start}, 0));
+
+  std::vector<Match> out;
+  std::vector<Event> events;
+  for (std::size_t i = 0; i < n && first >= 0;) {
+    if (t[i] == U' ' || !boundary(i)) {
+      ++i;
+      continue;
+    }
+    // The longest text from i that some rule matches, ending at a boundary.
+    std::size_t end = i;
+    std::vector<int> accepted;
+    int d = first;
+    for (std::size_t j = i; j < n && d >= 0; ++j) {
+      d = step(d, t[j]);
+      if (d >= 0 && !accepts[d].empty() && t[j] != U' ' && boundary(j + 1)) {
+        end = j + 1;
+        accepted = accepts[d];
+      }
+    }
+    if (accepted.empty()) {
+      ++i;
+      continue;
+    }
+    const std::u32string span = t.substr(i, end - i);
+    const int letters = static_cast<int>(span.size() - std::count(span.begin(), span.end(), U' '));
+    std::set<std::string> seen;
+    for (int id : accepted) {
+      const CompiledRule& r = rules[id];
+      if (seen.count(r.label)) continue;
+      PikeVm vm(nfa, r.first, r.last);
+      int wildcard_chars = 0;
+      if (!vm.run(r.start, span, events, wildcard_chars)) continue;
+      seen.insert(r.label);
+      for (Event& e : events) e.pos += static_cast<int>(i);
+      Match m = build_match(nfa, r.label, r.line, letters - wildcard_chars, events, text, norm);
+      m.file = r.file;
+      m.begin = norm.begin[i];
+      m.end = norm.end[end - 1];
+      // Tags only fall within the span, so it sits at the same offset.
+      m.tagged = m.tagged.substr(m.begin, m.tagged.size() - (text.size() - m.end) - m.begin);
+      out.push_back(std::move(m));
+    }
+    i = end;
+  }
+  return out;
+}
+
+// --- saving and loading compiled scripts ----------------------------------------
+
+namespace {
+
+// "\x89NLU" then a line ending and a format version, so text never looks like
+// a saved script and a saved script is never read by another format version.
+const char kMagic[] = "\x89NLU\r\n\x1a\n";
+constexpr std::uint32_t kFormatVersion = 1;
+static_assert(static_cast<unsigned>(Edge::Kind::Any) < 8, "edge kinds fit in 3 bits");
+
+// Numbers are LEB128 varints; signed ones are zigzag-encoded first, so small
+// magnitudes (and -1) take one byte.
+class Writer {
+ public:
+  void u8(unsigned v) { out_ += static_cast<char>(v & 0xff); }
+  void u32(std::uint32_t v) {
+    while (v >= 0x80) {
+      u8((v & 0x7f) | 0x80);
+      v >>= 7;
+    }
+    u8(v);
+  }
+  void i32(int v) {
+    const std::uint32_t u = static_cast<std::uint32_t>(v);
+    u32((u << 1) ^ (v < 0 ? 0xffffffffu : 0u));
+  }
+  void size(std::size_t v) { u32(static_cast<std::uint32_t>(v)); }
+  void str(const std::string& s) {
+    size(s.size());
+    out_ += s;
+  }
+  std::string& out() { return out_; }
+
+ private:
+  std::string out_;
+};
+
+class Reader {
+ public:
+  explicit Reader(const std::string& in) : in_(in) {}
+  [[noreturn]] static void fail(const std::string& what) {
+    throw std::runtime_error("not a saved nlu_script script: " + what);
+  }
+  unsigned u8() {
+    if (at_ >= in_.size()) fail("unexpected end");
+    return static_cast<unsigned char>(in_[at_++]);
+  }
+  std::uint32_t u32() {
+    std::uint32_t v = 0;
+    for (int shift = 0;; shift += 7) {
+      if (shift > 28) fail("bad number");
+      const unsigned b = u8();
+      v |= static_cast<std::uint32_t>(b & 0x7f) << shift;
+      if (!(b & 0x80)) return v;
+    }
+  }
+  int i32() {
+    const std::uint32_t u = u32();
+    return static_cast<int>((u >> 1) ^ (0u - (u & 1)));
+  }
+  // A count of items taking at least `item_bytes` each, checked against the
+  // bytes left so corrupt counts can't ask for huge allocations.
+  std::size_t count(std::size_t item_bytes) {
+    std::size_t n = u32();
+    if (n > (in_.size() - at_) / std::max<std::size_t>(item_bytes, 1)) fail("bad count");
+    return n;
+  }
+  std::string str() {
+    std::size_t n = count(1);
+    std::string s = in_.substr(at_, n);
+    at_ += n;
+    return s;
+  }
+  bool done() const { return at_ == in_.size(); }
+
+ private:
+  const std::string& in_;
+  std::size_t at_ = 0;
+};
+
+}  // namespace
+
+std::string Script::save() const {
+  const Impl& impl = *impl_;
+  Writer w;
+  w.out() = std::string(kMagic, sizeof kMagic - 1);
+  w.u32(kFormatVersion);
+  w.u8(impl.fold_width ? 1 : 0);
+  w.u8(impl.nfa.has_guards ? 1 : 0);
+  w.i32(impl.start);
+  w.size(impl.nfa.states.size());
+  for (std::size_t s = 0; s < impl.nfa.states.size(); ++s) {
+    const State& st = impl.nfa.states[s];
+    w.i32(st.accept_rule);
+    w.size(st.edges.size());
+    for (const Edge& e : st.edges) {
+      w.u8(static_cast<unsigned>(e.kind) | static_cast<unsigned>(e.guard) << 3);
+      w.u8(static_cast<unsigned>(e.char_class));
+      w.u32(static_cast<std::uint32_t>(e.ch));
+      w.i32(e.set);
+      w.i32(e.action);
+      w.i32(e.to - static_cast<int>(s));  // usually the next few states
+    }
+  }
+  w.size(impl.nfa.sets.size());
+  for (const auto& set : impl.nfa.sets) {
+    w.size(set.size());
+    for (char32_t c : set) w.u32(static_cast<std::uint32_t>(c));
+  }
+  w.size(impl.nfa.actions.size());
+  for (const Action& a : impl.nfa.actions) {
+    w.u8(static_cast<unsigned>(a.kind));
+    w.i32(a.slot);
+    w.str(a.key);
+    w.str(a.value);
+    w.u8(static_cast<unsigned>(a.normalizer));
+  }
+  w.size(impl.nfa.slot_names.size());
+  for (const std::string& name : impl.nfa.slot_names) w.str(name);
+  w.size(impl.rules.size());
+  for (const CompiledRule& r : impl.rules) {
+    w.str(r.label);
+    w.i32(r.line);
+    w.str(r.file);
+    w.i32(r.start);
+    w.i32(r.first);
+    w.i32(r.last);
+  }
+  w.size(impl.unused.size());
+  for (const UnusedDefinition& d : impl.unused) {
+    w.str(d.name);
+    w.i32(d.line);
+    w.str(d.file);
+  }
+  w.size(impl.files.size());
+  for (const std::string& f : impl.files) w.str(f);
+  w.size(impl.lint_directives.size());
+  for (const LintDirective& d : impl.lint_directives) {
+    std::size_t file = 0;
+    while (file < impl.files.size() && &impl.files[file] != d.pos.file) ++file;
+    w.size(file);
+    w.i32(d.pos.line);
+    w.i32(d.pos.column);
+    w.str(d.command);
+    w.size(d.args.size());
+    for (const std::string& a : d.args) w.str(a);
+  }
+  return std::move(w.out());
+}
+
+Script Script::load(const std::string& bytes) {
+  if (bytes.compare(0, sizeof kMagic - 1, kMagic) != 0) Reader::fail("no header");
+  const std::string body = bytes.substr(sizeof kMagic - 1);
+  Reader r(body);
+  if (r.u32() != kFormatVersion) Reader::fail("saved by another format version");
+  auto impl = std::make_unique<Impl>();
+  impl->fold_width = r.u8() != 0;
+  impl->nfa.has_guards = r.u8() != 0;
+  impl->start = r.i32();
+  const std::size_t states = r.count(2);
+  impl->nfa.states.resize(states);
+  for (std::size_t s = 0; s < states; ++s) {
+    State& st = impl->nfa.states[s];
+    st.accept_rule = r.i32();
+    const std::size_t edges = r.count(6);
+    st.edges.reserve(edges);
+    for (std::size_t k = 0; k < edges; ++k) {
+      Edge e;
+      const unsigned head = r.u8(), cls = r.u8();
+      const unsigned kind = head & 7, guard = head >> 3;
+      if (kind > static_cast<unsigned>(Edge::Kind::Any) ||
+          guard > static_cast<unsigned>(Guard::AfterNoFinalOrRieul) ||
+          cls > static_cast<unsigned>(CharClass::SyllableOtherFinal))
+        Reader::fail("bad edge");
+      e.kind = static_cast<Edge::Kind>(kind);
+      e.guard = static_cast<Guard>(guard);
+      e.char_class = static_cast<CharClass>(cls);
+      e.ch = static_cast<char32_t>(r.u32());
+      e.set = r.i32();
+      e.action = r.i32();
+      e.to = static_cast<int>(s) + r.i32();
+      st.edges.push_back(e);
+    }
+  }
+  impl->nfa.sets.resize(r.count(1));
+  for (auto& set : impl->nfa.sets) {
+    set.resize(r.count(1));
+    for (char32_t& c : set) c = static_cast<char32_t>(r.u32());
+    if (!std::is_sorted(set.begin(), set.end())) Reader::fail("bad set");
+  }
+  impl->nfa.actions.resize(r.count(5));
+  for (Action& a : impl->nfa.actions) {
+    const unsigned kind = r.u8();
+    if (kind > static_cast<unsigned>(Action::Kind::Assign)) Reader::fail("bad action");
+    a.kind = static_cast<Action::Kind>(kind);
+    a.slot = r.i32();
+    a.key = r.str();
+    a.value = r.str();
+    const unsigned normalizer = r.u8();
+    if (normalizer > static_cast<unsigned>(Normalizer::Money)) Reader::fail("bad action");
+    a.normalizer = static_cast<Normalizer>(normalizer);
+  }
+  impl->nfa.slot_names.resize(r.count(1));
+  for (std::string& name : impl->nfa.slot_names) name = r.str();
+  impl->rules.resize(r.count(6));
+  for (CompiledRule& rule : impl->rules) {
+    rule.label = r.str();
+    rule.line = r.i32();
+    rule.file = r.str();
+    rule.start = r.i32();
+    rule.first = r.i32();
+    rule.last = r.i32();
+  }
+  impl->unused.resize(r.count(3));
+  for (UnusedDefinition& d : impl->unused) {
+    d.name = r.str();
+    d.line = r.i32();
+    d.file = r.str();
+  }
+  const std::size_t files = r.count(1);
+  for (std::size_t k = 0; k < files; ++k) impl->files.push_back(r.str());
+  impl->lint_directives.resize(r.count(5));
+  for (LintDirective& d : impl->lint_directives) {
+    const std::size_t file = r.u32();
+    if (file >= impl->files.size()) Reader::fail("bad lint comment");
+    d.pos = SourcePos{r.i32(), r.i32(), &impl->files[file]};
+    d.command = r.str();
+    d.args.resize(r.count(1));
+    for (std::string& a : d.args) a = r.str();
+  }
+  if (!r.done()) Reader::fail("trailing bytes");
+
+  // Matching relies on these: the start state comes first, rules own
+  // contiguous ranges of states after it in order, and edges stay within
+  // their rule; every set, action and slot exists.
+  const Nfa& nfa = impl->nfa;
+  const int n = static_cast<int>(nfa.states.size());
+  if (impl->start != 0 || n == 0) Reader::fail("bad start");
+  int next_first = 1;
+  for (std::size_t id = 0; id < impl->rules.size(); ++id) {
+    const CompiledRule& rule = impl->rules[id];
+    if (rule.first != next_first || rule.last <= rule.first || rule.last > n ||
+        rule.start < rule.first || rule.start >= rule.last)
+      Reader::fail("bad rule");
+    for (int s = rule.first; s < rule.last; ++s) {
+      const State& st = nfa.states[s];
+      if (st.accept_rule != -1 && st.accept_rule != static_cast<int>(id)) Reader::fail("bad state");
+      for (const Edge& e : st.edges) {
+        if (e.to < rule.first || e.to >= rule.last) Reader::fail("bad edge");
+        if (e.kind == Edge::Kind::Any && e.set >= static_cast<int>(nfa.sets.size()))
+          Reader::fail("bad edge");
+        if (e.kind == Edge::Kind::Action &&
+            (e.action < 0 || e.action >= static_cast<int>(nfa.actions.size())))
+          Reader::fail("bad edge");
+      }
+    }
+    next_first = rule.last;
+  }
+  if (next_first != n) Reader::fail("bad rule");
+  for (const Edge& e : nfa.states[0].edges) {
+    if (e.kind != Edge::Kind::Epsilon || e.to < 1 || e.to >= n) Reader::fail("bad start");
+  }
+  if (nfa.states[0].accept_rule != -1) Reader::fail("bad start");
+  for (const Action& a : nfa.actions) {
+    const bool unqualified = a.kind == Action::Kind::Assign && a.slot == -1;
+    if (!unqualified && (a.slot < 0 || a.slot >= static_cast<int>(nfa.slot_names.size())))
+      Reader::fail("bad action");
+  }
+  impl->dfa = std::make_unique<LazyDfa>(impl->nfa, impl->start, impl->cache_options);
+  return Script(std::move(impl));
+}
+
+void Script::save_file(const std::string& path) const {
+  std::ofstream out(path, std::ios::binary);
+  out << save();
+  if (!out) throw std::runtime_error("cannot write " + path);
+}
+
+Script Script::load_file(const std::string& path) {
+  std::string bytes;
+  if (!read_file(path, bytes)) throw std::runtime_error("cannot open " + path);
+  return load(bytes);
 }
 
 }  // namespace nlu

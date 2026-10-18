@@ -8,7 +8,8 @@
 
 namespace {
 
-const char* const kScript = R"(
+const char* const kScript = R"(option ignore-trailing-punctuation
+option fold-width
 @product: [적금|savings]{value=savings}, [예금|deposit]{value=deposit}
 @var.digit: [0|1|2|3|4|5|6|7|8|9]
 # lint: allow-overlap any:text *
@@ -29,6 +30,8 @@ account:phone
     휴대폰 번호 `@{TELNUM}(으로/로) 변경해주세요
     call `@{TELNUM}
 payment:amount
+    [I lost my debit card]&
+    [분실 신고]& (할게요)
     `@{MONEY} 결제
     pay `@{MONEY} (for the `@{ORDINAL} item)
     `@{EN_NUMBER} items

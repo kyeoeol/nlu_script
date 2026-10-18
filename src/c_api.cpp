@@ -92,6 +92,25 @@ nlu_script* nlu_script_compile_file(const char* path, char** error, int* line, i
 
 void nlu_script_free(nlu_script* script) { delete script; }
 
+char* nlu_script_save(const nlu_script* script, size_t* size) {
+  if (!script) return nullptr;
+  try {
+    std::string bytes = script->script.save();
+    char* out = static_cast<char*>(std::malloc(bytes.size() ? bytes.size() : 1));
+    if (!out) return nullptr;
+    std::memcpy(out, bytes.data(), bytes.size());
+    if (size) *size = bytes.size();
+    return out;
+  } catch (const std::exception&) {
+    return nullptr;
+  }
+}
+
+nlu_script* nlu_script_load(const char* data, size_t size, char** error) {
+  return compile_with([&] { return nlu::Script::load(std::string(data ? data : "", data ? size : 0)); },
+                      error, nullptr, nullptr);
+}
+
 size_t nlu_script_rule_count(const nlu_script* script) {
   return script ? script->script.rule_count() : 0;
 }
@@ -100,6 +119,15 @@ nlu_result* nlu_script_match(const nlu_script* script, const char* text) {
   if (!script) return nullptr;
   try {
     return new nlu_result{script->script.match(text ? text : "")};
+  } catch (const std::exception&) {
+    return nullptr;
+  }
+}
+
+nlu_result* nlu_script_search(const nlu_script* script, const char* text) {
+  if (!script) return nullptr;
+  try {
+    return new nlu_result{script->script.search(text ? text : "")};
   } catch (const std::exception&) {
     return nullptr;
   }
@@ -136,6 +164,16 @@ int nlu_result_line(const nlu_result* r, size_t match) {
 const char* nlu_result_file(const nlu_result* r, size_t match) {
   const nlu::Match* m = match_at(r, match);
   return m ? m->file.c_str() : nullptr;
+}
+
+size_t nlu_result_begin(const nlu_result* r, size_t match) {
+  const nlu::Match* m = match_at(r, match);
+  return m ? m->begin : 0;
+}
+
+size_t nlu_result_end(const nlu_result* r, size_t match) {
+  const nlu::Match* m = match_at(r, match);
+  return m ? m->end : 0;
 }
 
 int nlu_result_specificity(const nlu_result* r, size_t match) {

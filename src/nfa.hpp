@@ -21,6 +21,23 @@ enum class Guard : std::uint8_t {
   AfterNoFinalOrRieul,   // no final consonant, or ㄹ
 };
 
+// Characters as guards see them: what a syllable ends in, or not a syllable.
+enum class CharClass : std::uint8_t {
+  All,  // any character (no restriction)
+  NotSyllable,
+  SyllableNoFinal,
+  SyllableRieul,  // final ㄹ
+  SyllableOtherFinal,
+};
+
+inline CharClass char_class(char32_t c) {
+  if (c < 0xAC00 || c > 0xD7A3) return CharClass::NotSyllable;
+  const unsigned final_index = (c - 0xAC00) % 28;
+  return final_index == 0 ? CharClass::SyllableNoFinal
+         : final_index == 8 ? CharClass::SyllableRieul
+                            : CharClass::SyllableOtherFinal;
+}
+
 inline bool guard_holds(Guard g, char32_t prev) {
   if (prev == 0 || prev == U' ') return false;
   if (prev < 0xAC00 || prev > 0xD7A3) return true;
@@ -49,6 +66,7 @@ struct Edge {
   int action;  // Action: index into Nfa::actions
   int to;
   Guard guard = Guard::None;  // Guard: the condition
+  CharClass char_class = CharClass::All;  // Any: only characters of this class
 
   bool consumes() const {
     return kind != Kind::Epsilon && kind != Kind::Guard && kind != Kind::Action;
@@ -90,13 +108,19 @@ struct Nfa {
     return static_cast<int>(states.size()) - 1;
   }
   void add_edge(int from, Edge::Kind kind, int to, char32_t ch = 0, int set = -1, int action = -1) {
-    states[from].edges.push_back(Edge{kind, ch, set, action, to});
+    states[from].edges.push_back(Edge{kind, ch, set, action, to, Guard::None, CharClass::All});
   }
   void epsilon(int from, int to) { add_edge(from, Edge::Kind::Epsilon, to); }
   void guard(int from, Guard g, int to) {
-    states[from].edges.push_back(Edge{Edge::Kind::Guard, 0, -1, -1, to, g});
+    states[from].edges.push_back(Edge{Edge::Kind::Guard, 0, -1, -1, to, g, CharClass::All});
     has_guards = true;
   }
+  void any_of_class(int from, int to, int set, CharClass cls) {
+    states[from].edges.push_back(Edge{Edge::Kind::Any, 0, set, -1, to, Guard::None, cls});
+    has_guards = true;
+  }
+  // Whether characters behave differently by their final consonant: the
+  // automaton has guards or class-limited wildcards.
   bool has_guards = false;
 
   int slot_id(const std::string& name) {
@@ -114,7 +138,8 @@ struct Nfa {
         return c == U' ';
       case Edge::Kind::Any:
         return c != U' ' &&
-               (e.set < 0 || !std::binary_search(sets[e.set].begin(), sets[e.set].end(), c));
+               (e.set < 0 || !std::binary_search(sets[e.set].begin(), sets[e.set].end(), c)) &&
+               (e.char_class == CharClass::All || char_class(c) == e.char_class);
       default:
         return false;
     }

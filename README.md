@@ -98,6 +98,27 @@ The exit status is 0 when every case passes and 1 otherwise, so the command
 can run in CI. From Python, `script.run_tests("rules.test")` runs the same
 file and returns a `TestReport(passed, failed, failures)`.
 
+## Searching free text
+
+`--search` (and `Script::search`, `nlu_script_search`, Python
+`Script.search`) finds rules inside longer text, without `<?>*?` around
+them. It scans left to right, takes the longest text any rule matches at
+each position, reports it, and goes on after it:
+
+```sh
+echo "고객님 내일 오후 3시에 전화주세요 그리고 상담원 연결해주세요" \
+  | ./build/nlu_script_cli --search examples/demo.nlu
+# agent:callback:<DATETIME day_offset="+1" part_of_day="PM" hour="15">내일 오후 3시</DATETIME>에 전화주세요
+# agent:connect:상담원 연결해주세요
+```
+
+Each result's `tagged` is the text found, and `begin` and `end` give its
+place in the input (byte offsets; character offsets in Python). A match
+neither starts nor ends inside a run of ASCII letters and digits, so `card`
+is not found in `postcard`; Hangul has no such boundary, since particles
+attach to words (`카드` is found in `카드를`). Results of `match()` carry
+`begin` and `end` too, covering the whole input.
+
 ## Explaining a miss
 
 When a sentence should match but doesn't, `--explain` shows the rules that
@@ -208,14 +229,33 @@ harmless. Errors, matches (`Match::file`, `nlu_result_file`, Python
 
 A pattern must match the **whole** input. Before matching, the input is
 normalized: whitespace runs collapse to one space, leading and trailing
-whitespace is dropped, and ASCII letters are matched case-insensitively.
-Decomposed Hangul (NFD, as in text copied from macOS file names) is composed
-into syllables first, in the input and in scripts alike, so it matches the
-precomposed form. Slot text and offsets always refer to the original input.
+whitespace is dropped, and letters are matched case-insensitively (simple
+Unicode case folding: `Ä`, `Σ`, `П` as well as ASCII). Text is put in
+Unicode NFC first, in the input and in scripts alike, so precomposed and
+decomposed forms match: `café` with `cafe` + U+0301, and Hangul syllables
+with conjoining jamo (NFD, as in text copied from macOS file names). Slot
+text and offsets always refer to the original input.
 
 Matching is language-neutral: Korean, English and mixed input (`OTP 재발급`)
 follow the same rules. Punctuation in the input is not stripped, so
-`is my card blocked?` only matches a pattern that ends in `"?"`.
+`is my card blocked?` only matches a pattern that ends in `"?"`, unless the
+script says otherwise:
+
+```
+option ignore-trailing-punctuation
+option fold-width
+```
+
+`option` lines go at the top of the main script, before rules and
+definitions:
+
+- `ignore-trailing-punctuation` lets every rule end with punctuation
+  (`. ? ! ~ , ; : …` and their full-width forms, any number of them, after an
+  optional space): `are you there` matches `are you there?!` and
+  `거기 계세요~~`. The punctuation stays outside slots.
+- `fold-width` reads full-width and half-width forms as their usual ones, in
+  the input and in patterns: `ＯＴＰ` matches `OTP`, `１２` is digits, and
+  half-width katakana and Hangul become full-width.
 
 `match()` returns one result per matching label, in the order the label's
 first matching rule appears in the script. Each result carries the script
@@ -289,8 +329,15 @@ always stays on its word, with no space before it, and can be optional:
 Pairs: 은/는, 이/가, 을/를, 과/와, 아/야, 이나/나, 이랑/랑, 이라고/라고,
 이에요/예요, 으로/로, 으로서/로서, 으로써/로써. After anything other than a
 Hangul syllable, such as `OTP` or a phone number, either form matches,
-because the right one depends on how it is read. Particle pairs can't be
-used inside an exclusion.
+because the right one depends on how it is read. Particle pairs also work
+inside exclusions (`\[<?>+?을/를] <?>+?` rejects `카드를` but not `카드을`).
+
+A wildcard before an optional particle may take a wrong particle as part of
+its text: `<?>+?(을/를) 해지` matches `청약통장를 해지` with `청약통장를` as the
+wildcard. That is deliberate. Keeping particle-like syllables out of a
+wildcard's end would also reject words that end in them, such as `마을` or
+`가을`; write the particle as required (`<?>+?을/를`) where a wrong one should
+not match.
 
 ### Groups
 
@@ -302,8 +349,13 @@ used inside an exclusion.
 | `[k]^(a,b)` | `k` repeated `a` to `b` times | `[ㅠ]^(1,3)`, `[help]^(1,3)` |
 | `[k]^<n` | `k` repeated 1 to `n-1` times | `[정말]^<3 급해요`, `[very]^<3 urgent` |
 | `[k]^>n` | `k` repeated more than `n` times | `[제발]^>2`, `[please]^>2` |
+| `[k]&` | `k`, or `k` with one typo: a letter added, left out or changed | `[분실 신고]&`, `[I lost my card]&` |
 
-Groups nest. Repetition counts are capped at 100. Since nested repetitions
+Groups nest. Repetition counts are capped at 100. A typo-tolerant group
+takes one edit in all of its text; a swap of two letters is two edits.
+Typos count as wildcard characters for `specificity`, so `match_best()`
+prefers an exact match. Use it on longer text: in short words one edit
+matches many other words. Since nested repetitions
 multiply, a rule may compile to at most 500,000 automaton states and a whole
 script to 10 million (about 1.3 GB); past that, compiling reports an error
 instead of exhausting memory.
@@ -337,9 +389,11 @@ close my \[<?>*? savings <?>*?|<?>*? checking <?>*?] <?>+? account
 The exclusion is tested against the wildcard's **whole** text. To exclude
 text that merely contains a token, surround the token with `<?>*?`.
 
-An exclusion must come right before a wildcard. Several exclusions may
-precede one wildcard (`\X \Y <?>*?`). Wildcard text never starts or ends with a
-space.
+An exclusion must come right before a wildcard, or before a slot whose
+text starts with one, which then captures the wildcard
+(`\[적금|예금] <account><?>+?</account>을/를 해지`). Several exclusions may
+precede one wildcard (`\X \Y <?>*?`). Wildcard text never starts or ends with
+a space.
 
 ### References
 
@@ -481,6 +535,27 @@ and the CLI prints each as `rules.nlu:3:5: message`.
 `Script::match` is thread-safe, and concurrent calls run in parallel. A call
 waits only while another thread adds a state to the shared DFA cache, which
 mostly happens while the cache warms up.
+
+The cache is bounded (`CacheOptions`: 200,000 states and 64 MiB by
+default). When it fills up, it keeps the states used since its last
+eviction, up to half of each limit, and drops the rest, so the states most
+inputs pass through stay. `Script::cache_stats()` reports its size and how
+often it evicted; `set_cache_options()` changes the limits, or gives each
+thread its own cache (`per_thread`).
+
+A compiled script can be saved and loaded again without parsing or
+compiling: `Script::save()` / `Script::load(bytes)` (and `save_file`,
+`load_file`), `nlu_script_save` / `nlu_script_load` in C, `Script.save()` /
+`Script.load(data)` in Python, and `nlu_script_cli --save rules.nlu
+rules.nlub`; the CLI accepts a saved file wherever it takes a script. The
+format is versioned, and loading checks every count and index, so other or
+corrupt data is rejected with an error. At 50,000 rules, loading takes
+about half as long as compiling, and the saved file is about 20 MiB.
+
+`nlu_script_bench` times matching against generated scripts. On an Apple
+silicon Mac, a warm `match()` takes about 4 µs at 10 rules and at 100,000 rules
+alike; four threads together reach about 1.2 µs per match, with a shared
+cache or per-thread ones.
 
 ## C API
 

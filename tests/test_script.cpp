@@ -439,3 +439,219 @@ TEST(korean_number_slot_covers_only_the_number) {
            std::string("transfer:send:<recipient>엄마</recipient>한테 <amount>"
                        "<KO_NUMBER value=\"35000\">3만 5천</KO_NUMBER> 원</amount> 보내줘"));
 }
+
+TEST(option_ignore_trailing_punctuation) {
+  const std::string rules =
+      "agent:check\n"
+      "    are you there\n"
+      "    거기 계세요\n"
+      "card:blocked\n"
+      "    is my card blocked \"?\"\n";
+  nlu::Script strict = nlu::Script::compile(rules);
+  CHECK(labels(strict, "are you there?").empty());
+  nlu::Script lenient = nlu::Script::compile("option ignore-trailing-punctuation\n" + rules);
+  for (const char* text : {"are you there", "are you there?", "are you there ?!", "are you there...",
+                           "거기 계세요？", "거기 계세요~~"})
+    CHECK_EQ(labels(lenient, text), (std::vector<std::string>{"agent:check"}));
+  CHECK_EQ(labels(lenient, "is my card blocked?"), (std::vector<std::string>{"card:blocked"}));
+  CHECK(labels(lenient, "are you? there").empty());
+  // The punctuation stays in the tagged text, outside any slot.
+  nlu::Script slots = nlu::Script::compile(
+      "option ignore-trailing-punctuation\ncall\n    call <who><?>+?</who>\n");
+  CHECK_EQ(tagged(slots, "call mom!"), std::string("call:call <who>mom</who>!"));
+}
+
+TEST(option_fold_width) {
+  const std::string rules = "card:reissue\n    [OTP|ATM 카드] 재발급\n";
+  CHECK(labels(nlu::Script::compile(rules), "ＯＴＰ 재발급").empty());
+  nlu::Script s = nlu::Script::compile("option fold-width\n" + rules);
+  CHECK_EQ(labels(s, "ＯＴＰ 재발급"), (std::vector<std::string>{"card:reissue"}));
+  CHECK_EQ(labels(s, "ａｔｍ 카드 재발급"), (std::vector<std::string>{"card:reissue"}));
+  // Patterns are folded too, and system entities see folded digits.
+  nlu::Script wide = nlu::Script::compile(
+      "option fold-width\nt\n    ＯＴＰ `@{NUMBER}개\n");
+  std::vector<nlu::Match> found = wide.match("otp １２개");
+  CHECK_EQ(found.size(), 1u);
+  if (found.size() == 1) CHECK_EQ(found[0].slots[0].text, std::string("１２"));
+}
+
+TEST(unknown_or_misplaced_options_are_errors) {
+  CHECK_THROWS(nlu::CompileError, nlu::Script::compile("option fold-everything\n"));
+  CHECK_THROWS(nlu::CompileError, nlu::Script::compile("a\n    x\noption fold-width\n"));
+}
+
+namespace {
+
+std::string spans(const nlu::Script& s, const std::string& text) {
+  std::string out;
+  for (const nlu::Match& m : s.search(text))
+    out += (out.empty() ? "" : " | ") + m.label + "=" + text.substr(m.begin, m.end - m.begin);
+  return out;
+}
+
+}  // namespace
+
+TEST(search_finds_rules_inside_free_text) {
+  nlu::Script s = nlu::Script::compile(
+      "when\n    `@{DATETIME}\n"
+      "money\n    `@{MONEY}\n"
+      "card:lost\n    [체크|신용]카드 분실\n");
+  const std::string text = "안녕하세요 내일 오후 3시에 5만 원 보내고 체크카드 분실 신고도 할게요";
+  CHECK_EQ(spans(s, text), std::string("when=내일 오후 3시 | money=5만 원 | card:lost=체크카드 분실"));
+  std::vector<nlu::Match> found = s.search(text);
+  CHECK_EQ(found.size(), 3u);
+  if (found.size() == 3) {
+    CHECK_EQ(found[0].tagged,
+             std::string("<DATETIME day_offset=\"+1\" part_of_day=\"PM\" hour=\"15\">"
+                         "내일 오후 3시</DATETIME>"));
+    CHECK_EQ(found[1].slots[0].attributes.size(), 2u);
+  }
+  CHECK(s.search("감사합니다").empty());
+}
+
+TEST(search_keeps_latin_words_whole) {
+  nlu::Script s = nlu::Script::compile("card\n    card\n카드\n    카드\n");
+  CHECK_EQ(spans(s, "a postcard and a card"), std::string("card=card"));
+  CHECK_EQ(spans(s, "체크카드를 잃어버렸어요"), std::string("카드=카드"));
+}
+
+TEST(search_takes_the_longest_match_and_moves_past_it) {
+  nlu::Script s = nlu::Script::compile(
+      "short\n    lost card\n"
+      "long\n    lost card report\n"
+      "card\n    card\n");
+  CHECK_EQ(spans(s, "lost card report and card"), std::string("long=lost card report | card=card"));
+  // match() spans the whole input.
+  std::vector<nlu::Match> found = s.match("lost card");
+  CHECK_EQ(found.size(), 1u);
+  if (found.size() == 1) {
+    CHECK_EQ(found[0].begin, 0u);
+    CHECK_EQ(found[0].end, std::string("lost card").size());
+  }
+}
+
+namespace {
+
+std::string order_rules(int count) {
+  std::string source;
+  for (int i = 0; i < count; ++i)
+    source += "label" + std::to_string(i) + "\n    order " + std::to_string(i * 7919) +
+              " for customer " + std::to_string(i) + "\n";
+  return source;
+}
+
+std::string order(int i) {
+  return "order " + std::to_string(i * 7919) + " for customer " + std::to_string(i);
+}
+
+}  // namespace
+
+TEST(a_full_cache_keeps_matching_correctly) {
+  nlu::Script s = nlu::Script::compile(order_rules(300));
+  nlu::CacheOptions options;
+  options.max_states = 200;
+  s.set_cache_options(options);
+  for (int round = 0; round < 3; ++round)
+    for (int i = 0; i < 300; ++i)
+      CHECK_EQ(labels(s, order(i)), (std::vector<std::string>{"label" + std::to_string(i)}));
+  nlu::CacheStats stats = s.cache_stats();
+  CHECK(stats.evictions > 0);
+  CHECK(stats.states <= 200u);
+  CHECK(stats.states > 1u);  // the states in use survive an eviction
+}
+
+TEST(the_cache_stays_within_its_memory_budget) {
+  nlu::Script s = nlu::Script::compile(order_rules(300));
+  nlu::CacheOptions options;
+  options.max_bytes = 64 * 1024;
+  s.set_cache_options(options);
+  for (int i = 0; i < 300; ++i) s.match(order(i));
+  CHECK(s.cache_stats().bytes <= 64 * 1024 + 16 * 1024);  // one state may go over
+}
+
+TEST(per_thread_caches_are_separate) {
+  nlu::Script s = nlu::Script::compile(order_rules(200));
+  nlu::CacheOptions options;
+  options.per_thread = true;
+  s.set_cache_options(options);
+  CHECK_EQ(labels(s, order(7)), (std::vector<std::string>{"label7"}));
+  const std::size_t mine = s.cache_stats().states;
+  int wrong = 0;
+  std::thread other([&] {
+    for (int i = 0; i < 200; ++i)
+      if (labels(s, order(i)) != std::vector<std::string>{"label" + std::to_string(i)}) ++wrong;
+  });
+  other.join();
+  CHECK_EQ(wrong, 0);
+  CHECK_EQ(s.cache_stats().states, mine);  // the other thread filled its own cache
+}
+
+namespace {
+
+const char* kSaveScript =
+    "option ignore-trailing-punctuation\n"
+    "@card: [신용{type=CREDIT}|체크{type=DEBIT}]카드\n"
+    "# lint: allow-overlap report:any *\n"
+    "card:lost\n"
+    "    @{card}(을/를) [분실했어요|잃어버렸어요]\n"
+    "    I lost my <card>[credit{type=CREDIT}|debit{type=DEBIT}] card</card>\n"
+    "agent:callback\n"
+    "    `@{DATETIME}::(에) 전화 주세요\n"
+    "report:any\n"
+    "    I <?>+?\n";
+
+}  // namespace
+
+TEST(saved_scripts_load_and_match_the_same) {
+  nlu::Script original = nlu::Script::compile(kSaveScript);
+  nlu::Script loaded = nlu::Script::load(original.save());
+  CHECK_EQ(loaded.rule_count(), original.rule_count());
+  for (const char* text : {"체크카드를 분실했어요!", "I lost my debit card", "내일 오후 3시에 전화 주세요",
+                           "I found it", "thank you"}) {
+    std::vector<nlu::Match> a = original.match(text), b = loaded.match(text);
+    CHECK_EQ(a.size(), b.size());
+    for (std::size_t i = 0; i < a.size() && i < b.size(); ++i) {
+      CHECK_EQ(b[i].label, a[i].label);
+      CHECK_EQ(b[i].tagged, a[i].tagged);
+      CHECK_EQ(b[i].line, a[i].line);
+    }
+  }
+  CHECK_EQ(loaded.lint().findings().size(), original.lint().findings().size());
+  CHECK_EQ(loaded.lint().allowed_overlaps.size(), original.lint().allowed_overlaps.size());
+  CHECK_EQ(loaded.search("so I lost my credit card today").size(), 1u);
+}
+
+TEST(loading_rejects_anything_but_a_saved_script) {
+  const std::string saved = nlu::Script::compile(kSaveScript).save();
+  CHECK_THROWS(std::runtime_error, nlu::Script::load(""));
+  CHECK_THROWS(std::runtime_error, nlu::Script::load("card:lost\n    I lost my card\n"));
+  CHECK_THROWS(std::runtime_error, nlu::Script::load(saved.substr(0, saved.size() / 2)));
+  // Corrupt bytes are caught by the checks on every count and index.
+  int rejected = 0;
+  for (std::size_t at = 8; at < saved.size(); at += 97) {
+    std::string bad = saved;
+    bad[at] = static_cast<char>(bad[at] ^ 0x5a);
+    try {
+      nlu::Script s = nlu::Script::load(bad);
+      s.match("I lost my debit card");
+    } catch (const std::runtime_error&) {
+      ++rejected;
+    }
+  }
+  CHECK(rejected > 0);
+}
+
+TEST(exclusion_reaches_the_wildcard_starting_a_slot) {
+  nlu::Script s = nlu::Script::compile(
+      "account:close\n"
+      "    \\[적금|예금] <account><?>+?</account>을/를 해지\n"
+      "    close my \\[savings] <account><name><?>+?</name> plan</account>\n");
+  CHECK_EQ(tagged(s, "청약통장을 해지"),
+           std::string("account:close:<account>청약통장</account>을 해지"));
+  CHECK(labels(s, "적금을 해지").empty());
+  CHECK_EQ(tagged(s, "close my pension plan"),
+           std::string("account:close:close my <account><name>pension</name> plan</account>"));
+  CHECK(labels(s, "close my savings plan").empty());
+  // The slot has to start with a wildcard for the exclusion to reach.
+  CHECK_THROWS(nlu::CompileError, nlu::Script::compile("t\n    \\[x] <slot>y <?>*?</slot>\n"));
+}

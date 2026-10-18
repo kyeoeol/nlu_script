@@ -132,6 +132,45 @@ static void test_resolve_datetime(void) {
   CHECK(grain != NULL && strcmp(grain, "hour") == 0);
 }
 
+static void test_search(void) {
+  nlu_script* script = nlu_script_compile("card\n    debit card\n", NULL, NULL, NULL);
+  nlu_result* result;
+  const char* text = "I lost my debit card yesterday";
+  CHECK(script != NULL);
+  if (!script) return;
+  result = nlu_script_search(script, text);
+  CHECK(nlu_result_count(result) == 1);
+  CHECK(nlu_result_begin(result, 0) == 10);
+  CHECK(nlu_result_end(result, 0) == 20);
+  CHECK(strcmp(nlu_result_tagged(result, 0), "debit card") == 0);
+  nlu_result_free(result);
+  nlu_script_free(script);
+}
+
+static void test_save_and_load(void) {
+  nlu_script* script = nlu_script_compile(kScript, NULL, NULL, NULL);
+  nlu_script* loaded;
+  nlu_result* result;
+  char* data;
+  char* error = NULL;
+  size_t size = 0;
+  CHECK(script != NULL);
+  if (!script) return;
+  data = nlu_script_save(script, &size);
+  CHECK(data != NULL && size > 8);
+  loaded = nlu_script_load(data, size, &error);
+  CHECK(loaded != NULL && error == NULL);
+  result = nlu_script_match(loaded, "Report a lost debit card");
+  CHECK(nlu_result_count(result) == 1);
+  nlu_result_free(result);
+  CHECK(nlu_script_load(data, size / 2, &error) == NULL);
+  CHECK(error != NULL);
+  nlu_string_free(error);
+  nlu_string_free(data);
+  nlu_script_free(loaded);
+  nlu_script_free(script);
+}
+
 static void test_compile_error(void) {
   char* error = NULL;
   int line = -1;
@@ -169,6 +208,8 @@ int main(void) {
   test_explain();
   test_lint();
   test_resolve_datetime();
+  test_search();
+  test_save_and_load();
   test_compile_error();
   test_missing_file();
   printf("C API: %d failed checks\n", failures);

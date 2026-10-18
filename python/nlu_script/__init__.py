@@ -68,9 +68,14 @@ _compile = _declare("nlu_script_compile", _ptr, ctypes.c_char_p, _ptr, _c_int_p,
 _compile_file = _declare("nlu_script_compile_file", _ptr, ctypes.c_char_p, _ptr, _c_int_p,
                          _c_int_p)
 _script_free = _declare("nlu_script_free", None, _ptr)
+_save = _declare("nlu_script_save", _ptr, _ptr, ctypes.POINTER(_size))
+_load = _declare("nlu_script_load", _ptr, ctypes.c_char_p, _size, _ptr)
 _rule_count = _declare("nlu_script_rule_count", _size, _ptr)
 _match = _declare("nlu_script_match", _ptr, _ptr, ctypes.c_char_p)
 _match_best = _declare("nlu_script_match_best", _ptr, _ptr, ctypes.c_char_p)
+_search = _declare("nlu_script_search", _ptr, _ptr, ctypes.c_char_p)
+_result_begin = _declare("nlu_result_begin", _size, _ptr, _size)
+_result_end = _declare("nlu_result_end", _size, _ptr, _size)
 _result_free = _declare("nlu_result_free", None, _ptr)
 _result_count = _declare("nlu_result_count", _size, _ptr)
 _result_label = _declare("nlu_result_label", ctypes.c_char_p, _ptr, _size)
@@ -146,11 +151,13 @@ class Slot(collections.namedtuple("Slot", "name text begin end attributes")):
     __slots__ = ()
 
 
-class Match(collections.namedtuple("Match", "label slots tagged line specificity file")):
+class Match(collections.namedtuple("Match",
+                                    "label slots tagged line specificity file begin end")):
     """A matched label. `line` and `file` locate the rule that matched (`file`
     is empty for a script compiled from a string); `specificity` counts the
     input characters, not counting spaces, that the rule matched with pattern
-    text rather than wildcards."""
+    text rather than wildcards; `begin` and `end` are character offsets of the
+    matched text (the whole input for match(), a span for search())."""
 
     __slots__ = ()
 
@@ -272,6 +279,31 @@ class Script:
         script._handle = _compile_with(_compile_file, os.fsencode(path))
         return script
 
+    @classmethod
+    def load(cls, data):
+        """Loads a script saved by save(); raises ValueError for other bytes."""
+        error = ctypes.c_void_p()
+        handle = _load(data, len(data), ctypes.byref(error))
+        if not handle:
+            message = _decode(ctypes.string_at(error.value)) if error.value else "invalid data"
+            _string_free(error)
+            raise ValueError(message)
+        script = cls.__new__(cls)
+        script._handle = handle
+        return script
+
+    def save(self):
+        """The compiled script as bytes, which load() reads back without
+        compiling again."""
+        size = _size()
+        data = _save(self._checked(), ctypes.byref(size))
+        if not data:
+            raise MemoryError("nlu_script_save failed")
+        try:
+            return ctypes.string_at(data, size.value)
+        finally:
+            _string_free(data)
+
     @property
     def rule_count(self):
         return _rule_count(self._checked())
@@ -279,6 +311,11 @@ class Script:
     def match(self, text):
         """Returns a list of Match, one per matching label, in script order."""
         return self._run(_match, text)
+
+    def search(self, text):
+        """Finds rules inside free text (see Script::search in C++): a list of
+        Match, each for a span of `text`."""
+        return self._run(_search, text)
 
     def match_best(self, text):
         """Like match(), but keeps only the labels whose most specific rule has
@@ -373,6 +410,8 @@ class Script:
             begin = len(_decode(data[:_slot_begin(result, i, j)]))
             slots.append(Slot(_decode(_slot_name(result, i, j)), text, begin, begin + len(text),
                               attributes))
+        begin = len(_decode(data[:_result_begin(result, i)]))
+        end = begin + len(_decode(data[_result_begin(result, i):_result_end(result, i)]))
         return Match(_decode(_result_label(result, i)), slots, _decode(_result_tagged(result, i)),
                      _result_line(result, i), _result_specificity(result, i),
-                     _decode(_result_file(result, i)))
+                     _decode(_result_file(result, i)), begin, end)

@@ -35,9 +35,10 @@ jobs:
       - name: Test
         run: ctest --test-dir build -C Release --output-on-failure
 
-  # Fuzzes the script compiler and the matcher for a minute each, with
-  # AddressSanitizer and UndefinedBehaviorSanitizer. The demo script and the
-  # sentences in its test file seed the corpora. Crashing inputs are uploaded.
+  # Fuzzes the script compiler, the matcher and loading saved scripts for a
+  # minute each, with AddressSanitizer and UndefinedBehaviorSanitizer. The
+  # demo script, the sentences in its test file and the saved demo seed the
+  # corpora. Crashing inputs are uploaded.
   fuzz:
     name: fuzz
     runs-on: ubuntu-latest
@@ -51,12 +52,13 @@ jobs:
           "-DCMAKE_CXX_FLAGS=-fsanitize=fuzzer-no-link,address,undefined -fno-sanitize-recover=undefined"
           "-DCMAKE_EXE_LINKER_FLAGS=-fsanitize=address,undefined"
       - name: Build
-        run: cmake --build build-fuzz --parallel --target fuzz_script fuzz_match
+        run: cmake --build build-fuzz --parallel --target fuzz_script fuzz_match fuzz_load nlu_script_cli
       - name: Seed corpora
         run: |
-          mkdir -p corpus/script corpus/match crashes
+          mkdir -p corpus/script corpus/match corpus/load crashes
           cp examples/demo.nlu corpus/script/
           awk 'NF && !/^#/ && !/^ /' examples/demo.test | split -l 1 - corpus/match/line-
+          ./build-fuzz/nlu_script_cli --save examples/demo.nlu corpus/load/demo.nlub
       - name: Fuzz the matcher
         run: >
           ./build-fuzz/fuzz_match -max_total_time=60 -timeout=10 -rss_limit_mb=2560
@@ -65,6 +67,10 @@ jobs:
         run: >
           ./build-fuzz/fuzz_script -max_total_time=60 -timeout=10 -rss_limit_mb=2560
           -artifact_prefix=crashes/ corpus/script
+      - name: Fuzz loading saved scripts
+        run: >
+          ./build-fuzz/fuzz_load -max_total_time=60 -timeout=10 -rss_limit_mb=2560
+          -artifact_prefix=crashes/ corpus/load
       - name: Upload crashing inputs
         if: failure()
         uses: actions/upload-artifact@v7

@@ -66,6 +66,10 @@ target_link_libraries(nlu_script_tools PUBLIC nlu_script_static)
 add_executable(nlu_script_cli tools/nlu_script_cli.cpp)
 target_link_libraries(nlu_script_cli PRIVATE nlu_script_tools)
 
+# Times matching against generated scripts of growing size.
+add_executable(nlu_script_bench tools/nlu_script_bench.cpp)
+target_link_libraries(nlu_script_bench PRIVATE nlu_script_static)
+
 if(NLU_SCRIPT_BUILD_TESTS)
   enable_testing()
   add_executable(nlu_script_tests
@@ -109,7 +113,7 @@ if(NLU_SCRIPT_BUILD_TESTS)
 endif()
 
 if(NLU_SCRIPT_BUILD_FUZZERS)
-  foreach(target fuzz_script fuzz_match)
+  foreach(target fuzz_script fuzz_match fuzz_load)
     add_executable(${target} fuzz/${target}.cpp)
     target_link_libraries(${target} PRIVATE nlu_script_static)
     target_link_options(${target} PRIVATE -fsanitize=fuzzer)

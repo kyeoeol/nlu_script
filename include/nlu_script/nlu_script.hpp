@@ -38,6 +38,10 @@ struct Match {
   // Script file of the rule: the path given to compile_file, or an included
   // file's path; empty for a script compiled from a string.
   std::string file;
+  // Byte offsets of the matched text: the whole input for match(), the span
+  // found for search().
+  std::size_t begin = 0;
+  std::size_t end = 0;
 };
 
 // How far one rule got into an input, from Script::explain().
@@ -159,6 +163,25 @@ struct DateTimeRange {
 DateTimeRange resolve_datetime(const std::vector<std::pair<std::string, std::string>>& attributes,
                                const DateTimeValue& now);
 
+// The lazily built DFA that classifies inputs, from Script::cache_stats().
+struct CacheStats {
+  std::size_t states;       // DFA states cached now
+  std::size_t transitions;  // cached transitions between them
+  std::size_t bytes;        // approximate memory they take
+  std::size_t evictions;    // times the cache was full and dropped unused states
+};
+
+// Limits of the DFA cache, for Script::set_cache_options(). When either
+// limit is reached, the cache keeps the states used since the last eviction
+// (up to half of each limit) and drops the rest.
+struct CacheOptions {
+  std::size_t max_states = 200000;
+  std::size_t max_bytes = std::size_t{64} << 20;  // 64 MiB
+  // One cache per thread instead of one shared cache: no contention between
+  // threads, at the cost of memory per thread.
+  bool per_thread = false;
+};
+
 class CompileError : public std::runtime_error {
  public:
   CompileError(const std::string& message, int line, int column);
@@ -181,6 +204,16 @@ class Script {
   // Throws std::runtime_error if the file cannot be read.
   static Script compile_file(const std::string& path);
 
+  // A compiled script as bytes, which load() turns back into the same script
+  // without parsing or compiling it again. The bytes are for this format
+  // version of the library only (they start with "\x89NLU").
+  std::string save() const;
+  void save_file(const std::string& path) const;
+  // Throws std::runtime_error if `bytes` is not a script saved by save()
+  // (checking every count and index, so corrupt data is rejected).
+  static Script load(const std::string& bytes);
+  static Script load_file(const std::string& path);
+
   Script(Script&&) noexcept;
   Script& operator=(Script&&) noexcept;
   ~Script();
@@ -195,7 +228,22 @@ class Script {
   // from that rule. Ties keep every such label, in script order.
   std::vector<Match> match_best(const std::string& text) const;
 
+  // Finds rules inside free text, without <?>*? around them: scanning left
+  // to right, takes the longest text any rule matches at each position,
+  // reports one Match per label with a rule matching it (`tagged` is that
+  // text with its slots, `begin` and `end` its place), and goes on after it.
+  // A match neither starts nor ends inside a run of ASCII letters and digits
+  // ("card" is not found in "postcard"); in Hangul it may ("카드" in "카드를").
+  std::vector<Match> search(const std::string& text) const;
+
   std::size_t rule_count() const;
+
+  // The state of the DFA cache (the calling thread's with per_thread).
+  CacheStats cache_stats() const;
+  // Replaces the DFA cache with an empty one with these options. Not safe
+  // while other threads match with this script.
+  void set_cache_options(const CacheOptions& options);
+  CacheOptions cache_options() const;
 
   // For debugging rules: the `limit` rules that got furthest into `text`
   // (rules that match none of it are left out), longest match first, then
