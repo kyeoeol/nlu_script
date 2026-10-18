@@ -80,6 +80,27 @@ static void test_match_best(void) {
   nlu_script_free(script);
 }
 
+static void test_explain(void) {
+  nlu_script* script = nlu_script_compile(kScript, NULL, NULL, NULL);
+  nlu_explanation* e;
+  CHECK(script != NULL);
+  if (!script) return;
+  e = nlu_script_explain(script, "report a lost wallet", 3);
+  CHECK(nlu_explanation_count(e) == 1);
+  CHECK(strcmp(nlu_explanation_label(e, 0), "card:lost") == 0);
+  CHECK(nlu_explanation_line(e, 0) == 2);
+  CHECK(strcmp(nlu_explanation_file(e, 0), "") == 0);
+  CHECK(nlu_explanation_matched(e, 0) == strlen("report a lost "));
+  CHECK(nlu_explanation_complete(e, 0) == 0);
+  CHECK(nlu_explanation_expected_count(e, 0) == 2);
+  CHECK(strcmp(nlu_explanation_expected(e, 0, 0), "c") == 0);
+  CHECK(strcmp(nlu_explanation_expected(e, 0, 1), "d") == 0);
+  CHECK(nlu_explanation_expected(e, 0, 2) == NULL);
+  CHECK(nlu_explanation_label(e, 1) == NULL);
+  nlu_explanation_free(e);
+  nlu_script_free(script);
+}
+
 static void test_compile_error(void) {
   char* error = NULL;
   int line = -1;
@@ -114,6 +135,7 @@ static void test_missing_file(void) {
 int main(void) {
   test_match_with_slots();
   test_match_best();
+  test_explain();
   test_compile_error();
   test_missing_file();
   printf("C API: %d failed checks\n", failures);

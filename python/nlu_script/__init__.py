@@ -17,7 +17,8 @@ import os
 import re
 import sys
 
-__all__ = ["CompileError", "Diagnostic", "Match", "Script", "Slot"]
+__all__ = ["CompileError", "Diagnostic", "Explanation", "Match", "Script", "Slot", "TestFailure",
+           "TestReport"]
 __version__ = "0.1.0"
 
 
@@ -85,6 +86,17 @@ _attribute_key = _declare("nlu_result_slot_attribute_key", ctypes.c_char_p, _ptr
                           _size)
 _attribute_value = _declare("nlu_result_slot_attribute_value", ctypes.c_char_p, _ptr, _size,
                             _size, _size)
+_explain = _declare("nlu_script_explain", _ptr, _ptr, ctypes.c_char_p, _size)
+_explanation_free = _declare("nlu_explanation_free", None, _ptr)
+_explanation_count = _declare("nlu_explanation_count", _size, _ptr)
+_explanation_label = _declare("nlu_explanation_label", ctypes.c_char_p, _ptr, _size)
+_explanation_line = _declare("nlu_explanation_line", ctypes.c_int, _ptr, _size)
+_explanation_file = _declare("nlu_explanation_file", ctypes.c_char_p, _ptr, _size)
+_explanation_matched = _declare("nlu_explanation_matched", _size, _ptr, _size)
+_explanation_complete = _declare("nlu_explanation_complete", ctypes.c_int, _ptr, _size)
+_explanation_expected_count = _declare("nlu_explanation_expected_count", _size, _ptr, _size)
+_explanation_expected = _declare("nlu_explanation_expected", ctypes.c_char_p, _ptr, _size,
+                                 _size)
 _string_free = _declare("nlu_string_free", None, _ptr)
 
 
@@ -126,6 +138,53 @@ class Match(collections.namedtuple("Match", "label slots tagged line specificity
 
 # The C library reports each error as "[file: ]line L, column C: message".
 _ERROR_LINE = re.compile(r"^(?:(.*): )?line (\d+), column (\d+): (.*)$")
+
+
+class Explanation(collections.namedtuple("Explanation",
+                                          "label line file matched complete expected")):
+    """How far one rule got into an input, from Script.explain(). `matched` is
+    a character offset into the input; `expected` lists what the rule could have
+    taken next ("c", "space", "any character")."""
+
+    __slots__ = ()
+
+
+TestFailure = collections.namedtuple("TestFailure", "line input expected actual")
+TestReport = collections.namedtuple("TestReport", "passed failed failures")
+
+
+def _output_lines(matches):
+    """The CLI's output for one input: `label:tagged` per match, or `-`."""
+    return [m.label + ":" + m.tagged for m in matches] or ["-"]
+
+
+def _read_test_cases(path):
+    """Returns (line, input, expected lines) for each case of a script test file
+    (see the README); raises ValueError naming the line of a malformed case."""
+    cases = []
+    with open(path, encoding="utf-8") as f:
+        for number, raw in enumerate(f, 1):
+            raw = raw.rstrip("\r\n")
+            text = raw.strip()
+            if not text or text.startswith("#"):
+                continue
+            if not raw[0].isspace():
+                if cases and not cases[-1][2]:
+                    raise ValueError("%s:%d: no expected output; write '-' to expect no match"
+                                     % (path, cases[-1][0]))
+                cases.append((number, raw.rstrip(), []))
+                continue
+            if not cases:
+                raise ValueError("%s:%d: expected output before any input sentence"
+                                 % (path, number))
+            expected = cases[-1][2]
+            if expected and (text == "-" or expected[0] == "-"):
+                raise ValueError("%s:%d: '-' must be the only expected output" % (path, number))
+            expected.append(text)
+    if cases and not cases[-1][2]:
+        raise ValueError("%s:%d: no expected output; write '-' to expect no match"
+                         % (path, cases[-1][0]))
+    return cases
 
 
 def _compile_with(function, argument):
@@ -184,6 +243,37 @@ class Script:
             return [self._read_match(result, i, data) for i in range(_result_count(result))]
         finally:
             _result_free(result)
+
+    def explain(self, text, limit=3):
+        """For debugging rules: the `limit` rules that got furthest into `text`,
+        as a list of Explanation, longest match first."""
+        data = text.encode("utf-8")
+        result = _explain(self._checked(), data, limit)
+        if not result:
+            raise MemoryError("nlu_script_explain failed")
+        try:
+            return [Explanation(
+                _decode(_explanation_label(result, i)), _explanation_line(result, i),
+                _decode(_explanation_file(result, i)),
+                len(_decode(data[:_explanation_matched(result, i)])),
+                bool(_explanation_complete(result, i)),
+                [_decode(_explanation_expected(result, i, j))
+                 for j in range(_explanation_expected_count(result, i))])
+                for i in range(_explanation_count(result))]
+        finally:
+            _explanation_free(result)
+
+    def run_tests(self, path, best=False):
+        """Runs a script test file (as `nlu_script_cli --test`) and returns a
+        TestReport. With `best`, cases expect match_best() output."""
+        passed, failures = 0, []
+        for line, text, expected in _read_test_cases(path):
+            actual = _output_lines(self.match_best(text) if best else self.match(text))
+            if actual == expected:
+                passed += 1
+            else:
+                failures.append(TestFailure(line, text, expected, actual))
+        return TestReport(passed, len(failures), failures)
 
     def close(self):
         handle, self._handle = getattr(self, "_handle", None), None

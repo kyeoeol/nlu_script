@@ -125,6 +125,13 @@
       including file, each file read once). Errors, matches, lint findings
       and lint comments carry the file their line is in (`file` fields; the
       C API's `nlu_result_file`; Python `Match.file` and `Diagnostic`)
+- [x] Explain mode: `Script::explain(text, limit)` (C API, Python,
+      `nlu_script_cli --explain`) lists the rules that got furthest into an
+      input, what they matched and what they expected next, from one pass
+      over all rules
+- [x] Python runs script test files: `Script.run_tests(path, best=False)`
+      returns a `TestReport` with each failure's line, input, expected and
+      actual output
 
 ## Next
 
@@ -166,11 +173,8 @@
 - [ ] A wildcard before an optional particle swallows a wrong particle
       (`<?>+?(을/를)` matches `청약통장를` with `를` in the wildcard); consider
       keeping particle syllables out of a wildcard's last character
-- [ ] Explain mode for a non-matching input: the rule that consumed the
-      longest prefix and where it stopped
 - [ ] The lazy DFA cache resets completely at 20,000 states (`kMaxStates`),
       so throughput drops right after a reset; consider evicting part of it
-- [ ] Python access to script test files (e.g. `Script.run_tests(path)`)
 - [ ] Publish wheels to PyPI (e.g. on a version tag)
 - [ ] If GitHub retires the Intel macOS runner (`macos-15-intel`), build the
       x86_64 wheel on the arm64 runner instead: cross-compile (pass
