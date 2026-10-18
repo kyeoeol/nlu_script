@@ -113,10 +113,13 @@
 - [x] Fuzzing: `fuzz/fuzz_script.cpp` (compile, match, lint) and
       `fuzz/fuzz_match.cpp` (every feature and system entity), run for a minute
       each in CI with libFuzzer, ASan and UBSan, plus a standalone mutation
-      driver for Apple clang. Local runs (90k inputs) found no crashes; probing
-      found that nested repetitions could take gigabytes (4 levels: 9.7 GB),
-      so rules are capped at 500,000 automaton states and scripts at 10
-      million. System entities now use a linear-size `Chain` node (KO_NUMBER
+      driver for Apple clang. The first CI run found a stack overflow: an
+      entity referring to itself (`@a: x @{a}`, also through an exclusion or
+      another definition) recursed forever; entities now get the same
+      self-reference error as variables, and groups nest at most 100 deep.
+      Probing found that nested repetitions could take gigabytes (4 levels:
+      9.7 GB), so rules are capped at 500,000 automaton states and scripts at
+      10 million. System entities now use a linear-size `Chain` node (KO_NUMBER
       went from about 25,000 states per use to under 5,000)
 
 ## Next

@@ -126,11 +126,19 @@ class Compiler {
   const Definitions& defs_;
   bool with_actions_;
   std::size_t first_state_;  // the rule's first state
-  std::vector<std::string> var_stack_;
+  // The entities and variables being expanded, innermost last. A definition
+  // that refers back to itself would expand forever.
+  std::vector<std::string> ref_stack_;
   bool in_exclusion_ = false;
   int slot_depth_ = 0;
   std::set<std::string> slots_seen_;
   std::vector<Assignment> qualified_;
+
+  void enter(const SourcePos& pos, const std::string& ref) {
+    if (std::find(ref_stack_.begin(), ref_stack_.end(), ref) != ref_stack_.end())
+      fail(pos, ref + " refers to itself");
+    ref_stack_.push_back(ref);
+  }
 
   void join(int from, int to, bool hard) {
     if (!hard) nfa_.add_edge(from, Edge::Kind::Space, to);
@@ -185,16 +193,18 @@ class Compiler {
       case Node::Kind::EntityRef: {
         auto it = defs_.entities.find(n.name);
         if (it == defs_.entities.end()) fail(n.pos, "undefined entity @{" + n.name + "}");
-        return compile_slot(n.name, *it->second.body);
+        const std::string ref = "@{" + n.name + "}";
+        enter(n.pos, ref);
+        Frag f = compile_slot(n.name, *it->second.body);
+        ref_stack_.pop_back();
+        return f;
       }
       case Node::Kind::VarRef: {
         auto it = defs_.variables.find(n.name);
         if (it == defs_.variables.end()) fail(n.pos, "undefined variable @var.{" + n.name + "}");
-        if (std::find(var_stack_.begin(), var_stack_.end(), n.name) != var_stack_.end())
-          fail(n.pos, "variable @var.{" + n.name + "} refers to itself");
-        var_stack_.push_back(n.name);
+        enter(n.pos, "@var.{" + n.name + "}");
         Frag f = compile(*it->second.body);
-        var_stack_.pop_back();
+        ref_stack_.pop_back();
         return f;
       }
       case Node::Kind::Chain: {
@@ -354,7 +364,7 @@ class Compiler {
   Frag compile_excluded_wildcard(const Node& n) {
     Nfa scratch;
     Compiler sub(scratch, defs_, false);
-    sub.var_stack_ = var_stack_;
+    sub.ref_stack_ = ref_stack_;
     sub.in_exclusion_ = true;
     Frag x = sub.compile(*n.exclusion);
     Frag w = sub.compile_wildcard(n.wild);

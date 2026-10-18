@@ -368,6 +368,21 @@ TEST(recursive_variables_are_errors) {
   CHECK_THROWS(nlu::CompileError, rule("@var.{a}", "@var.a: x @var.{b}\n@var.b: y (@var.{a})\n"));
 }
 
+TEST(recursive_entities_are_errors) {
+  // Found by fuzzing: these used to recurse until the stack overflowed.
+  CHECK_THROWS(nlu::CompileError, rule("@{a}", "@a: x @{a}\n"));
+  CHECK_THROWS(nlu::CompileError, rule("@{a}", "@a: \\[@{a}] <?>*?\n"));
+  CHECK_THROWS(nlu::CompileError, rule("@{a}", "@a: @{b}\n@b: (@{a})\n"));
+  CHECK_THROWS(nlu::CompileError, rule("@{a}", "@a: @var.{b}\n@var.b: [@{a}|c]\n"));
+  // Using an entity twice, or inside another one, is fine.
+  CHECK(matches(rule("@{b} @{b}", "@a: x\n@b: @{a} y\n"), "x y x y"));
+}
+
+TEST(deeply_nested_groups_are_errors) {
+  CHECK_THROWS(nlu::CompileError, rule(std::string(300, '[') + "a" + std::string(300, ']')));
+  CHECK(matches(std::string(50, '(') + "a" + std::string(50, ')'), "a"));
+}
+
 TEST(ascii_letters_match_case_insensitively) {
   CHECK(matches("reset (my) PIN", "Reset my pin"));
   CHECK(matches("Check My Balance", "check my balance"));

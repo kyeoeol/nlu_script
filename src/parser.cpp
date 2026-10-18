@@ -12,6 +12,8 @@ namespace {
 
 constexpr int kMaxRepeat = 100;
 constexpr std::size_t kMaxPermuteTokens = 5;
+// Groups nest by recursion, so their depth is bounded to keep the stack safe.
+constexpr int kMaxDepth = 100;
 
 std::string utf8(char32_t c) {
   std::string out;
@@ -66,6 +68,7 @@ class Parser {
   int line_;
   int column_;
   std::size_t i_ = 0;
+  int depth_ = 0;  // groups open around the current position
 
   // --- helpers ---------------------------------------------------------
 
@@ -141,6 +144,12 @@ class Parser {
 
   // alternation := sequence ('|' sequence)*
   std::shared_ptr<Node> parse_alternation(bool in_permute) {
+    struct Depth {
+      int& depth;
+      ~Depth() { --depth; }
+    } depth{++depth_};
+    if (depth_ > kMaxDepth)
+      error("groups are nested too deeply (over " + std::to_string(kMaxDepth) + " levels)");
     std::size_t start = i_;
     std::vector<std::shared_ptr<Node>> options;
     options.push_back(parse_sequence(in_permute));
