@@ -48,6 +48,7 @@ struct Node {
     Particle,   // 을/를: `text` after a final consonant, `vowel_text` otherwise
     Chain,      // one or more of children, in order, joined by optional spaces
                 // (built for system entities; not written in patterns)
+    Typo,       // [a]&: children[0] with at most one letter added, left out or changed
   };
   enum class WildKind { One, Star, Plus };
 

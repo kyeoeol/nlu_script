@@ -215,6 +215,12 @@ class Parser {
         std::shared_ptr<Node> body = parse_alternation(false);
         expect(U']', "to close '['");
         if (peek() == U'^') return parse_repeat(body, start);
+        if (peek() == U'&') {
+          ++i_;
+          auto typo = make(Node::Kind::Typo, start);
+          typo->children.push_back(body);
+          return typo;
+        }
         return body;
       }
       case U'(': {

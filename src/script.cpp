@@ -836,6 +836,7 @@ struct Script::Impl {
   mutable std::unique_ptr<LazyDfa> dfa;
 
   std::vector<Match> match(const std::string& text, bool best) const;
+  std::vector<Match> search(const std::string& text) const;
 };
 
 Script::Script(std::unique_ptr<Impl> impl) : impl_(std::move(impl)) {}
@@ -1145,6 +1146,100 @@ std::vector<Match> Script::Impl::match(const std::string& text, bool best) const
     const CompiledRule& r = rules[f.rule];
     out.push_back(build_match(nfa, r.label, r.line, f.specificity, f.events, text, norm));
     out.back().file = r.file;
+    out.back().end = text.size();
+  }
+  return out;
+}
+
+std::vector<Match> Script::search(const std::string& text) const { return impl_->search(text); }
+
+std::vector<Match> Script::Impl::search(const std::string& text) const {
+  const NormalizedText norm = normalize(text, fold_width);
+  const std::u32string& t = norm.text;
+  const std::size_t n = t.size();
+  // Matches neither start nor end inside a run of ASCII letters and digits
+  // (input is case-folded already).
+  auto alnum = [](char32_t c) { return (c >= U'a' && c <= U'z') || (c >= U'0' && c <= U'9'); };
+  auto boundary = [&](std::size_t at) {
+    return at == 0 || at == n || t[at - 1] == U' ' || t[at] == U' ' ||
+           !(alnum(t[at - 1]) && alnum(t[at]));
+  };
+
+  // Every rule at once, determinized as needed for this call; the shared
+  // lazy DFA only answers whole-input matches.
+  Closure closure(nfa);
+  std::map<std::vector<int>, int> index;
+  std::vector<std::vector<int>> sets, accepts;
+  std::map<std::pair<int, char32_t>, int> next;
+  auto intern = [&](std::vector<int> set) {
+    if (set.empty()) return -1;
+    auto it = index.find(set);
+    if (it != index.end()) return it->second;
+    std::vector<int> accepted;
+    for (int s : set)
+      if (nfa.states[s].accept_rule >= 0) accepted.push_back(nfa.states[s].accept_rule);
+    std::sort(accepted.begin(), accepted.end());
+    int id = static_cast<int>(sets.size());
+    index.emplace(set, id);
+    sets.push_back(std::move(set));
+    accepts.push_back(std::move(accepted));
+    return id;
+  };
+  auto step = [&](int d, char32_t c) {
+    auto it = next.find({d, c});
+    if (it != next.end()) return it->second;
+    std::vector<int> targets;
+    for (int s : sets[d])
+      for (const Edge& e : nfa.states[s].edges)
+        if (e.consumes() && nfa.matches(e, c)) targets.push_back(e.to);
+    int to = intern(closure(std::move(targets), c));
+    next.emplace(std::make_pair(d, c), to);
+    return to;
+  };
+  const int first = intern(closure({start}, 0));
+
+  std::vector<Match> out;
+  std::vector<Event> events;
+  for (std::size_t i = 0; i < n && first >= 0;) {
+    if (t[i] == U' ' || !boundary(i)) {
+      ++i;
+      continue;
+    }
+    // The longest text from i that some rule matches, ending at a boundary.
+    std::size_t end = i;
+    std::vector<int> accepted;
+    int d = first;
+    for (std::size_t j = i; j < n && d >= 0; ++j) {
+      d = step(d, t[j]);
+      if (d >= 0 && !accepts[d].empty() && t[j] != U' ' && boundary(j + 1)) {
+        end = j + 1;
+        accepted = accepts[d];
+      }
+    }
+    if (accepted.empty()) {
+      ++i;
+      continue;
+    }
+    const std::u32string span = t.substr(i, end - i);
+    const int letters = static_cast<int>(span.size() - std::count(span.begin(), span.end(), U' '));
+    std::set<std::string> seen;
+    for (int id : accepted) {
+      const CompiledRule& r = rules[id];
+      if (seen.count(r.label)) continue;
+      PikeVm vm(nfa, r.first, r.last);
+      int wildcard_chars = 0;
+      if (!vm.run(r.start, span, events, wildcard_chars)) continue;
+      seen.insert(r.label);
+      for (Event& e : events) e.pos += static_cast<int>(i);
+      Match m = build_match(nfa, r.label, r.line, letters - wildcard_chars, events, text, norm);
+      m.file = r.file;
+      m.begin = norm.begin[i];
+      m.end = norm.end[end - 1];
+      // Tags only fall within the span, so it sits at the same offset.
+      m.tagged = m.tagged.substr(m.begin, m.tagged.size() - (text.size() - m.end) - m.begin);
+      out.push_back(std::move(m));
+    }
+    i = end;
   }
   return out;
 }

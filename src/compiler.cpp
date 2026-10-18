@@ -29,25 +29,53 @@ constexpr std::size_t kMaxRuleStates = 500000;
 
 // --- determinization, used to compile exclusions ----------------------------
 
-// Input characters are partitioned into classes: 0 = space, 1 = any character
-// not mentioned by the automaton, 2 + k = chars[k].
+// Input characters are partitioned into classes, each standing for the
+// characters that behave alike, and given by one of them: the space, then
+// characters the automaton doesn't mention (one class, or one per CharClass
+// when guards or class-limited wildcards tell syllables apart), then each
+// mentioned character.
 struct Dfa {
   std::vector<std::vector<int>> next;  // next[state][class], -1 = dead
   std::vector<bool> accept;
 };
 
-bool class_matches(const Nfa& nfa, const Edge& e, std::size_t cls,
-                   const std::vector<char32_t>& chars) {
-  if (cls == 0) return e.kind == Edge::Kind::Space;
-  if (cls == 1) return e.kind == Edge::Kind::Any;
-  return nfa.matches(e, chars[cls - 2]);
+// The CharClasses that unmentioned characters split into.
+const CharClass kOtherClasses[] = {CharClass::NotSyllable, CharClass::SyllableNoFinal,
+                                   CharClass::SyllableRieul, CharClass::SyllableOtherFinal};
+
+// A character of class `cls` that `chars` (sorted) doesn't mention.
+char32_t unmentioned(const std::vector<char32_t>& chars, CharClass cls) {
+  auto mentioned = [&](char32_t c) { return std::binary_search(chars.begin(), chars.end(), c); };
+  if (cls == CharClass::NotSyllable || cls == CharClass::All) {
+    for (char32_t c : std::u32string(U"xyzqjkvw"))
+      if (!mentioned(c)) return c;
+    char32_t c = 0x4E00;
+    while (mentioned(c)) ++c;
+    return c;
+  }
+  char32_t c = cls == CharClass::SyllableNoFinal ? 0xAC00 : cls == CharClass::SyllableRieul ? 0xAC08
+                                                                                             : 0xAC01;
+  while (mentioned(c)) c += 28;
+  return c;
 }
 
-// Accepting states are the NFA states with an accept_rule. Exclusions contain
-// no guard edges, so closures need no previous character.
-Dfa determinize(const Nfa& nfa, int start, const std::vector<char32_t>& chars,
+// The representative character of each class: see Dfa.
+std::vector<char32_t> class_representatives(const std::vector<char32_t>& chars, bool by_class) {
+  std::vector<char32_t> reps{U' '};
+  if (by_class) {
+    for (CharClass cls : kOtherClasses) reps.push_back(unmentioned(chars, cls));
+  } else {
+    reps.push_back(unmentioned(chars, CharClass::All));
+  }
+  reps.insert(reps.end(), chars.begin(), chars.end());
+  return reps;
+}
+
+// Accepting states are the NFA states with an accept_rule. A closure after a
+// class sees its representative as the previous character, for guards.
+Dfa determinize(const Nfa& nfa, int start, const std::vector<char32_t>& reps,
                 const SourcePos& pos) {
-  const std::size_t classes = chars.size() + 2;
+  const std::size_t classes = reps.size();
   Closure closure(nfa);
   Dfa dfa;
   std::map<std::vector<int>, int> index;
@@ -70,9 +98,9 @@ Dfa determinize(const Nfa& nfa, int start, const std::vector<char32_t>& chars,
       std::vector<int> targets;
       for (int s : sets[d])
         for (const Edge& e : nfa.states[s].edges)
-          if (e.consumes() && class_matches(nfa, e, cls, chars)) targets.push_back(e.to);
+          if (e.consumes() && nfa.matches(e, reps[cls])) targets.push_back(e.to);
       if (targets.empty()) continue;
-      int target = intern(closure(std::move(targets), 0));
+      int target = intern(closure(std::move(targets), reps[cls]));
       dfa.next[d][cls] = target;
     }
   }
@@ -129,7 +157,6 @@ class Compiler {
   // The entities and variables being expanded, innermost last. A definition
   // that refers back to itself would expand forever.
   std::vector<std::string> ref_stack_;
-  bool in_exclusion_ = false;
   int slot_depth_ = 0;
   std::set<std::string> slots_seen_;
   std::vector<Assignment> qualified_;
@@ -207,6 +234,8 @@ class Compiler {
         ref_stack_.pop_back();
         return f;
       }
+      case Node::Kind::Typo:
+        return compile_typo(n);
       case Node::Kind::Chain: {
         // Each child is compiled once: any child can start the chain, and
         // after one the chain goes on with a later child (preferring the
@@ -223,9 +252,6 @@ class Compiler {
         return {in, out};
       }
       case Node::Kind::Particle: {
-        // Exclusions are determinized over character classes that don't
-        // tell syllables with a final consonant from those without.
-        if (in_exclusion_) fail(n.pos, "particle pairs cannot be used inside an exclusion");
         int in = nfa_.add_state();
         int out = nfa_.add_state();
         const bool ro = n.rieul_as_vowel;
@@ -251,6 +277,39 @@ class Compiler {
       }
     }
     fail(n.pos, "internal error: unknown node");
+  }
+
+  // [body]&: the body's automaton, then a copy of it for after the one edit.
+  // From each state that takes a letter, the edit leads into the copy: any
+  // letter in its place (changed), nothing (left out), or any letter before
+  // it (added). Exact paths come first, so they win when both match.
+  Frag compile_typo(const Node& n) {
+    const int lo = static_cast<int>(nfa_.states.size());
+    Frag f = compile(*n.children[0]);
+    const int hi = static_cast<int>(nfa_.states.size());
+    const int offset = hi - lo;
+    for (int s = lo; s < hi; ++s) nfa_.add_state();
+    for (int s = lo; s < hi; ++s) {
+      for (Edge e : nfa_.states[s].edges) {
+        e.to += offset;
+        nfa_.states[s + offset].edges.push_back(e);
+      }
+    }
+    for (int s = lo; s < hi; ++s) {
+      std::vector<int> letters;  // targets of the state's letter edges
+      for (const Edge& e : nfa_.states[s].edges)
+        if (e.kind == Edge::Kind::Char) letters.push_back(e.to);
+      if (letters.empty()) continue;
+      for (int to : letters) {
+        nfa_.add_edge(s, Edge::Kind::Any, to + offset);
+        nfa_.epsilon(s, to + offset);
+      }
+      nfa_.add_edge(s, Edge::Kind::Any, s + offset);
+    }
+    int out = nfa_.add_state();
+    nfa_.epsilon(f.out, out);
+    nfa_.epsilon(f.out + offset, out);
+    return {f.in, out};
   }
 
   Frag compile_literal(const std::u32string& text) {
@@ -365,7 +424,6 @@ class Compiler {
     Nfa scratch;
     Compiler sub(scratch, defs_, false);
     sub.ref_stack_ = ref_stack_;
-    sub.in_exclusion_ = true;
     Frag x = sub.compile(*n.exclusion);
     Frag w = sub.compile_wildcard(n.wild);
     scratch.states[x.out].accept_rule = 0;
@@ -381,10 +439,15 @@ class Compiler {
     }
     std::sort(chars.begin(), chars.end());
     chars.erase(std::unique(chars.begin(), chars.end()), chars.end());
-    const std::size_t classes = chars.size() + 2;
+    // Particle pairs in the exclusion tell syllables apart by their final
+    // consonant, so unmentioned characters then form one class per CharClass.
+    const bool by_class = scratch.has_guards;
+    const std::vector<char32_t> reps = class_representatives(chars, by_class);
+    const std::size_t others = by_class ? 4 : 1;  // classes 1 .. others
+    const std::size_t classes = reps.size();
 
-    Dfa dx = determinize(scratch, x.in, chars, n.pos);
-    Dfa dw = determinize(scratch, w.in, chars, n.pos);
+    Dfa dx = determinize(scratch, x.in, reps, n.pos);
+    Dfa dw = determinize(scratch, w.in, reps, n.pos);
 
     // Product states: (exclusion state or -1 once it can no longer match, wildcard state).
     std::map<std::pair<int, int>, int> index;
@@ -440,21 +503,30 @@ class Compiler {
       };
       if (accept[i]) nfa_.epsilon(state[i], out);  // lazy: prefer stopping
       if (target(0) >= 0) nfa_.add_edge(state[i], Edge::Kind::Space, state[target(0)]);
-      int other = target(1);
+      // When every class of unmentioned characters goes to one state, one
+      // wildcard edge covers them and the mentioned characters that go there
+      // too; otherwise each class gets its own edge and every mentioned
+      // character its own.
+      bool same = true;
+      for (std::size_t k = 2; k <= others; ++k) same = same && target(k) == target(1);
+      const int other = same ? target(1) : -2;
       std::vector<char32_t> exceptions;
       for (std::size_t k = 0; k < chars.size(); ++k) {
-        int t = target(k + 2);
+        int t = target(others + 1 + k);
         if (t == other) continue;
         exceptions.push_back(chars[k]);
         if (t >= 0) nfa_.add_edge(state[i], Edge::Kind::Char, state[t], chars[k]);
       }
-      if (other >= 0) {
-        int set = -1;
-        if (!exceptions.empty()) {
-          set = static_cast<int>(nfa_.sets.size());
-          nfa_.sets.push_back(std::move(exceptions));
-        }
-        nfa_.add_edge(state[i], Edge::Kind::Any, state[other], 0, set);
+      int set = -1;
+      if (!exceptions.empty()) {
+        set = static_cast<int>(nfa_.sets.size());
+        nfa_.sets.push_back(std::move(exceptions));
+      }
+      if (same) {
+        if (other >= 0) nfa_.add_edge(state[i], Edge::Kind::Any, state[other], 0, set);
+      } else {
+        for (std::size_t k = 1; k <= others; ++k)
+          if (target(k) >= 0) nfa_.any_of_class(state[i], state[target(k)], set, kOtherClasses[k - 1]);
       }
     }
     return {state[0], out};

@@ -71,6 +71,9 @@ _script_free = _declare("nlu_script_free", None, _ptr)
 _rule_count = _declare("nlu_script_rule_count", _size, _ptr)
 _match = _declare("nlu_script_match", _ptr, _ptr, ctypes.c_char_p)
 _match_best = _declare("nlu_script_match_best", _ptr, _ptr, ctypes.c_char_p)
+_search = _declare("nlu_script_search", _ptr, _ptr, ctypes.c_char_p)
+_result_begin = _declare("nlu_result_begin", _size, _ptr, _size)
+_result_end = _declare("nlu_result_end", _size, _ptr, _size)
 _result_free = _declare("nlu_result_free", None, _ptr)
 _result_count = _declare("nlu_result_count", _size, _ptr)
 _result_label = _declare("nlu_result_label", ctypes.c_char_p, _ptr, _size)
@@ -146,11 +149,13 @@ class Slot(collections.namedtuple("Slot", "name text begin end attributes")):
     __slots__ = ()
 
 
-class Match(collections.namedtuple("Match", "label slots tagged line specificity file")):
+class Match(collections.namedtuple("Match",
+                                    "label slots tagged line specificity file begin end")):
     """A matched label. `line` and `file` locate the rule that matched (`file`
     is empty for a script compiled from a string); `specificity` counts the
     input characters, not counting spaces, that the rule matched with pattern
-    text rather than wildcards."""
+    text rather than wildcards; `begin` and `end` are character offsets of the
+    matched text (the whole input for match(), a span for search())."""
 
     __slots__ = ()
 
@@ -280,6 +285,11 @@ class Script:
         """Returns a list of Match, one per matching label, in script order."""
         return self._run(_match, text)
 
+    def search(self, text):
+        """Finds rules inside free text (see Script::search in C++): a list of
+        Match, each for a span of `text`."""
+        return self._run(_search, text)
+
     def match_best(self, text):
         """Like match(), but keeps only the labels whose most specific rule has
         the highest specificity."""
@@ -373,6 +383,8 @@ class Script:
             begin = len(_decode(data[:_slot_begin(result, i, j)]))
             slots.append(Slot(_decode(_slot_name(result, i, j)), text, begin, begin + len(text),
                               attributes))
+        begin = len(_decode(data[:_result_begin(result, i)]))
+        end = begin + len(_decode(data[_result_begin(result, i):_result_end(result, i)]))
         return Match(_decode(_result_label(result, i)), slots, _decode(_result_tagged(result, i)),
                      _result_line(result, i), _result_specificity(result, i),
-                     _decode(_result_file(result, i)))
+                     _decode(_result_file(result, i)), begin, end)

@@ -38,6 +38,10 @@ struct Match {
   // Script file of the rule: the path given to compile_file, or an included
   // file's path; empty for a script compiled from a string.
   std::string file;
+  // Byte offsets of the matched text: the whole input for match(), the span
+  // found for search().
+  std::size_t begin = 0;
+  std::size_t end = 0;
 };
 
 // How far one rule got into an input, from Script::explain().
@@ -194,6 +198,14 @@ class Script {
   // whose most specific rule has the highest specificity; each Match comes
   // from that rule. Ties keep every such label, in script order.
   std::vector<Match> match_best(const std::string& text) const;
+
+  // Finds rules inside free text, without <?>*? around them: scanning left
+  // to right, takes the longest text any rule matches at each position,
+  // reports one Match per label with a rule matching it (`tagged` is that
+  // text with its slots, `begin` and `end` its place), and goes on after it.
+  // A match neither starts nor ends inside a run of ASCII letters and digits
+  // ("card" is not found in "postcard"); in Hangul it may ("카드" in "카드를").
+  std::vector<Match> search(const std::string& text) const;
 
   std::size_t rule_count() const;
 

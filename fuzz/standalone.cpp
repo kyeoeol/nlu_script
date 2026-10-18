@@ -38,7 +38,7 @@ int main(int argc, char** argv) {
   const std::string interesting = "()[]{}<>\\:+*^~=.|&-/`\"?@#, \n\t0123456789";
   const std::vector<std::string> words = {"<?>*?", "<?>+?", "@{", "@var.{", "`@{", "}",
                                           "::", "을/를", "으로/로", "^(1,3)", "~[", "]~",
-                                          "\\[", "</", "만", "시", "내일", "카드", "\xEC"};
+                                          "\\[", "</", "]&", "만", "시", "내일", "카드", "\xEC"};
   for (long it = 0; it < iterations; ++it) {
     std::string input = pool[pick(pool.size())];
     const int edits = 1 + static_cast<int>(pick(8));

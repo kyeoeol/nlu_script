@@ -98,6 +98,27 @@ The exit status is 0 when every case passes and 1 otherwise, so the command
 can run in CI. From Python, `script.run_tests("rules.test")` runs the same
 file and returns a `TestReport(passed, failed, failures)`.
 
+## Searching free text
+
+`--search` (and `Script::search`, `nlu_script_search`, Python
+`Script.search`) finds rules inside longer text, without `<?>*?` around
+them. It scans left to right, takes the longest text any rule matches at
+each position, reports it, and goes on after it:
+
+```sh
+echo "고객님 내일 오후 3시에 전화주세요 그리고 상담원 연결해주세요" \
+  | ./build/nlu_script_cli --search examples/demo.nlu
+# agent:callback:<DATETIME day_offset="+1" part_of_day="PM" hour="15">내일 오후 3시</DATETIME>에 전화주세요
+# agent:connect:상담원 연결해주세요
+```
+
+Each result's `tagged` is the text found, and `begin` and `end` give its
+place in the input (byte offsets; character offsets in Python). A match
+neither starts nor ends inside a run of ASCII letters and digits, so `card`
+is not found in `postcard`; Hangul has no such boundary, since particles
+attach to words (`카드` is found in `카드를`). Results of `match()` carry
+`begin` and `end` too, covering the whole input.
+
 ## Explaining a miss
 
 When a sentence should match but doesn't, `--explain` shows the rules that
@@ -308,8 +329,15 @@ always stays on its word, with no space before it, and can be optional:
 Pairs: 은/는, 이/가, 을/를, 과/와, 아/야, 이나/나, 이랑/랑, 이라고/라고,
 이에요/예요, 으로/로, 으로서/로서, 으로써/로써. After anything other than a
 Hangul syllable, such as `OTP` or a phone number, either form matches,
-because the right one depends on how it is read. Particle pairs can't be
-used inside an exclusion.
+because the right one depends on how it is read. Particle pairs also work
+inside exclusions (`\[<?>+?을/를] <?>+?` rejects `카드를` but not `카드을`).
+
+A wildcard before an optional particle may take a wrong particle as part of
+its text: `<?>+?(을/를) 해지` matches `청약통장를 해지` with `청약통장를` as the
+wildcard. That is deliberate. Keeping particle-like syllables out of a
+wildcard's end would also reject words that end in them, such as `마을` or
+`가을`; write the particle as required (`<?>+?을/를`) where a wrong one should
+not match.
 
 ### Groups
 
@@ -321,8 +349,13 @@ used inside an exclusion.
 | `[k]^(a,b)` | `k` repeated `a` to `b` times | `[ㅠ]^(1,3)`, `[help]^(1,3)` |
 | `[k]^<n` | `k` repeated 1 to `n-1` times | `[정말]^<3 급해요`, `[very]^<3 urgent` |
 | `[k]^>n` | `k` repeated more than `n` times | `[제발]^>2`, `[please]^>2` |
+| `[k]&` | `k`, or `k` with one typo: a letter added, left out or changed | `[분실 신고]&`, `[I lost my card]&` |
 
-Groups nest. Repetition counts are capped at 100. Since nested repetitions
+Groups nest. Repetition counts are capped at 100. A typo-tolerant group
+takes one edit in all of its text; a swap of two letters is two edits.
+Typos count as wildcard characters for `specificity`, so `match_best()`
+prefers an exact match. Use it on longer text: in short words one edit
+matches many other words. Since nested repetitions
 multiply, a rule may compile to at most 500,000 automaton states and a whole
 script to 10 million (about 1.3 GB); past that, compiling reports an error
 instead of exhausting memory.

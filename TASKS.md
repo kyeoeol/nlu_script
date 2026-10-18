@@ -153,6 +153,15 @@
       `tools/gen_unicode_tables.py` (Unicode 13 via Python's `unicodedata`);
       `option ignore-trailing-punctuation` and `option fold-width` lines at
       the top of a script
+- [x] Particle pairs inside exclusions: exclusion character classes split
+      unmentioned characters by final consonant, and wildcard edges can be
+      limited to one such class
+- [x] Typo tolerance: `[...]&` takes one edit (a letter added, left out or
+      changed) in the group, compiled as a second copy of the group entered
+      by the edit; typos count as wildcard characters for specificity
+- [x] Search mode: `Script::search` (C API, Python, `--search`) finds the
+      longest rule match at each position of free text, with byte spans
+      (`Match::begin`/`end`, also set by `match()`), keeping ASCII words whole
 
 ## Next
 
@@ -164,16 +173,8 @@
 - [ ] Concurrent classification still contends on the shared lock's cache
       line; per-thread DFA caches would remove it at the cost of memory per
       thread
-- [ ] Search mode: find slots inside free text without `<?>*?` padding
 - [ ] Let an exclusion reach a wildcard inside a following slot
       (`\X <slot><?>*?</slot>`); today the exclusion has to go inside the slot
-- [ ] Typo tolerance (edit distance 1) via a Levenshtein automaton; costs
-      DFA states, so opt-in per rule or label
-- [ ] Particle pairs inside exclusions: needs exclusion character classes
-      split by final consonant (today a compile error)
-- [ ] A wildcard before an optional particle swallows a wrong particle
-      (`<?>+?(을/를)` matches `청약통장를` with `를` in the wildcard); consider
-      keeping particle syllables out of a wildcard's last character
 - [ ] The lazy DFA cache resets completely at 20,000 states (`kMaxStates`),
       so throughput drops right after a reset; consider evicting part of it
 - [ ] Publish wheels to PyPI (e.g. on a version tag)
@@ -183,6 +184,12 @@
       Rosetta 2
 
 ## Open questions
+
+- [x] A wildcard before an optional particle swallows a wrong particle
+      (`<?>+?(을/를)` matches `청약통장를`). Decided: keep it. Keeping
+      particle-like syllables out of a wildcard's last character would also
+      reject words that end in them (`마을`, `가을`); a required particle
+      (`<?>+?을/를`) already rejects the wrong one. The README explains this
 
 - [x] Exclusion semantics: the guide's second exclusion example (text that
       only starts with the excluded name, rejected by `\[<?>*? X] <?>*? …`)

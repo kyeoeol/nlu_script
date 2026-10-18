@@ -52,6 +52,9 @@ NLU_SCRIPT_API nlu_result* nlu_script_match(const nlu_script* script, const char
 /* Keeps only the labels whose most specific rule has the highest
  * specificity (see nlu_result_specificity). */
 NLU_SCRIPT_API nlu_result* nlu_script_match_best(const nlu_script* script, const char* text);
+/* Finds rules inside free text, as Script::search in C++: each result is a
+ * span of `text` (nlu_result_begin, nlu_result_end), tagged on its own. */
+NLU_SCRIPT_API nlu_result* nlu_script_search(const nlu_script* script, const char* text);
 NLU_SCRIPT_API void nlu_result_free(nlu_result* result);
 
 /* One entry per matched label. */
@@ -63,6 +66,9 @@ NLU_SCRIPT_API const char* nlu_result_tagged(const nlu_result* result, size_t ma
  * a script compiled from a string. */
 NLU_SCRIPT_API int nlu_result_line(const nlu_result* result, size_t match);
 NLU_SCRIPT_API const char* nlu_result_file(const nlu_result* result, size_t match);
+/* Byte offsets of the matched text in the input. */
+NLU_SCRIPT_API size_t nlu_result_begin(const nlu_result* result, size_t match);
+NLU_SCRIPT_API size_t nlu_result_end(const nlu_result* result, size_t match);
 /* Input characters, not counting spaces, that the rule matched with pattern
  * text rather than wildcards. */
 NLU_SCRIPT_API int nlu_result_specificity(const nlu_result* result, size_t match);

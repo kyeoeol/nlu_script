@@ -132,6 +132,21 @@ static void test_resolve_datetime(void) {
   CHECK(grain != NULL && strcmp(grain, "hour") == 0);
 }
 
+static void test_search(void) {
+  nlu_script* script = nlu_script_compile("card\n    debit card\n", NULL, NULL, NULL);
+  nlu_result* result;
+  const char* text = "I lost my debit card yesterday";
+  CHECK(script != NULL);
+  if (!script) return;
+  result = nlu_script_search(script, text);
+  CHECK(nlu_result_count(result) == 1);
+  CHECK(nlu_result_begin(result, 0) == 10);
+  CHECK(nlu_result_end(result, 0) == 20);
+  CHECK(strcmp(nlu_result_tagged(result, 0), "debit card") == 0);
+  nlu_result_free(result);
+  nlu_script_free(script);
+}
+
 static void test_compile_error(void) {
   char* error = NULL;
   int line = -1;
@@ -169,6 +184,7 @@ int main(void) {
   test_explain();
   test_lint();
   test_resolve_datetime();
+  test_search();
   test_compile_error();
   test_missing_file();
   printf("C API: %d failed checks\n", failures);

@@ -105,6 +105,15 @@ nlu_result* nlu_script_match(const nlu_script* script, const char* text) {
   }
 }
 
+nlu_result* nlu_script_search(const nlu_script* script, const char* text) {
+  if (!script) return nullptr;
+  try {
+    return new nlu_result{script->script.search(text ? text : "")};
+  } catch (const std::exception&) {
+    return nullptr;
+  }
+}
+
 nlu_result* nlu_script_match_best(const nlu_script* script, const char* text) {
   if (!script) return nullptr;
   try {
@@ -136,6 +145,16 @@ int nlu_result_line(const nlu_result* r, size_t match) {
 const char* nlu_result_file(const nlu_result* r, size_t match) {
   const nlu::Match* m = match_at(r, match);
   return m ? m->file.c_str() : nullptr;
+}
+
+size_t nlu_result_begin(const nlu_result* r, size_t match) {
+  const nlu::Match* m = match_at(r, match);
+  return m ? m->begin : 0;
+}
+
+size_t nlu_result_end(const nlu_result* r, size_t match) {
+  const nlu::Match* m = match_at(r, match);
+  return m ? m->end : 0;
 }
 
 int nlu_result_specificity(const nlu_result* r, size_t match) {

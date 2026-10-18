@@ -479,3 +479,53 @@ TEST(unknown_or_misplaced_options_are_errors) {
   CHECK_THROWS(nlu::CompileError, nlu::Script::compile("option fold-everything\n"));
   CHECK_THROWS(nlu::CompileError, nlu::Script::compile("a\n    x\noption fold-width\n"));
 }
+
+namespace {
+
+std::string spans(const nlu::Script& s, const std::string& text) {
+  std::string out;
+  for (const nlu::Match& m : s.search(text))
+    out += (out.empty() ? "" : " | ") + m.label + "=" + text.substr(m.begin, m.end - m.begin);
+  return out;
+}
+
+}  // namespace
+
+TEST(search_finds_rules_inside_free_text) {
+  nlu::Script s = nlu::Script::compile(
+      "when\n    `@{DATETIME}\n"
+      "money\n    `@{MONEY}\n"
+      "card:lost\n    [체크|신용]카드 분실\n");
+  const std::string text = "안녕하세요 내일 오후 3시에 5만 원 보내고 체크카드 분실 신고도 할게요";
+  CHECK_EQ(spans(s, text), std::string("when=내일 오후 3시 | money=5만 원 | card:lost=체크카드 분실"));
+  std::vector<nlu::Match> found = s.search(text);
+  CHECK_EQ(found.size(), 3u);
+  if (found.size() == 3) {
+    CHECK_EQ(found[0].tagged,
+             std::string("<DATETIME day_offset=\"+1\" part_of_day=\"PM\" hour=\"15\">"
+                         "내일 오후 3시</DATETIME>"));
+    CHECK_EQ(found[1].slots[0].attributes.size(), 2u);
+  }
+  CHECK(s.search("감사합니다").empty());
+}
+
+TEST(search_keeps_latin_words_whole) {
+  nlu::Script s = nlu::Script::compile("card\n    card\n카드\n    카드\n");
+  CHECK_EQ(spans(s, "a postcard and a card"), std::string("card=card"));
+  CHECK_EQ(spans(s, "체크카드를 잃어버렸어요"), std::string("카드=카드"));
+}
+
+TEST(search_takes_the_longest_match_and_moves_past_it) {
+  nlu::Script s = nlu::Script::compile(
+      "short\n    lost card\n"
+      "long\n    lost card report\n"
+      "card\n    card\n");
+  CHECK_EQ(spans(s, "lost card report and card"), std::string("long=lost card report | card=card"));
+  // match() spans the whole input.
+  std::vector<nlu::Match> found = s.match("lost card");
+  CHECK_EQ(found.size(), 1u);
+  if (found.size() == 1) {
+    CHECK_EQ(found[0].begin, 0u);
+    CHECK_EQ(found[0].end, std::string("lost card").size());
+  }
+}

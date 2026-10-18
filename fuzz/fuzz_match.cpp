@@ -30,6 +30,8 @@ account:phone
     휴대폰 번호 `@{TELNUM}(으로/로) 변경해주세요
     call `@{TELNUM}
 payment:amount
+    [I lost my debit card]&
+    [분실 신고]& (할게요)
     `@{MONEY} 결제
     pay `@{MONEY} (for the `@{ORDINAL} item)
     `@{EN_NUMBER} items

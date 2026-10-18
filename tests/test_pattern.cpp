@@ -466,7 +466,17 @@ TEST(unknown_or_misplaced_particle_pairs_are_errors) {
   CHECK_THROWS(nlu::CompileError, rule("카드을/는 분실"));
   CHECK_THROWS(nlu::CompileError, rule("카드을/를해지"));
   CHECK_THROWS(nlu::CompileError, rule("카드 /를 분실"));
-  CHECK_THROWS(nlu::CompileError, rule("\\[적금을/를] <?>+? 해지"));
+}
+
+TEST(particle_pairs_work_inside_exclusions) {
+  // The wildcard text may be anything but a word with its right particle.
+  nlu::Script s = rule("\\[<?>+?을/를] <?>+? 해지");
+  CHECK(!matches(s, "카드를 해지"));
+  CHECK(!matches(s, "적금을 해지"));
+  CHECK(matches(s, "카드을 해지"));
+  CHECK(matches(s, "적금를 해지"));
+  CHECK(matches(s, "OTP 해지"));
+  CHECK(!matches(s, "OTP를 해지"));  // either form follows a non-Hangul character
 }
 
 TEST(letters_beyond_ascii_match_case_insensitively) {
@@ -485,4 +495,30 @@ TEST(canonically_equivalent_text_matches) {
   // Combining marks in either order.
   CHECK(matches("ậ", "ậ"));
   CHECK(matches("ậ", "ậ"));
+}
+
+TEST(typo_tolerant_groups_allow_one_edit) {
+  nlu::Script s = rule("[I lost my card]&");
+  CHECK(matches(s, "I lost my card"));
+  CHECK(matches(s, "I lost my crd"));     // a letter left out
+  CHECK(matches(s, "I lost my caard"));   // a letter added
+  CHECK(matches(s, "I lost my cord"));    // a letter changed
+  CHECK(!matches(s, "I lsot my card"));   // a swap is two edits
+  CHECK(!matches(s, "I lst my crd"));
+  CHECK(!matches("I lost my card", "I lost my crd"));  // only inside [ ]&
+
+  nlu::Script ko = rule("[분실 신고]& (할게요)");
+  CHECK(matches(ko, "분실 신구 할게요"));
+  CHECK(matches(ko, "분실신고할게요"));
+  CHECK(!matches(ko, "분실 신구 할께요"));  // the edit is used up inside the group
+}
+
+TEST(typo_matches_rank_below_exact_ones) {
+  nlu::Script s = nlu::Script::compile(
+      "card:lost\n    [I lost my card]&\nreport:any\n    I lost my <?>+?\n");
+  std::vector<nlu::Match> best = s.match_best("I lost my card");
+  CHECK_EQ(best.size(), 1u);
+  if (best.size() == 1) CHECK_EQ(best[0].label, std::string("card:lost"));
+  for (const nlu::Match& m : s.match("I lost my cord"))
+    if (m.label == "card:lost") CHECK(m.specificity < 11);
 }
