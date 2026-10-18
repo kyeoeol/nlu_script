@@ -68,17 +68,27 @@ struct LintReport {
   bool complete;  // false if the overlap search stopped at its state limit
 };
 
+// One error in a script.
+struct Diagnostic {
+  int line;    // 1-based, 0 if unknown
+  int column;  // 1-based, in code points
+  std::string message;
+};
+
+// Thrown by Script::compile with every error found in the script. what()
+// lists them, one per line ("line 3, column 5: ..."); line(), column() and
+// message() describe the first.
 class CompileError : public std::runtime_error {
  public:
   CompileError(const std::string& message, int line, int column);
-  int line() const { return line_; }      // 1-based, 0 if unknown
-  int column() const { return column_; }  // 1-based, in code points
-  const std::string& message() const { return message_; }
+  explicit CompileError(std::vector<Diagnostic> errors);  // ordered, not empty
+  int line() const { return errors_[0].line; }
+  int column() const { return errors_[0].column; }
+  const std::string& message() const { return errors_[0].message; }
+  const std::vector<Diagnostic>& errors() const { return errors_; }
 
  private:
-  std::string message_;
-  int line_;
-  int column_;
+  std::vector<Diagnostic> errors_;
 };
 
 class Script {

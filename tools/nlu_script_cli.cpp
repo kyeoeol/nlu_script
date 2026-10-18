@@ -87,7 +87,8 @@ int main(int argc, char** argv) {
       std::cout.flush();
     }
   } catch (const nlu::CompileError& e) {
-    std::cerr << script_path << ": " << e.what() << "\n";
+    for (const nlu::Diagnostic& d : e.errors())
+      std::cerr << script_path << ":" << d.line << ":" << d.column << ": " << d.message << "\n";
     return 1;
   } catch (const std::exception& e) {
     std::cerr << e.what() << "\n";

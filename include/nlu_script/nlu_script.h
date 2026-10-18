@@ -27,9 +27,10 @@ typedef struct nlu_script nlu_script;
 typedef struct nlu_result nlu_result;
 
 /* Compiles a script. On failure returns NULL and, if `error` is not NULL,
- * stores a message to release with nlu_string_free. When the failure is a
- * compile error, `line` and `column` (if not NULL) receive its location,
- * otherwise 0. */
+ * stores a message to release with nlu_string_free. For compile errors the
+ * message lists every error, one per line ("line 3, column 5: ..."), and
+ * `line` and `column` (if not NULL) receive the first one's location;
+ * otherwise they receive 0. */
 NLU_SCRIPT_API nlu_script* nlu_script_compile(const char* source, char** error, int* line,
                                               int* column);
 NLU_SCRIPT_API nlu_script* nlu_script_compile_file(const char* path, char** error, int* line,

@@ -14,6 +14,7 @@
 #include <shared_mutex>
 #include <set>
 #include <sstream>
+#include <tuple>
 #include <unordered_map>
 
 #include "compiler.hpp"
@@ -28,13 +29,26 @@ namespace nlu {
 
 using namespace detail;
 
+namespace {
+
+std::string describe(const std::vector<Diagnostic>& errors) {
+  std::string out;
+  for (const Diagnostic& d : errors) {
+    if (!out.empty()) out += "\n";
+    if (d.line > 0)
+      out += "line " + std::to_string(d.line) + ", column " + std::to_string(d.column) + ": ";
+    out += d.message;
+  }
+  return out;
+}
+
+}  // namespace
+
 CompileError::CompileError(const std::string& message, int line, int column)
-    : std::runtime_error(line > 0 ? "line " + std::to_string(line) + ", column " +
-                                        std::to_string(column) + ": " + message
-                                  : message),
-      message_(message),
-      line_(line),
-      column_(column) {}
+    : CompileError(std::vector<Diagnostic>{{line, column, message}}) {}
+
+CompileError::CompileError(std::vector<Diagnostic> errors)
+    : std::runtime_error(describe(errors)), errors_(std::move(errors)) {}
 
 namespace {
 
@@ -57,7 +71,12 @@ struct ParsedScript {
   Definitions defs;
   std::vector<Rule> rules;
   std::vector<LintDirective> lint_directives;
+  std::vector<Diagnostic> errors;
+  // Definitions with errors in their values; rules using them aren't compiled.
+  std::set<std::string> broken_entities, broken_variables;
 };
+
+Diagnostic diagnostic(const CompileError& e) { return {e.line(), e.column(), e.message()}; }
 
 // Reads a comment line as a lint directive if its text starts with "lint:".
 bool parse_lint_directive(const std::string& comment, int line, LintDirective& out) {
@@ -87,8 +106,11 @@ bool starts_with(const std::u32string& s, const char32_t* prefix) {
   return true;
 }
 
+// Parses every line, collecting errors instead of stopping at the first. A
+// broken label or definition line hides the lines indented under it, so one
+// mistake is reported once.
 ParsedScript parse_script(const std::string& source) {
-  enum class Block { None, Label, Entity, Variable };
+  enum class Block { None, Label, Entity, Variable, Broken };
   ParsedScript out;
   std::map<std::string, std::vector<NodePtr>> entity_values;
   std::map<std::string, std::vector<NodePtr>> variable_values;
@@ -111,6 +133,58 @@ ParsedScript parse_script(const std::string& source) {
     }
   };
 
+  // Parses one non-blank, non-comment line whose text starts at `first`.
+  // Header lines set `block` to Broken until they are known to be valid.
+  auto parse_line = [&](const std::u32string& line, std::size_t first, int line_no, int column) {
+    if (first > 0) {
+      if (block == Block::Broken) return;
+      std::u32string content = trim(line);
+      if (block == Block::None)
+        throw CompileError("indented pattern outside of a label or definition", line_no, column);
+      if (block == Block::Label) {
+        out.rules.push_back({current, line_no, parse_pattern(content, line_no, column)});
+      } else {
+        add_values(content, line_no, column);
+      }
+      return;
+    }
+
+    block = Block::Broken;
+    if (line[0] == U'@') {
+      const bool is_var = starts_with(line, U"@var.");
+      const std::size_t name_at = is_var ? 5 : 1;
+      std::size_t colon = line.find(U':');
+      if (colon == std::u32string::npos)
+        throw CompileError("expected ':' after the definition name", line_no, column);
+      std::u32string name32 = trim(line.substr(name_at, colon - name_at));
+      bool valid = !name32.empty();
+      for (char32_t c : name32) valid = valid && is_name_char(c);
+      if (!valid)
+        throw CompileError("invalid definition name", line_no,
+                           column + static_cast<int>(name_at));
+      current = to_utf8(name32);
+      auto& table = is_var ? out.defs.variables : out.defs.entities;
+      if (table.count(current))
+        throw CompileError(std::string(is_var ? "variable @var." : "entity @") + current +
+                               " is already defined",
+                           line_no, column);
+      table[current].pos = SourcePos{line_no, column};
+      block = is_var ? Block::Variable : Block::Entity;
+      std::size_t lead = 0;
+      std::u32string body = trim(line.substr(colon + 1), &lead);
+      if (!body.empty()) add_values(body, line_no, static_cast<int>(colon + 2 + lead));
+      return;
+    }
+
+    std::u32string label = trim(line);
+    for (char32_t c : label)
+      if (is_space(c))
+        throw CompileError("labels cannot contain spaces; indent patterns under their label",
+                           line_no, column);
+    current = to_utf8(label);
+    block = Block::Label;
+  };
+
   std::istringstream lines(source);
   std::string raw;
   int line_no = 0;
@@ -130,60 +204,28 @@ ParsedScript parse_script(const std::string& source) {
         out.lint_directives.push_back(std::move(directive));
       continue;
     }
-    const int column = static_cast<int>(first) + 1;
-
-    if (first > 0) {
-      std::u32string content = trim(line);
-      if (block == Block::None)
-        throw CompileError("indented pattern outside of a label or definition", line_no, column);
-      if (block == Block::Label) {
-        out.rules.push_back({current, line_no, parse_pattern(content, line_no, column)});
-      } else {
-        add_values(content, line_no, column);
-      }
-      continue;
+    try {
+      parse_line(line, first, line_no, static_cast<int>(first) + 1);
+    } catch (const CompileError& e) {
+      out.errors.push_back(diagnostic(e));
+      if (block == Block::Entity) out.broken_entities.insert(current);
+      if (block == Block::Variable) out.broken_variables.insert(current);
+      if (block == Block::None) block = Block::Broken;
     }
-
-    if (line[0] == U'@') {
-      const bool is_var = starts_with(line, U"@var.");
-      const std::size_t name_at = is_var ? 5 : 1;
-      std::size_t colon = line.find(U':');
-      if (colon == std::u32string::npos)
-        throw CompileError("expected ':' after the definition name", line_no, column);
-      std::u32string name32 = trim(line.substr(name_at, colon - name_at));
-      bool valid = !name32.empty();
-      for (char32_t c : name32) valid = valid && is_name_char(c);
-      if (!valid) throw CompileError("invalid definition name", line_no, column + static_cast<int>(name_at));
-      current = to_utf8(name32);
-      auto& table = is_var ? out.defs.variables : out.defs.entities;
-      if (table.count(current))
-        throw CompileError(std::string(is_var ? "variable @var." : "entity @") + current +
-                               " is already defined",
-                           line_no, column);
-      table[current].pos = SourcePos{line_no, column};
-      block = is_var ? Block::Variable : Block::Entity;
-      std::size_t lead = 0;
-      std::u32string body = trim(line.substr(colon + 1), &lead);
-      if (!body.empty()) add_values(body, line_no, static_cast<int>(colon + 2 + lead));
-      continue;
-    }
-
-    std::u32string label = trim(line);
-    for (char32_t c : label)
-      if (is_space(c))
-        throw CompileError("labels cannot contain spaces; indent patterns under their label",
-                           line_no, column);
-    current = to_utf8(label);
-    block = Block::Label;
   }
 
-  auto finish = [](std::map<std::string, Definition>& table,
-                   std::map<std::string, std::vector<NodePtr>>& values, const char* kind) {
+  auto finish = [&](std::map<std::string, Definition>& table,
+                    std::map<std::string, std::vector<NodePtr>>& values,
+                    std::set<std::string>& broken, const char* kind) {
     for (auto& kv : table) {
+      if (broken.count(kv.first)) continue;  // its errors are reported already
       std::vector<NodePtr>& options = values[kv.first];
-      if (options.empty())
-        throw CompileError(std::string(kind) + kv.first + " has no values", kv.second.pos.line,
-                           kv.second.pos.column);
+      if (options.empty()) {
+        out.errors.push_back({kv.second.pos.line, kv.second.pos.column,
+                              std::string(kind) + kv.first + " has no values"});
+        broken.insert(kv.first);
+        continue;
+      }
       if (options.size() == 1) {
         kv.second.body = options[0];
       } else {
@@ -195,8 +237,8 @@ ParsedScript parse_script(const std::string& source) {
       }
     }
   };
-  finish(out.defs.entities, entity_values, "entity @");
-  finish(out.defs.variables, variable_values, "variable @var.");
+  finish(out.defs.entities, entity_values, out.broken_entities, "entity @");
+  finish(out.defs.variables, variable_values, out.broken_variables, "variable @var.");
   return out;
 }
 
@@ -535,6 +577,30 @@ Match build_match(const Nfa& nfa, const std::string& label, int line, int specif
   return m;
 }
 
+// Whether `pattern` refers, directly or through other definitions, to a
+// definition whose values had errors.
+bool uses_broken_definition(const Node& pattern, const ParsedScript& parsed) {
+  std::set<std::string> entities, variables;
+  std::vector<const Node*> pending{&pattern};
+  while (!pending.empty()) {
+    const Node* n = pending.back();
+    pending.pop_back();
+    const bool entity = n->kind == Node::Kind::EntityRef;
+    if (entity || n->kind == Node::Kind::VarRef) {
+      const auto& broken = entity ? parsed.broken_entities : parsed.broken_variables;
+      if (broken.count(n->name)) return true;
+      const auto& table = entity ? parsed.defs.entities : parsed.defs.variables;
+      auto it = table.find(n->name);
+      if (it != table.end() && it->second.body &&
+          (entity ? entities : variables).insert(n->name).second)
+        pending.push_back(it->second.body.get());
+    }
+    for (const NodePtr& child : n->children) pending.push_back(child.get());
+    if (n->exclusion) pending.push_back(n->exclusion.get());
+  }
+  return false;
+}
+
 // --- lint ---------------------------------------------------------------------
 
 // Definitions that no rule reaches, directly or through other definitions.
@@ -600,16 +666,36 @@ Script Script::compile(const std::string& source) {
   ParsedScript parsed = parse_script(source);
   auto impl = std::make_unique<Impl>();
   impl->start = impl->nfa.add_state();
+  std::vector<Diagnostic> errors = std::move(parsed.errors);
   for (const Rule& rule : parsed.rules) {
+    if (uses_broken_definition(*rule.pattern, parsed)) continue;
     CompiledRule r;
     r.label = rule.label;
     r.line = rule.line;
     r.first = static_cast<int>(impl->nfa.states.size());
-    r.start = compile_rule(impl->nfa, parsed.defs, *rule.pattern,
-                           static_cast<int>(impl->rules.size()));
+    try {
+      r.start = compile_rule(impl->nfa, parsed.defs, *rule.pattern,
+                             static_cast<int>(impl->rules.size()));
+    } catch (const CompileError& e) {
+      errors.push_back(diagnostic(e));
+      continue;
+    }
     r.last = static_cast<int>(impl->nfa.states.size());
     impl->nfa.epsilon(impl->start, r.start);
     impl->rules.push_back(std::move(r));
+  }
+  if (!errors.empty()) {
+    // Ordered by position; an error inside a definition is reported once,
+    // however many rules use it.
+    auto key = [](const Diagnostic& d) { return std::tie(d.line, d.column, d.message); };
+    std::sort(errors.begin(), errors.end(),
+              [&](const Diagnostic& a, const Diagnostic& b) { return key(a) < key(b); });
+    errors.erase(std::unique(errors.begin(), errors.end(),
+                             [&](const Diagnostic& a, const Diagnostic& b) {
+                               return key(a) == key(b);
+                             }),
+                 errors.end());
+    throw CompileError(std::move(errors));
   }
   impl->unused = unused_definitions(parsed);
   impl->lint_directives = std::move(parsed.lint_directives);
