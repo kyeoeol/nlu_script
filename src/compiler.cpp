@@ -24,7 +24,7 @@ constexpr std::size_t kMaxExclusionStates = 20000;
 constexpr std::size_t kMaxRuleStates = 500000;
 
 [[noreturn]] void fail(const SourcePos& pos, const std::string& message) {
-  throw CompileError(message, pos.line, pos.column);
+  throw_at(pos, message);
 }
 
 // --- determinization, used to compile exclusions ----------------------------

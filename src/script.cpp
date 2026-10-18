@@ -8,6 +8,7 @@
 //     input with priorities (greedy groups, lazy wildcards) to recover slot
 //     spans and attribute assignments.
 #include <algorithm>
+#include <deque>
 #include <fstream>
 #include <map>
 #include <mutex>
@@ -35,6 +36,7 @@ std::string describe(const std::vector<Diagnostic>& errors) {
   std::string out;
   for (const Diagnostic& d : errors) {
     if (!out.empty()) out += "\n";
+    if (!d.file.empty()) out += d.file + ": ";
     if (d.line > 0)
       out += "line " + std::to_string(d.line) + ", column " + std::to_string(d.column) + ": ";
     out += d.message;
@@ -45,7 +47,7 @@ std::string describe(const std::vector<Diagnostic>& errors) {
 }  // namespace
 
 CompileError::CompileError(const std::string& message, int line, int column)
-    : CompileError(std::vector<Diagnostic>{{line, column, message}}) {}
+    : CompileError(std::vector<Diagnostic>{{line, column, message, ""}}) {}
 
 CompileError::CompileError(std::vector<Diagnostic> errors)
     : std::runtime_error(describe(errors)), errors_(std::move(errors)) {}
@@ -56,18 +58,21 @@ namespace {
 
 struct Rule {
   std::string label;
-  int line;
+  SourcePos pos;  // line (and file) of the pattern
   NodePtr pattern;
 };
 
 // A `# lint: <command> <args...>` comment.
 struct LintDirective {
-  int line;
+  SourcePos pos;
   std::string command;
   std::vector<std::string> args;
 };
 
 struct ParsedScript {
+  // Script file names, the main script first, then included files in the
+  // order they are read. Positions point into this; a deque keeps them put.
+  std::deque<std::string> files;
   Definitions defs;
   std::vector<Rule> rules;
   std::vector<LintDirective> lint_directives;
@@ -76,14 +81,16 @@ struct ParsedScript {
   std::set<std::string> broken_entities, broken_variables;
 };
 
-Diagnostic diagnostic(const CompileError& e) { return {e.line(), e.column(), e.message()}; }
+Diagnostic diagnostic(const CompileError& e) { return e.errors()[0]; }
+
+std::string file_name(const SourcePos& pos) { return pos.file ? *pos.file : std::string(); }
 
 // Reads a comment line as a lint directive if its text starts with "lint:".
-bool parse_lint_directive(const std::string& comment, int line, LintDirective& out) {
+bool parse_lint_directive(const std::string& comment, const SourcePos& pos, LintDirective& out) {
   std::istringstream words(comment.substr(comment.find('#') + 1));
   std::string head;
   if (!(words >> head) || head.compare(0, 5, "lint:") != 0) return false;
-  out.line = line;
+  out.pos = pos;
   out.command = head.substr(5);
   if (out.command.empty()) words >> out.command;
   out.args.clear();
@@ -106,123 +113,218 @@ bool starts_with(const std::u32string& s, const char32_t* prefix) {
   return true;
 }
 
-// Parses every line, collecting errors instead of stopping at the first. A
-// broken label or definition line hides the lines indented under it, so one
-// mistake is reported once.
-ParsedScript parse_script(const std::string& source) {
-  enum class Block { None, Label, Entity, Variable, Broken };
-  ParsedScript out;
-  std::map<std::string, std::vector<NodePtr>> entity_values;
-  std::map<std::string, std::vector<NodePtr>> variable_values;
-  Block block = Block::None;
-  std::string current;
+// --- paths, for include lines -------------------------------------------------
+// Plain string handling: std::filesystem is not available on every platform
+// the Python wheels target.
 
-  // A variable takes one pattern per line, an entity a comma-separated list
-  // of values. `column` locates text[0].
-  auto add_values = [&](const std::u32string& text, int line_no, int column) {
-    if (block == Block::Variable) {
-      variable_values[current].push_back(parse_pattern(text, line_no, column));
-      return;
+bool is_separator(char c) { return c == '/' || c == '\\'; }
+
+bool is_absolute(const std::string& path) {
+  return (!path.empty() && is_separator(path[0])) ||
+         (path.size() > 2 && path[1] == ':' && is_separator(path[2]));
+}
+
+// `path` relative to the directory of `from` (the current directory if
+// `from` has none), with "." and ".." segments removed where possible.
+std::string resolve(const std::string& from, const std::string& path) {
+  std::string joined = path;
+  if (!is_absolute(path)) {
+    std::size_t slash = from.find_last_of("/\\");
+    if (slash != std::string::npos) joined = from.substr(0, slash + 1) + path;
+  }
+  std::vector<std::string> parts;
+  std::string part;
+  const bool absolute = !joined.empty() && is_separator(joined[0]);
+  for (std::size_t i = 0; i <= joined.size(); ++i) {
+    if (i < joined.size() && !is_separator(joined[i])) {
+      part += joined[i];
+      continue;
     }
-    for (const auto& part : split_top_level_commas(text)) {
-      std::size_t lead = 0;
-      std::u32string value = trim(part.second, &lead);
-      int at = column + static_cast<int>(part.first + lead);
-      if (value.empty()) throw CompileError("empty entity value", line_no, at);
-      entity_values[current].push_back(parse_pattern(value, line_no, at));
+    if (part == "..") {
+      if (!parts.empty() && parts.back() != "..") {
+        parts.pop_back();
+      } else if (!absolute) {
+        parts.push_back(part);
+      }
+    } else if (!part.empty() && part != ".") {
+      parts.push_back(part);
     }
+    part.clear();
+  }
+  std::string out = absolute ? "/" : "";
+  for (std::size_t i = 0; i < parts.size(); ++i) out += (i ? "/" : "") + parts[i];
+  return out;
+}
+
+bool read_file(const std::string& path, std::string& out) {
+  std::ifstream in(path, std::ios::binary);
+  if (!in) return false;
+  std::ostringstream buffer;
+  buffer << in.rdbuf();
+  out = buffer.str();
+  return true;
+}
+
+// --- script source ------------------------------------------------------------
+
+// Parses a script and the files it includes, collecting errors instead of
+// stopping at the first. A broken label or definition line hides the lines
+// indented under it, so one mistake is reported once. Each file is read
+// once, so including a file twice (or in a cycle) is harmless.
+class ScriptParser {
+ public:
+  ParsedScript parse(const std::string& source, const std::string& main_file) {
+    out_.files.push_back(main_file);
+    if (!main_file.empty()) read_.insert(resolve("", main_file));
+    parse_file(source, &out_.files.back());
+    finish(out_.defs.entities, entity_values_, out_.broken_entities, "entity @");
+    finish(out_.defs.variables, variable_values_, out_.broken_variables, "variable @var.");
+    return std::move(out_);
+  }
+
+ private:
+  enum class Block { None, Label, Entity, Variable, Broken };
+
+  ParsedScript out_;
+  std::map<std::string, std::vector<NodePtr>> entity_values_;
+  std::map<std::string, std::vector<NodePtr>> variable_values_;
+  std::set<std::string> read_;  // resolved paths of the files read so far
+
+  // State of the file being parsed.
+  struct File {
+    const std::string* name;
+    Block block = Block::None;
+    std::string current;  // the label or definition being read
   };
 
+  void parse_file(const std::string& source, const std::string* name) {
+    File f{name, Block::None, ""};
+    std::istringstream lines(source);
+    std::string raw;
+    int line_no = 0;
+    while (std::getline(lines, raw)) {
+      ++line_no;
+      if (!raw.empty() && raw.back() == '\r') raw.pop_back();
+      std::vector<DecodedChar> chars = decode_utf8(raw);
+      compose_hangul(chars);
+      std::u32string line;
+      for (const DecodedChar& d : chars) line += d.code;
+      std::size_t first = 0;
+      while (first < line.size() && is_space(line[first])) ++first;
+      if (first == line.size()) continue;
+      const SourcePos pos{line_no, static_cast<int>(first) + 1, name};
+      if (line[first] == U'#') {
+        LintDirective directive;
+        if (parse_lint_directive(raw, pos, directive))
+          out_.lint_directives.push_back(std::move(directive));
+        continue;
+      }
+      try {
+        parse_line(f, line, first, pos);
+      } catch (const CompileError& e) {
+        out_.errors.push_back(diagnostic(e));
+        if (f.block == Block::Entity) out_.broken_entities.insert(f.current);
+        if (f.block == Block::Variable) out_.broken_variables.insert(f.current);
+        if (f.block == Block::None) f.block = Block::Broken;
+      }
+    }
+  }
+
   // Parses one non-blank, non-comment line whose text starts at `first`.
-  // Header lines set `block` to Broken until they are known to be valid.
-  auto parse_line = [&](const std::u32string& line, std::size_t first, int line_no, int column) {
+  // Header lines set the block to Broken until they are known to be valid.
+  void parse_line(File& f, const std::u32string& line, std::size_t first, const SourcePos& pos) {
     if (first > 0) {
-      if (block == Block::Broken) return;
+      if (f.block == Block::Broken) return;
       std::u32string content = trim(line);
-      if (block == Block::None)
-        throw CompileError("indented pattern outside of a label or definition", line_no, column);
-      if (block == Block::Label) {
-        out.rules.push_back({current, line_no, parse_pattern(content, line_no, column)});
+      if (f.block == Block::None)
+        throw_at(pos, "indented pattern outside of a label or definition");
+      if (f.block == Block::Label) {
+        out_.rules.push_back({f.current, pos, parse_pattern(content, pos)});
       } else {
-        add_values(content, line_no, column);
+        add_values(f, content, pos);
       }
       return;
     }
 
-    block = Block::Broken;
+    f.block = Block::Broken;
+    if (starts_with(line, U"include") && line.size() > 7 && is_space(line[7])) {
+      std::size_t lead = 0;
+      std::u32string path = trim(line.substr(7), &lead);
+      if (path.size() >= 2 && path.front() == U'"' && path.back() == U'"')
+        path = path.substr(1, path.size() - 2);
+      include(to_utf8(path), SourcePos{pos.line, 8 + static_cast<int>(lead), pos.file});
+      f.block = Block::None;
+      return;
+    }
     if (line[0] == U'@') {
       const bool is_var = starts_with(line, U"@var.");
       const std::size_t name_at = is_var ? 5 : 1;
       std::size_t colon = line.find(U':');
-      if (colon == std::u32string::npos)
-        throw CompileError("expected ':' after the definition name", line_no, column);
+      if (colon == std::u32string::npos) throw_at(pos, "expected ':' after the definition name");
       std::u32string name32 = trim(line.substr(name_at, colon - name_at));
       bool valid = !name32.empty();
       for (char32_t c : name32) valid = valid && is_name_char(c);
       if (!valid)
-        throw CompileError("invalid definition name", line_no,
-                           column + static_cast<int>(name_at));
-      current = to_utf8(name32);
-      auto& table = is_var ? out.defs.variables : out.defs.entities;
-      if (table.count(current))
-        throw CompileError(std::string(is_var ? "variable @var." : "entity @") + current +
-                               " is already defined",
-                           line_no, column);
-      table[current].pos = SourcePos{line_no, column};
-      block = is_var ? Block::Variable : Block::Entity;
+        throw_at(SourcePos{pos.line, pos.column + static_cast<int>(name_at), pos.file},
+                 "invalid definition name");
+      f.current = to_utf8(name32);
+      auto& table = is_var ? out_.defs.variables : out_.defs.entities;
+      if (table.count(f.current))
+        throw_at(pos, std::string(is_var ? "variable @var." : "entity @") + f.current +
+                          " is already defined");
+      table[f.current].pos = pos;
+      f.block = is_var ? Block::Variable : Block::Entity;
       std::size_t lead = 0;
       std::u32string body = trim(line.substr(colon + 1), &lead);
-      if (!body.empty()) add_values(body, line_no, static_cast<int>(colon + 2 + lead));
+      if (!body.empty())
+        add_values(f, body, SourcePos{pos.line, static_cast<int>(colon + 2 + lead), pos.file});
       return;
     }
 
     std::u32string label = trim(line);
     for (char32_t c : label)
       if (is_space(c))
-        throw CompileError("labels cannot contain spaces; indent patterns under their label",
-                           line_no, column);
-    current = to_utf8(label);
-    block = Block::Label;
-  };
+        throw_at(pos, "labels cannot contain spaces; indent patterns under their label");
+    f.current = to_utf8(label);
+    f.block = Block::Label;
+  }
 
-  std::istringstream lines(source);
-  std::string raw;
-  int line_no = 0;
-  while (std::getline(lines, raw)) {
-    ++line_no;
-    if (!raw.empty() && raw.back() == '\r') raw.pop_back();
-    std::vector<DecodedChar> chars = decode_utf8(raw);
-    compose_hangul(chars);
-    std::u32string line;
-    for (const DecodedChar& d : chars) line += d.code;
-    std::size_t first = 0;
-    while (first < line.size() && is_space(line[first])) ++first;
-    if (first == line.size()) continue;
-    if (line[first] == U'#') {
-      LintDirective directive;
-      if (parse_lint_directive(raw, line_no, directive))
-        out.lint_directives.push_back(std::move(directive));
-      continue;
+  // A variable takes one pattern per line, an entity a comma-separated list
+  // of values. `pos` locates text[0].
+  void add_values(const File& f, const std::u32string& text, const SourcePos& pos) {
+    if (f.block == Block::Variable) {
+      variable_values_[f.current].push_back(parse_pattern(text, pos));
+      return;
     }
-    try {
-      parse_line(line, first, line_no, static_cast<int>(first) + 1);
-    } catch (const CompileError& e) {
-      out.errors.push_back(diagnostic(e));
-      if (block == Block::Entity) out.broken_entities.insert(current);
-      if (block == Block::Variable) out.broken_variables.insert(current);
-      if (block == Block::None) block = Block::Broken;
+    for (const auto& part : split_top_level_commas(text)) {
+      std::size_t lead = 0;
+      std::u32string value = trim(part.second, &lead);
+      const SourcePos at{pos.line, pos.column + static_cast<int>(part.first + lead), pos.file};
+      if (value.empty()) throw_at(at, "empty entity value");
+      entity_values_[f.current].push_back(parse_pattern(value, at));
     }
   }
 
-  auto finish = [&](std::map<std::string, Definition>& table,
-                    std::map<std::string, std::vector<NodePtr>>& values,
-                    std::set<std::string>& broken, const char* kind) {
+  void include(const std::string& path, const SourcePos& pos) {
+    if (path.empty()) throw_at(pos, "expected a file name after include");
+    const std::string resolved = resolve(*pos.file, path);
+    if (!read_.insert(resolved).second) return;  // read already
+    std::string source;
+    if (!read_file(resolved, source)) throw_at(pos, "cannot open included file " + resolved);
+    out_.files.push_back(resolved);
+    parse_file(source, &out_.files.back());
+  }
+
+  void finish(std::map<std::string, Definition>& table,
+              std::map<std::string, std::vector<NodePtr>>& values, std::set<std::string>& broken,
+              const char* kind) {
     for (auto& kv : table) {
       if (broken.count(kv.first)) continue;  // its errors are reported already
       std::vector<NodePtr>& options = values[kv.first];
       if (options.empty()) {
-        out.errors.push_back({kv.second.pos.line, kv.second.pos.column,
-                              std::string(kind) + kv.first + " has no values"});
+        out_.errors.push_back({kv.second.pos.line, kv.second.pos.column,
+                               std::string(kind) + kv.first + " has no values",
+                               file_name(kv.second.pos)});
         broken.insert(kv.first);
         continue;
       }
@@ -236,11 +338,8 @@ ParsedScript parse_script(const std::string& source) {
         kv.second.body = choice;
       }
     }
-  };
-  finish(out.defs.entities, entity_values, out.broken_entities, "entity @");
-  finish(out.defs.variables, variable_values, out.broken_variables, "variable @var.");
-  return out;
-}
+  }
+};
 
 // --- phase 1: lazy DFA ------------------------------------------------------
 
@@ -577,6 +676,14 @@ Match build_match(const Nfa& nfa, const std::string& label, int line, int specif
   return m;
 }
 
+// Orders positions by file (the main script, then included files as they are
+// read) and then by line and column.
+std::tuple<std::size_t, int, int> position_key(const ParsedScript& parsed, const SourcePos& pos) {
+  std::size_t file = 0;
+  while (file < parsed.files.size() && &parsed.files[file] != pos.file) ++file;
+  return {pos.file ? file : 0, pos.line, pos.column};
+}
+
 // Whether `pattern` refers, directly or through other definitions, to a
 // definition whose values had errors.
 bool uses_broken_definition(const Node& pattern, const ParsedScript& parsed) {
@@ -623,14 +730,16 @@ std::vector<UnusedDefinition> unused_definitions(const ParsedScript& parsed) {
     if (n->exclusion) pending.push_back(n->exclusion.get());
   }
 
-  std::vector<UnusedDefinition> out;
+  std::vector<std::pair<SourcePos, std::string>> found;
   for (const auto& kv : parsed.defs.entities)
-    if (!entities.count(kv.first)) out.push_back({"@" + kv.first, kv.second.pos.line});
+    if (!entities.count(kv.first)) found.emplace_back(kv.second.pos, "@" + kv.first);
   for (const auto& kv : parsed.defs.variables)
-    if (!variables.count(kv.first)) out.push_back({"@var." + kv.first, kv.second.pos.line});
-  std::sort(out.begin(), out.end(), [](const UnusedDefinition& a, const UnusedDefinition& b) {
-    return a.line < b.line;
+    if (!variables.count(kv.first)) found.emplace_back(kv.second.pos, "@var." + kv.first);
+  std::sort(found.begin(), found.end(), [&](const auto& a, const auto& b) {
+    return position_key(parsed, a.first) < position_key(parsed, b.first);
   });
+  std::vector<UnusedDefinition> out;
+  for (const auto& f : found) out.push_back({f.second, f.first.line, file_name(f.first)});
   return out;
 }
 
@@ -641,6 +750,7 @@ std::vector<UnusedDefinition> unused_definitions(const ParsedScript& parsed) {
 struct CompiledRule {
   std::string label;
   int line;
+  std::string file;
   int start;  // start state
   int first;  // the rule's states occupy the id range [first, last)
   int last;
@@ -650,6 +760,7 @@ struct Script::Impl {
   Nfa nfa;
   std::vector<CompiledRule> rules;
   std::vector<UnusedDefinition> unused;
+  std::deque<std::string> files;  // what lint_directives' positions point into
   std::vector<LintDirective> lint_directives;
   int start = 0;
   mutable std::unique_ptr<LazyDfa> dfa;
@@ -666,22 +777,27 @@ Script::~Script() = default;
 // so a script can't exhaust memory with many large rules.
 constexpr std::size_t kMaxScriptStates = 10000000;
 
-Script Script::compile(const std::string& source) {
-  ParsedScript parsed = parse_script(source);
-  auto impl = std::make_unique<Impl>();
+namespace {
+
+// Compiles `source`, read from `file` (empty for a string).
+std::unique_ptr<Script::Impl> compile_source(const std::string& source, const std::string& file) {
+  ParsedScript parsed = ScriptParser().parse(source, file);
+  auto impl = std::make_unique<Script::Impl>();
   impl->start = impl->nfa.add_state();
   std::vector<Diagnostic> errors = std::move(parsed.errors);
   for (const Rule& rule : parsed.rules) {
     if (impl->nfa.states.size() > kMaxScriptStates) {
-      errors.push_back({rule.line, 1, "script is too large to compile (over " +
-                                          std::to_string(kMaxScriptStates) +
-                                          " automaton states)"});
+      errors.push_back({rule.pos.line, 1,
+                        "script is too large to compile (over " +
+                            std::to_string(kMaxScriptStates) + " automaton states)",
+                        file_name(rule.pos)});
       break;
     }
     if (uses_broken_definition(*rule.pattern, parsed)) continue;
     CompiledRule r;
     r.label = rule.label;
-    r.line = rule.line;
+    r.line = rule.pos.line;
+    r.file = file_name(rule.pos);
     r.first = static_cast<int>(impl->nfa.states.size());
     try {
       r.start = compile_rule(impl->nfa, parsed.defs, *rule.pattern,
@@ -695,9 +811,13 @@ Script Script::compile(const std::string& source) {
     impl->rules.push_back(std::move(r));
   }
   if (!errors.empty()) {
-    // Ordered by position; an error inside a definition is reported once,
-    // however many rules use it.
-    auto key = [](const Diagnostic& d) { return std::tie(d.line, d.column, d.message); };
+    // Ordered by file and position; an error inside a definition is reported
+    // once, however many rules use it.
+    auto key = [&](const Diagnostic& d) {
+      std::size_t file = 0;
+      while (file < parsed.files.size() && parsed.files[file] != d.file) ++file;
+      return std::make_tuple(file, d.line, d.column, d.message);
+    };
     std::sort(errors.begin(), errors.end(),
               [&](const Diagnostic& a, const Diagnostic& b) { return key(a) < key(b); });
     errors.erase(std::unique(errors.begin(), errors.end(),
@@ -708,29 +828,30 @@ Script Script::compile(const std::string& source) {
     throw CompileError(std::move(errors));
   }
   impl->unused = unused_definitions(parsed);
+  // Moving a deque keeps its elements in place, so the directives' file
+  // pointers stay valid.
+  impl->files = std::move(parsed.files);
   impl->lint_directives = std::move(parsed.lint_directives);
   impl->dfa = std::make_unique<LazyDfa>(impl->nfa, impl->start);
-  return Script(std::move(impl));
+  return impl;
 }
 
+}  // namespace
+
+Script Script::compile(const std::string& source) { return Script(compile_source(source, "")); }
+
 Script Script::compile_file(const std::string& path) {
-  std::ifstream in(path, std::ios::binary);
-  if (!in) throw std::runtime_error("cannot open " + path);
-  std::ostringstream buffer;
-  buffer << in.rdbuf();
-  return compile(buffer.str());
+  std::string source;
+  if (!read_file(path, source)) throw std::runtime_error("cannot open " + path);
+  return Script(compile_source(source, path));
 }
 
 std::size_t Script::rule_count() const { return impl_->rules.size(); }
 
 LintReport Script::lint(std::size_t max_states) const {
-  std::vector<std::string> labels;
-  std::vector<int> lines;
-  for (const CompiledRule& r : impl_->rules) {
-    labels.push_back(r.label);
-    lines.push_back(r.line);
-  }
-  OverlapSearch search = find_overlaps(impl_->nfa, impl_->start, labels, lines, max_states);
+  std::vector<RuleSource> sources;
+  for (const CompiledRule& r : impl_->rules) sources.push_back({r.label, r.line, r.file});
+  OverlapSearch search = find_overlaps(impl_->nfa, impl_->start, sources, max_states);
 
   LintReport report;
   report.unused = impl_->unused;
@@ -738,11 +859,12 @@ LintReport Script::lint(std::size_t max_states) const {
 
   // `# lint: allow-overlap A B ...` allows overlaps among its labels; `*`
   // stands for every label.
-  const std::set<std::string> known(labels.begin(), labels.end());
+  std::set<std::string> known;
+  for (const RuleSource& r : sources) known.insert(r.label);
   std::vector<std::set<std::string>> allowed;
   for (const LintDirective& d : impl_->lint_directives) {
     auto error = [&](const std::string& message) {
-      report.directive_errors.push_back({d.line, message});
+      report.directive_errors.push_back({d.pos.line, message, file_name(d.pos)});
     };
     if (d.command != "allow-overlap") {
       error("unknown lint command '" + d.command + "'; expected allow-overlap");
@@ -822,6 +944,7 @@ std::vector<Match> Script::Impl::match(const std::string& text, bool best) const
     if (best && f.specificity < top) continue;
     const CompiledRule& r = rules[f.rule];
     out.push_back(build_match(nfa, r.label, r.line, f.specificity, f.events, text, norm));
+    out.back().file = r.file;
   }
   return out;
 }

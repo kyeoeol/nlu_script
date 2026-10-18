@@ -162,6 +162,19 @@ Labels can't contain spaces (any text is allowed otherwise, e.g.
 `account:password:reset`). A label may appear more than once; its patterns are
 merged. Definitions can be used before they are defined.
 
+A large rule set can be split across files with `include` lines:
+
+```
+include entities.nlu
+include "rules/cards.nlu"
+```
+
+Paths are relative to the including file (to the current directory for a
+script compiled from a string). Labels and definitions are shared across
+files, and each file is read once, so including one twice, or in a cycle, is
+harmless. Errors, matches (`Match::file`, `nlu_result_file`, Python
+`Match.file`) and lint findings name the file their line is in.
+
 ## Matching
 
 A pattern must match the **whole** input. Before matching, the input is

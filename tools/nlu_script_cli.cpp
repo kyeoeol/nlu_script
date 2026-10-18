@@ -9,6 +9,7 @@
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <tuple>
 #include <vector>
 
 #include "nlu_script/nlu_script.hpp"
@@ -40,18 +41,30 @@ int run_tests(const std::string& script_path, const std::vector<std::string>& te
 
 int run_lint(const std::string& script_path) {
   nlu::LintReport report = nlu::Script::compile_file(script_path).lint();
-  std::vector<std::pair<int, std::string>> findings;
-  for (const nlu::UnusedDefinition& d : report.unused)
-    findings.emplace_back(d.line, d.name + " is never used");
-  for (const nlu::LintDirectiveError& e : report.directive_errors)
-    findings.emplace_back(e.line, e.message);
-  for (const nlu::Overlap& o : report.overlaps)
-    findings.emplace_back(o.line, o.label + " and " + o.other_label + " (line " +
-                                      std::to_string(o.other_line) + ") both match \"" +
-                                      o.example + "\"");
-  std::stable_sort(findings.begin(), findings.end(),
-                   [](const auto& a, const auto& b) { return a.first < b.first; });
-  for (const auto& f : findings) std::cout << script_path << ":" << f.first << ": " << f.second << "\n";
+  // file:line: message, ordered by file (as found) and line.
+  std::vector<std::string> files;
+  std::vector<std::tuple<std::size_t, int, std::string>> findings;
+  auto add = [&](const std::string& file, int line, const std::string& message) {
+    std::size_t index = std::find(files.begin(), files.end(), file) - files.begin();
+    if (index == files.size()) files.push_back(file);
+    findings.emplace_back(index, line, message);
+  };
+  for (const nlu::UnusedDefinition& d : report.unused) add(d.file, d.line, d.name + " is never used");
+  for (const nlu::LintDirectiveError& e : report.directive_errors) add(e.file, e.line, e.message);
+  for (const nlu::Overlap& o : report.overlaps) {
+    std::string other = o.other_file == o.file ? "line " + std::to_string(o.other_line)
+                                               : o.other_file + ":" + std::to_string(o.other_line);
+    add(o.file, o.line,
+        o.label + " and " + o.other_label + " (" + other + ") both match \"" + o.example + "\"");
+  }
+  std::stable_sort(findings.begin(), findings.end(), [](const auto& a, const auto& b) {
+    return std::tie(std::get<0>(a), std::get<1>(a)) < std::tie(std::get<0>(b), std::get<1>(b));
+  });
+  for (const auto& f : findings) {
+    const std::string& file = files[std::get<0>(f)];
+    std::cout << (file.empty() ? script_path : file) << ":" << std::get<1>(f) << ": "
+              << std::get<2>(f) << "\n";
+  }
   if (!report.complete)
     std::cout << "note: the automaton is too large to search fully; more overlaps may exist\n";
   std::cout << findings.size() << (findings.size() == 1 ? " finding" : " findings");
@@ -88,7 +101,8 @@ int main(int argc, char** argv) {
     }
   } catch (const nlu::CompileError& e) {
     for (const nlu::Diagnostic& d : e.errors())
-      std::cerr << script_path << ":" << d.line << ":" << d.column << ": " << d.message << "\n";
+      std::cerr << (d.file.empty() ? script_path : d.file) << ":" << d.line << ":" << d.column
+                << ": " << d.message << "\n";
     return 1;
   } catch (const std::exception& e) {
     std::cerr << e.what() << "\n";

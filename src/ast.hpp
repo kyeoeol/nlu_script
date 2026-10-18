@@ -12,7 +12,13 @@ namespace detail {
 struct SourcePos {
   int line = 0;
   int column = 0;
+  // Name of the script file, owned by the parse; null for the main script
+  // when it was compiled from a string.
+  const std::string* file = nullptr;
 };
+
+// Throws CompileError for `pos`.
+[[noreturn]] void throw_at(const SourcePos& pos, const std::string& message);
 
 // {key=value} or {slot.key=value}; an empty `slot` targets the innermost
 // enclosing slot.

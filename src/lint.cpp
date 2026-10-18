@@ -148,8 +148,8 @@ class Determinizer {
 
 }  // namespace
 
-OverlapSearch find_overlaps(const Nfa& nfa, int start, const std::vector<std::string>& labels,
-                            const std::vector<int>& lines, std::size_t max_states) {
+OverlapSearch find_overlaps(const Nfa& nfa, int start, const std::vector<RuleSource>& rules,
+                            std::size_t max_states) {
   OverlapSearch out;
   Determinizer dfa(nfa, max_states);
 
@@ -192,6 +192,7 @@ OverlapSearch find_overlaps(const Nfa& nfa, int start, const std::vector<std::st
   int first = dfa.intern({start}, 0);
   if (first >= 0) reach(first, kStart, -1, 0, 0);
   std::set<std::pair<std::string, std::string>> found;
+  std::vector<std::pair<int, int>> order;  // the rules of each overlap
   while (!queue.empty()) {
     Entry top = queue.top();
     queue.pop();
@@ -204,12 +205,16 @@ OverlapSearch find_overlaps(const Nfa& nfa, int start, const std::vector<std::st
       std::vector<int> firsts;
       std::set<std::string> seen;
       for (int rule : dfa.accepts(node.state))
-        if (seen.insert(labels[rule]).second) firsts.push_back(rule);
+        if (seen.insert(rules[rule].label).second) firsts.push_back(rule);
       for (std::size_t i = 0; i < firsts.size(); ++i) {
         for (std::size_t k = i + 1; k < firsts.size(); ++k) {
           const int a = firsts[i], b = firsts[k];
-          if (!found.insert({labels[a], labels[b]}).second) continue;
-          out.overlaps.push_back({labels[a], lines[a], labels[b], lines[b], example_of(id)});
+          const RuleSource& x = rules[a];
+          const RuleSource& y = rules[b];
+          if (!found.insert({x.label, y.label}).second) continue;
+          order.emplace_back(a, b);
+          out.overlaps.push_back(
+              {x.label, x.line, y.label, y.line, example_of(id), x.file, y.file});
         }
       }
     }
@@ -221,9 +226,14 @@ OverlapSearch find_overlaps(const Nfa& nfa, int start, const std::vector<std::st
     }
   }
 
-  std::sort(out.overlaps.begin(), out.overlaps.end(), [](const Overlap& x, const Overlap& y) {
-    return std::make_pair(x.line, x.other_line) < std::make_pair(y.line, y.other_line);
-  });
+  // In script order of the rules (their ids).
+  std::vector<std::size_t> by_rules(out.overlaps.size());
+  for (std::size_t k = 0; k < by_rules.size(); ++k) by_rules[k] = k;
+  std::sort(by_rules.begin(), by_rules.end(),
+            [&](std::size_t x, std::size_t y) { return order[x] < order[y]; });
+  std::vector<Overlap> sorted;
+  for (std::size_t k : by_rules) sorted.push_back(std::move(out.overlaps[k]));
+  out.overlaps = std::move(sorted);
   out.complete = dfa.complete();
   return out;
 }

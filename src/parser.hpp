@@ -9,9 +9,9 @@
 namespace nlu {
 namespace detail {
 
-// Parses one pattern. `line` and `column` locate text[0] in the script and are
-// used for error messages. Throws CompileError.
-NodePtr parse_pattern(const std::u32string& text, int line, int column);
+// Parses one pattern. `start` locates text[0] in the script, for error
+// messages. Throws CompileError.
+NodePtr parse_pattern(const std::u32string& text, const SourcePos& start);
 
 // Splits on commas that are not nested in brackets, braces or quotes.
 // Returns the start index and the text of each part.
