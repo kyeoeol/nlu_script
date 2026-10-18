@@ -40,6 +40,18 @@ struct Match {
   std::string file;
 };
 
+// How far one rule got into an input, from Script::explain().
+struct Explanation {
+  std::string label;
+  int line;
+  std::string file;     // see Match::file
+  std::size_t matched;  // bytes of the input the rule matched before it stopped
+  bool complete;        // the rule matches the whole input
+  // What the rule could have taken next where it stopped, sorted: characters
+  // (lowercase), "space" or "any character".
+  std::vector<std::string> expected;
+};
+
 // Two labels that both match some input, found by Script::lint().
 struct Overlap {
   std::string label;        // the label whose rule comes first in the script
@@ -125,6 +137,11 @@ class Script {
   std::vector<Match> match_best(const std::string& text) const;
 
   std::size_t rule_count() const;
+
+  // For debugging rules: the `limit` rules that got furthest into `text`
+  // (rules that match none of it are left out), longest match first, then
+  // complete matches, then script order.
+  std::vector<Explanation> explain(const std::string& text, std::size_t limit = 3) const;
 
   // Static checks for script authors: labels that match the same input, and
   // definitions that no rule uses. The overlap search explores the automaton

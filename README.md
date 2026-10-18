@@ -95,7 +95,26 @@ rules.test:2: I lost my debit card
 ```
 
 The exit status is 0 when every case passes and 1 otherwise, so the command
-can run in CI.
+can run in CI. From Python, `script.run_tests("rules.test")` runs the same
+file and returns a `TestReport(passed, failed, failures)`.
+
+## Explaining a miss
+
+When a sentence should match but doesn't, `--explain` shows the rules that
+got furthest into it, what they matched, and what they could have taken next:
+
+```sh
+echo "체크카드를 잃어버렸어" | ./build/nlu_script_cli --explain examples/demo.nlu
+# -
+#   card:lost (examples/demo.nlu:25) matched "체크카드를 잃어버렸어", then expected 요
+#   ...
+```
+
+In code, `Script::explain(text, limit)` returns `nlu::Explanation`s (label,
+line, file, bytes matched, whether the whole input matched, and what was
+expected next: characters, `space` or `any character`), longest match first.
+The C API has `nlu_script_explain` and Python `Script.explain`, whose
+`matched` is a character offset.
 
 ## Linting scripts
 

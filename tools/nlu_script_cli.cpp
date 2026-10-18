@@ -1,6 +1,7 @@
 // Reads sentences from stdin (one per line) and prints `label:tagged text` for
 // every matching label, or `-` when nothing matches. With --best, prints only
-// the most specific labels (Script::match_best).
+// the most specific labels (Script::match_best). With --explain, a sentence
+// that matches nothing is followed by the rules that got furthest into it.
 //
 // With --test, runs script test files instead (see script_tests.hpp) and
 // exits with 1 if any case fails. With --lint, reports labels that match the
@@ -18,7 +19,7 @@
 namespace {
 
 int usage(const char* program) {
-  std::cerr << "usage: " << program << " [--best] SCRIPT\n"
+  std::cerr << "usage: " << program << " [--best | --explain] SCRIPT\n"
             << "       " << program << " --test [--best] SCRIPT TESTS...\n"
             << "       " << program << " --lint SCRIPT\n";
   return 2;
@@ -84,6 +85,8 @@ int main(int argc, char** argv) {
   if (test || lint) args.erase(args.begin());
   const bool best = !lint && !args.empty() && args[0] == "--best";
   if (best) args.erase(args.begin());
+  const bool explain = !test && !lint && !best && !args.empty() && args[0] == "--explain";
+  if (explain) args.erase(args.begin());
   if (args.empty() || (test ? args.size() < 2 : args.size() != 1) ||
       args[0].compare(0, 2, "--") == 0)
     return usage(argv[0]);
@@ -94,9 +97,20 @@ int main(int argc, char** argv) {
     nlu::Script script = nlu::Script::compile_file(script_path);
     std::string line;
     while (std::getline(std::cin, line)) {
-      for (const std::string& out :
-           nlu_tools::output_lines(best ? script.match_best(line) : script.match(line)))
-        std::cout << out << "\n";
+      std::vector<nlu::Match> matches = best ? script.match_best(line) : script.match(line);
+      for (const std::string& out : nlu_tools::output_lines(matches)) std::cout << out << "\n";
+      if (explain && matches.empty()) {
+        for (const nlu::Explanation& e : script.explain(line)) {
+          std::cout << "  " << e.label << " (" << (e.file.empty() ? script_path : e.file) << ":"
+                    << e.line << ") matched \"" << line.substr(0, e.matched) << "\"";
+          if (!e.expected.empty()) {
+            std::cout << ", then expected";
+            for (std::size_t i = 0; i < e.expected.size(); ++i)
+              std::cout << (i ? ", " : " ") << e.expected[i];
+          }
+          std::cout << "\n";
+        }
+      }
       std::cout.flush();
     }
   } catch (const nlu::CompileError& e) {

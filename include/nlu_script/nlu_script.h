@@ -25,6 +25,7 @@ extern "C" {
 
 typedef struct nlu_script nlu_script;
 typedef struct nlu_result nlu_result;
+typedef struct nlu_explanation nlu_explanation;
 
 /* Compiles a script. On failure returns NULL and, if `error` is not NULL,
  * stores a message to release with nlu_string_free. For compile errors the
@@ -74,6 +75,25 @@ NLU_SCRIPT_API const char* nlu_result_slot_attribute_key(const nlu_result* resul
 NLU_SCRIPT_API const char* nlu_result_slot_attribute_value(const nlu_result* result,
                                                            size_t match, size_t slot,
                                                            size_t attribute);
+
+/* For debugging rules: the `limit` rules that got furthest into `text`, as
+ * Script::explain in C++. Returns NULL if `script` is NULL or on allocation
+ * failure. `matched` is a byte offset into `text`; `expected` lists what the
+ * rule could have taken next ("c", "space", "any character"). Accessors
+ * return NULL or 0 for out-of-range indices. */
+NLU_SCRIPT_API nlu_explanation* nlu_script_explain(const nlu_script* script, const char* text,
+                                                   size_t limit);
+NLU_SCRIPT_API void nlu_explanation_free(nlu_explanation* explanation);
+NLU_SCRIPT_API size_t nlu_explanation_count(const nlu_explanation* explanation);
+NLU_SCRIPT_API const char* nlu_explanation_label(const nlu_explanation* explanation, size_t i);
+NLU_SCRIPT_API int nlu_explanation_line(const nlu_explanation* explanation, size_t i);
+NLU_SCRIPT_API const char* nlu_explanation_file(const nlu_explanation* explanation, size_t i);
+NLU_SCRIPT_API size_t nlu_explanation_matched(const nlu_explanation* explanation, size_t i);
+NLU_SCRIPT_API int nlu_explanation_complete(const nlu_explanation* explanation, size_t i);
+NLU_SCRIPT_API size_t nlu_explanation_expected_count(const nlu_explanation* explanation,
+                                                     size_t i);
+NLU_SCRIPT_API const char* nlu_explanation_expected(const nlu_explanation* explanation, size_t i,
+                                                    size_t j);
 
 NLU_SCRIPT_API void nlu_string_free(char* string);
 

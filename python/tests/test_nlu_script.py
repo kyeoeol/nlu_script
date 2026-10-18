@@ -49,6 +49,44 @@ class ScriptTest(unittest.TestCase):
         self.assertEqual([(m.label, m.specificity) for m in best], [("card:lost", 16)])
         self.assertEqual(script.match_best("thank you"), [])
 
+    def test_explain_shows_how_far_rules_got(self):
+        found = self.script.explain("체크카드 해지")
+        self.assertEqual([(e.label, e.line, e.complete) for e in found], [("card:lost", 10, False)])
+        # `matched` is a character offset, like slot offsets.
+        self.assertEqual("체크카드 해지"[:found[0].matched], "체크카드 ")
+        self.assertEqual(found[0].expected, ["분"])
+
+    def test_run_tests_checks_expected_output(self):
+        handle, path = tempfile.mkstemp(suffix=".test")
+        try:
+            with os.fdopen(handle, "w", encoding="utf-8") as f:
+                f.write("# cases\n"
+                        "Report a lost debit card\n"
+                        "    card:lost:Report a lost <card type=\"DEBIT\">debit card</card>\n"
+                        "엔화 환율\n"
+                        "    card:lost:엔화 환율\n"
+                        "thank you\n"
+                        "    -\n")
+            report = self.script.run_tests(path)
+            self.assertEqual((report.passed, report.failed), (2, 1))
+            failure = report.failures[0]
+            self.assertEqual((failure.line, failure.input), (4, "엔화 환율"))
+            self.assertEqual(failure.expected, ["card:lost:엔화 환율"])
+            self.assertEqual(failure.actual, ["exchange:rate:<통화 code=\"JPY\">엔화</통화> 환율"])
+        finally:
+            os.remove(path)
+
+    def test_run_tests_rejects_malformed_files(self):
+        handle, path = tempfile.mkstemp(suffix=".test")
+        try:
+            with os.fdopen(handle, "w", encoding="utf-8") as f:
+                f.write("    -\n")
+            with self.assertRaises(ValueError) as caught:
+                self.script.run_tests(path)
+            self.assertIn(":1:", str(caught.exception))
+        finally:
+            os.remove(path)
+
     def test_no_match_returns_empty_list(self):
         self.assertEqual(self.script.match("thank you"), [])
 

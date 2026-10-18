@@ -860,6 +860,73 @@ Script Script::compile_file(const std::string& path) {
 
 std::size_t Script::rule_count() const { return impl_->rules.size(); }
 
+std::vector<Explanation> Script::explain(const std::string& text, std::size_t limit) const {
+  const Impl& impl = *impl_;
+  const NormalizedText norm = normalize(text);
+  // The rule owning each NFA state: rules occupy contiguous, ascending ranges.
+  auto rule_of = [&](int state) {
+    auto it = std::upper_bound(impl.rules.begin(), impl.rules.end(), state,
+                               [](int s, const CompiledRule& r) { return s < r.first; });
+    if (it == impl.rules.begin()) return -1;
+    --it;
+    return state < it->last ? static_cast<int>(it - impl.rules.begin()) : -1;
+  };
+
+  // One pass over the input with every rule at once. For each rule, keep
+  // the furthest position where it was still alive and its states there.
+  const std::size_t n = impl.rules.size();
+  std::vector<std::size_t> furthest(n, 0);
+  std::vector<std::vector<int>> stopped(n);
+  std::vector<bool> complete(n, false);
+  Closure closure(impl.nfa);
+  std::vector<int> states = closure({impl.start}, 0);
+  for (std::size_t i = 0;; ++i) {
+    std::vector<std::vector<int>> by_rule(n);
+    for (int s : states) {
+      int r = rule_of(s);
+      if (r < 0) continue;
+      by_rule[r].push_back(s);
+      if (i == norm.text.size() && impl.nfa.states[s].accept_rule == r) complete[r] = true;
+    }
+    for (std::size_t r = 0; r < n; ++r) {
+      if (by_rule[r].empty() || i == 0) continue;
+      furthest[r] = i;
+      stopped[r] = std::move(by_rule[r]);
+    }
+    if (i == norm.text.size()) break;
+    std::vector<int> targets;
+    for (int s : states)
+      for (const Edge& e : impl.nfa.states[s].edges)
+        if (e.consumes() && impl.nfa.matches(e, norm.text[i])) targets.push_back(e.to);
+    if (targets.empty()) break;
+    states = closure(std::move(targets), norm.text[i]);
+  }
+
+  std::vector<std::size_t> order;
+  for (std::size_t r = 0; r < n; ++r)
+    if (furthest[r] > 0) order.push_back(r);
+  std::stable_sort(order.begin(), order.end(), [&](std::size_t a, std::size_t b) {
+    return std::make_pair(furthest[a], complete[a]) > std::make_pair(furthest[b], complete[b]);
+  });
+  if (order.size() > limit) order.resize(limit);
+
+  std::vector<Explanation> out;
+  for (std::size_t r : order) {
+    const CompiledRule& rule = impl.rules[r];
+    std::set<std::string> next;
+    for (int s : stopped[r]) {
+      for (const Edge& e : impl.nfa.states[s].edges) {
+        if (e.kind == Edge::Kind::Char) next.insert(to_utf8(std::u32string(1, e.ch)));
+        if (e.kind == Edge::Kind::Space) next.insert("space");
+        if (e.kind == Edge::Kind::Any) next.insert("any character");
+      }
+    }
+    out.push_back({rule.label, rule.line, rule.file, norm.end[furthest[r] - 1], complete[r],
+                   std::vector<std::string>(next.begin(), next.end())});
+  }
+  return out;
+}
+
 LintReport Script::lint(std::size_t max_states) const {
   std::vector<RuleSource> sources;
   for (const CompiledRule& r : impl_->rules) sources.push_back({r.label, r.line, r.file});

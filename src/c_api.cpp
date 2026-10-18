@@ -14,6 +14,10 @@ struct nlu_result {
   std::vector<nlu::Match> matches;
 };
 
+struct nlu_explanation {
+  std::vector<nlu::Explanation> items;
+};
+
 namespace {
 
 char* copy_string(const std::string& s) {
@@ -45,6 +49,10 @@ nlu_script* compile_with(Compile compile, char** error, int* line, int* column) 
 
 const nlu::Match* match_at(const nlu_result* r, size_t match) {
   return r && match < r->matches.size() ? &r->matches[match] : nullptr;
+}
+
+const nlu::Explanation* explanation_at(const nlu_explanation* e, size_t i) {
+  return e && i < e->items.size() ? &e->items[i] : nullptr;
 }
 
 const nlu::Slot* slot_at(const nlu_result* r, size_t match, size_t slot) {
@@ -165,6 +173,54 @@ const char* nlu_result_slot_attribute_value(const nlu_result* r, size_t match, s
                                             size_t attribute) {
   const auto* kv = attribute_at(r, match, slot, attribute);
   return kv ? kv->second.c_str() : nullptr;
+}
+
+nlu_explanation* nlu_script_explain(const nlu_script* script, const char* text, size_t limit) {
+  if (!script) return nullptr;
+  try {
+    return new nlu_explanation{script->script.explain(text ? text : "", limit)};
+  } catch (const std::exception&) {
+    return nullptr;
+  }
+}
+
+void nlu_explanation_free(nlu_explanation* e) { delete e; }
+
+size_t nlu_explanation_count(const nlu_explanation* e) { return e ? e->items.size() : 0; }
+
+const char* nlu_explanation_label(const nlu_explanation* e, size_t i) {
+  const nlu::Explanation* x = explanation_at(e, i);
+  return x ? x->label.c_str() : nullptr;
+}
+
+int nlu_explanation_line(const nlu_explanation* e, size_t i) {
+  const nlu::Explanation* x = explanation_at(e, i);
+  return x ? x->line : 0;
+}
+
+const char* nlu_explanation_file(const nlu_explanation* e, size_t i) {
+  const nlu::Explanation* x = explanation_at(e, i);
+  return x ? x->file.c_str() : nullptr;
+}
+
+size_t nlu_explanation_matched(const nlu_explanation* e, size_t i) {
+  const nlu::Explanation* x = explanation_at(e, i);
+  return x ? x->matched : 0;
+}
+
+int nlu_explanation_complete(const nlu_explanation* e, size_t i) {
+  const nlu::Explanation* x = explanation_at(e, i);
+  return x && x->complete ? 1 : 0;
+}
+
+size_t nlu_explanation_expected_count(const nlu_explanation* e, size_t i) {
+  const nlu::Explanation* x = explanation_at(e, i);
+  return x ? x->expected.size() : 0;
+}
+
+const char* nlu_explanation_expected(const nlu_explanation* e, size_t i, size_t j) {
+  const nlu::Explanation* x = explanation_at(e, i);
+  return x && j < x->expected.size() ? x->expected[j].c_str() : nullptr;
 }
 
 void nlu_string_free(char* string) { std::free(string); }
