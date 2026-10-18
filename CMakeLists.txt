@@ -23,6 +23,7 @@ endif()
 set(NLU_SCRIPT_SOURCES
   src/c_api.cpp
   src/compiler.cpp
+  src/lint.cpp
   src/parser.cpp
   src/script.cpp
   src/unicode.cpp)
@@ -62,6 +63,7 @@ target_link_libraries(nlu_script_cli PRIVATE nlu_script_tools)
 if(NLU_SCRIPT_BUILD_TESTS)
   enable_testing()
   add_executable(nlu_script_tests
+    tests/test_lint.cpp
     tests/test_main.cpp
     tests/test_pattern.cpp
     tests/test_script.cpp

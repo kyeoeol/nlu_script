@@ -58,6 +58,10 @@ close my brokerage account
     account:close:close my <account>brokerage</account> account
 close my joint savings account
     -
+deposit 해지해주세요
+    account:close:product:<product value="deposit">deposit</product> 해지해주세요
+savings 통장을 해지해주세요
+    -
 
 # account:phone, account:login, account:password:reset
 휴대폰 번호 010-9876-5432로 변경해주세요
