@@ -17,8 +17,8 @@ import os
 import re
 import sys
 
-__all__ = ["CompileError", "Diagnostic", "Explanation", "Match", "Script", "Slot", "TestFailure",
-           "TestReport"]
+__all__ = ["CompileError", "Diagnostic", "Explanation", "LintFinding", "LintReport", "Match",
+           "Script", "Slot", "TestFailure", "TestReport"]
 __version__ = "0.1.0"
 
 
@@ -97,6 +97,15 @@ _explanation_complete = _declare("nlu_explanation_complete", ctypes.c_int, _ptr,
 _explanation_expected_count = _declare("nlu_explanation_expected_count", _size, _ptr, _size)
 _explanation_expected = _declare("nlu_explanation_expected", ctypes.c_char_p, _ptr, _size,
                                  _size)
+_lint = _declare("nlu_script_lint", _ptr, _ptr, ctypes.c_int)
+_lint_free = _declare("nlu_lint_free", None, _ptr)
+_lint_count = _declare("nlu_lint_count", _size, _ptr)
+_lint_kind = _declare("nlu_lint_kind", ctypes.c_char_p, _ptr, _size)
+_lint_file = _declare("nlu_lint_file", ctypes.c_char_p, _ptr, _size)
+_lint_line = _declare("nlu_lint_line", ctypes.c_int, _ptr, _size)
+_lint_message = _declare("nlu_lint_message", ctypes.c_char_p, _ptr, _size)
+_lint_allowed = _declare("nlu_lint_allowed", _size, _ptr)
+_lint_complete = _declare("nlu_lint_complete", ctypes.c_int, _ptr)
 _string_free = _declare("nlu_string_free", None, _ptr)
 
 
@@ -149,6 +158,8 @@ class Explanation(collections.namedtuple("Explanation",
     __slots__ = ()
 
 
+LintFinding = collections.namedtuple("LintFinding", "kind file line message")
+LintReport = collections.namedtuple("LintReport", "findings allowed complete")
 TestFailure = collections.namedtuple("TestFailure", "line input expected actual")
 TestReport = collections.namedtuple("TestReport", "passed failed failures")
 
@@ -262,6 +273,23 @@ class Script:
                 for i in range(_explanation_count(result))]
         finally:
             _explanation_free(result)
+
+    def lint(self, best=False):
+        """Lints the script (as `nlu_script_cli --lint`) and returns a
+        LintReport: `findings` (LintFinding(kind, file, line, message), kind one
+        of "overlap", "dead-rule", "unused", "directive"), how many overlaps
+        `# lint: allow-overlap` comments allow, and whether the search was
+        complete. With `best`, overlaps that match_best() resolves are left out."""
+        result = _lint(self._checked(), 1 if best else 0)
+        if not result:
+            raise MemoryError("nlu_script_lint failed")
+        try:
+            findings = [LintFinding(_decode(_lint_kind(result, i)), _decode(_lint_file(result, i)),
+                                    _lint_line(result, i), _decode(_lint_message(result, i)))
+                        for i in range(_lint_count(result))]
+            return LintReport(findings, _lint_allowed(result), bool(_lint_complete(result)))
+        finally:
+            _lint_free(result)
 
     def run_tests(self, path, best=False):
         """Runs a script test file (as `nlu_script_cli --test`) and returns a

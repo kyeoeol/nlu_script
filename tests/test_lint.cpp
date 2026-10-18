@@ -187,3 +187,61 @@ TEST(lint_comment_mistakes_are_reported) {
   CHECK_EQ(lines, (std::vector<std::string>{"7", "8", "9"}));
   CHECK_EQ(report.overlaps.size(), 3u);
 }
+
+namespace {
+
+std::string dead_lines(const std::string& source) {
+  std::string out;
+  for (const nlu::DeadRule& d : nlu::Script::compile(source).lint().dead_rules)
+    out += (out.empty() ? "" : " ") + std::to_string(d.line) + "<" +
+           std::to_string(d.covered_by_line);
+  return out;
+}
+
+}  // namespace
+
+TEST(lint_finds_rules_that_earlier_rules_of_their_label_hide) {
+  // Line 3 is never reached: line 2 matches everything it does, first.
+  CHECK_EQ(dead_lines("card:lost\n    I lost my <?>+?\n    I lost my card\n"), std::string("3<2"));
+  // The other way round, each rule is used for some input.
+  CHECK_EQ(dead_lines("card:lost\n    I lost my card\n    I lost my <?>+?\n"), std::string());
+  // Hidden by two earlier rules together: no single one covers it.
+  CHECK_EQ(dead_lines("a\n    x [1|2]\n    x 3\n    x [1|3]\n"), std::string("4<0"));
+  // Rules of other labels don't hide a rule.
+  CHECK_EQ(dead_lines("a\n    I <?>+?\nb\n    I lost my card\n"), std::string());
+}
+
+TEST(lint_tells_which_overlaps_match_best_resolves) {
+  nlu::Script s = nlu::Script::compile(
+      "@product: 적금, 예금\n"
+      "account:close:product\n"
+      "    @{product}(을/를) 해지\n"
+      "account:close\n"
+      "    <?>+?(을/를) 해지\n");
+  nlu::LintReport report = s.lint();
+  CHECK_EQ(report.overlaps.size(), 1u);
+  // An entity beats a wildcard on every sentence both match.
+  if (report.overlaps.size() == 1)
+    CHECK_EQ(report.overlaps[0].best_label, std::string("account:close:product"));
+  CHECK_EQ(report.findings().size(), 1u);
+  CHECK(report.findings(true).empty());
+
+  // Two wildcard rules may tie ("I x now"), so match_best() may return both.
+  report = nlu::Script::compile("report:any\n    I <?>+?\nreport:now\n    <?>+? now\n").lint();
+  CHECK_EQ(report.overlaps.size(), 1u);
+  if (report.overlaps.size() == 1) CHECK_EQ(report.overlaps[0].best_label, std::string());
+  CHECK_EQ(report.findings(true).size(), 1u);
+}
+
+TEST(lint_findings_read_like_the_cli) {
+  nlu::Script s = nlu::Script::compile(
+      "card:lost\n    I lost my <?>+?\n    I lost my card\n@unused: x\n");
+  std::vector<nlu::LintFinding> findings = s.lint().findings();
+  CHECK_EQ(findings.size(), 2u);
+  if (findings.size() != 2) return;
+  CHECK_EQ(findings[0].kind, std::string("dead-rule"));
+  CHECK_EQ(findings[0].line, 3);
+  CHECK(findings[0].message.find("line 2") != std::string::npos);
+  CHECK_EQ(findings[1].kind, std::string("unused"));
+  CHECK_EQ(findings[1].message, std::string("@unused is never used"));
+}

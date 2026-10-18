@@ -26,6 +26,7 @@ extern "C" {
 typedef struct nlu_script nlu_script;
 typedef struct nlu_result nlu_result;
 typedef struct nlu_explanation nlu_explanation;
+typedef struct nlu_lint nlu_lint;
 
 /* Compiles a script. On failure returns NULL and, if `error` is not NULL,
  * stores a message to release with nlu_string_free. For compile errors the
@@ -94,6 +95,22 @@ NLU_SCRIPT_API size_t nlu_explanation_expected_count(const nlu_explanation* expl
                                                      size_t i);
 NLU_SCRIPT_API const char* nlu_explanation_expected(const nlu_explanation* explanation, size_t i,
                                                     size_t j);
+
+/* Lints the script: its findings as `nlu_script_cli --lint` prints them, with
+ * `kind` "overlap", "dead-rule", "unused" or "directive". With `best`
+ * nonzero, overlaps that match_best resolves are left out. `allowed` counts
+ * overlaps that `# lint: allow-overlap` comments mark as intended, and
+ * `complete` is 0 if the search stopped at its state limit. Returns NULL if
+ * `script` is NULL or on allocation failure. */
+NLU_SCRIPT_API nlu_lint* nlu_script_lint(const nlu_script* script, int best);
+NLU_SCRIPT_API void nlu_lint_free(nlu_lint* lint);
+NLU_SCRIPT_API size_t nlu_lint_count(const nlu_lint* lint);
+NLU_SCRIPT_API const char* nlu_lint_kind(const nlu_lint* lint, size_t i);
+NLU_SCRIPT_API const char* nlu_lint_file(const nlu_lint* lint, size_t i);
+NLU_SCRIPT_API int nlu_lint_line(const nlu_lint* lint, size_t i);
+NLU_SCRIPT_API const char* nlu_lint_message(const nlu_lint* lint, size_t i);
+NLU_SCRIPT_API size_t nlu_lint_allowed(const nlu_lint* lint);
+NLU_SCRIPT_API int nlu_lint_complete(const nlu_lint* lint);
 
 NLU_SCRIPT_API void nlu_string_free(char* string);
 

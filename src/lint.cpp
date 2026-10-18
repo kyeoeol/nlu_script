@@ -1,6 +1,7 @@
 #include "lint.hpp"
 
 #include <algorithm>
+#include <iterator>
 #include <functional>
 #include <map>
 #include <queue>
@@ -148,10 +149,11 @@ class Determinizer {
 
 }  // namespace
 
-OverlapSearch find_overlaps(const Nfa& nfa, int start, const std::vector<RuleSource>& rules,
-                            std::size_t max_states) {
-  OverlapSearch out;
+RuleAnalysis analyze_rules(const Nfa& nfa, int start, const std::vector<RuleSource>& rules,
+                           std::size_t max_states) {
+  RuleAnalysis out;
   Determinizer dfa(nfa, max_states);
+  const int n = static_cast<int>(rules.size());
 
   // Dijkstra over (DFA state, what the input ended with).
   struct Node {
@@ -189,10 +191,25 @@ OverlapSearch find_overlaps(const Nfa& nfa, int start, const std::vector<RuleSou
     return to_utf8(text);
   };
 
+  // Overlaps, by label pair: the overlap (as found first) and whether each
+  // label always wins match_best() on the inputs seen so far.
+  struct Pair {
+    std::size_t overlap;
+    bool first_wins = true, second_wins = true;
+  };
+  std::map<std::pair<std::string, std::string>, Pair> pairs;
+  // A pair is keyed by its labels in the order of their first rules, so it is
+  // the same pair whichever order a state lists them in.
+  std::map<std::string, int> rank;
+  for (int r = n - 1; r >= 0; --r) rank[rules[r].label] = r;
+  std::vector<std::pair<int, int>> order;  // the rules of each overlap
+  // Dead rules: whether some input reaches the rule before any earlier rule
+  // of its label, and which earlier rules accepted every input it did.
+  std::vector<bool> used(n, false), seen(n, false);
+  std::vector<std::vector<int>> covered_by(n);
+
   int first = dfa.intern({start}, 0);
   if (first >= 0) reach(first, kStart, -1, 0, 0);
-  std::set<std::pair<std::string, std::string>> found;
-  std::vector<std::pair<int, int>> order;  // the rules of each overlap
   while (!queue.empty()) {
     Entry top = queue.top();
     queue.pop();
@@ -201,21 +218,58 @@ OverlapSearch find_overlaps(const Nfa& nfa, int start, const std::vector<RuleSou
     const Node node = nodes[id];
 
     if (node.prev != kSpace) {
-      // The first rule of each label that accepts here, in script order.
+      // The rules accepting here, and the labels whose wildcard-free copies do.
+      std::vector<int> accepted;
+      std::set<std::string> literal_labels;
+      for (int rule : dfa.accepts(node.state)) {
+        if (rule < n) {
+          accepted.push_back(rule);
+        } else {
+          literal_labels.insert(rules[rule - n].label);
+        }
+      }
+      // The first rule of each label, in script order.
       std::vector<int> firsts;
-      std::set<std::string> seen;
-      for (int rule : dfa.accepts(node.state))
-        if (seen.insert(rules[rule].label).second) firsts.push_back(rule);
+      std::set<std::string> labels_here;
+      for (int rule : accepted)
+        if (labels_here.insert(rules[rule].label).second) firsts.push_back(rule);
+      auto wins = [&](const std::string& label, const std::string& other) {
+        bool literal = false;
+        for (int rule : accepted) literal = literal || (rules[rule].label == label && rules[rule].wildcard_free);
+        return literal && !literal_labels.count(other);
+      };
       for (std::size_t i = 0; i < firsts.size(); ++i) {
         for (std::size_t k = i + 1; k < firsts.size(); ++k) {
-          const int a = firsts[i], b = firsts[k];
+          int a = firsts[i], b = firsts[k];
+          if (rank[rules[a].label] > rank[rules[b].label]) std::swap(a, b);
           const RuleSource& x = rules[a];
           const RuleSource& y = rules[b];
-          if (!found.insert({x.label, y.label}).second) continue;
-          order.emplace_back(a, b);
-          out.overlaps.push_back(
-              {x.label, x.line, y.label, y.line, example_of(id), x.file, y.file});
+          auto key = std::make_pair(x.label, y.label);
+          auto it = pairs.find(key);
+          if (it == pairs.end()) {
+            it = pairs.emplace(key, Pair{out.overlaps.size()}).first;
+            order.emplace_back(a, b);
+            out.overlaps.push_back(
+                {x.label, x.line, y.label, y.line, example_of(id), x.file, y.file, ""});
+          }
+          it->second.first_wins = it->second.first_wins && wins(x.label, y.label);
+          it->second.second_wins = it->second.second_wins && wins(y.label, x.label);
         }
+      }
+      for (int rule : accepted) {
+        std::vector<int> earlier;
+        for (int other : accepted)
+          if (other < rule && rules[other].label == rules[rule].label) earlier.push_back(other);
+        if (earlier.empty()) used[rule] = true;
+        if (!seen[rule]) {
+          covered_by[rule] = earlier;
+        } else {
+          std::vector<int> both;
+          std::set_intersection(covered_by[rule].begin(), covered_by[rule].end(), earlier.begin(),
+                                earlier.end(), std::back_inserter(both));
+          covered_by[rule] = std::move(both);
+        }
+        seen[rule] = true;
       }
     }
 
@@ -226,6 +280,11 @@ OverlapSearch find_overlaps(const Nfa& nfa, int start, const std::vector<RuleSou
     }
   }
 
+  for (const auto& kv : pairs) {
+    Overlap& o = out.overlaps[kv.second.overlap];
+    if (kv.second.first_wins) o.best_label = o.label;
+    if (kv.second.second_wins) o.best_label = o.other_label;
+  }
   // In script order of the rules (their ids).
   std::vector<std::size_t> by_rules(out.overlaps.size());
   for (std::size_t k = 0; k < by_rules.size(); ++k) by_rules[k] = k;
@@ -234,7 +293,20 @@ OverlapSearch find_overlaps(const Nfa& nfa, int start, const std::vector<RuleSou
   std::vector<Overlap> sorted;
   for (std::size_t k : by_rules) sorted.push_back(std::move(out.overlaps[k]));
   out.overlaps = std::move(sorted);
+
   out.complete = dfa.complete();
+  if (out.complete) {
+    for (int r = 0; r < n; ++r) {
+      if (used[r]) continue;
+      const RuleSource& rule = rules[r];
+      DeadRule d{rule.label, rule.line, rule.file, !seen[r], 0, ""};
+      if (seen[r] && !covered_by[r].empty()) {
+        d.covered_by_line = rules[covered_by[r].front()].line;
+        d.covered_by_file = rules[covered_by[r].front()].file;
+      }
+      out.dead_rules.push_back(std::move(d));
+    }
+  }
   return out;
 }
 

@@ -928,13 +928,41 @@ std::vector<Explanation> Script::explain(const std::string& text, std::size_t li
 }
 
 LintReport Script::lint(std::size_t max_states) const {
+  // The script's automaton plus, for each rule, a copy without wildcard edges
+  // (accepting as rule n + r), which tells whether an input needs a wildcard.
+  const Impl& impl = *impl_;
+  const int n = static_cast<int>(impl.rules.size());
+  Nfa nfa = impl.nfa;
+  const int start = nfa.add_state();
+  nfa.epsilon(start, impl.start);
   std::vector<RuleSource> sources;
-  for (const CompiledRule& r : impl_->rules) sources.push_back({r.label, r.line, r.file});
-  OverlapSearch search = find_overlaps(impl_->nfa, impl_->start, sources, max_states);
+  for (int r = 0; r < n; ++r) {
+    const CompiledRule& rule = impl.rules[r];
+    bool wildcard_free = true;
+    const int base = static_cast<int>(nfa.states.size());
+    for (int s = rule.first; s < rule.last; ++s) nfa.add_state();
+    for (int s = rule.first; s < rule.last; ++s) {
+      State& copy = nfa.states[base + (s - rule.first)];
+      for (Edge e : impl.nfa.states[s].edges) {
+        if (e.kind == Edge::Kind::Any) {
+          wildcard_free = false;
+          continue;
+        }
+        e.to = base + (e.to - rule.first);
+        copy.edges.push_back(e);
+      }
+      if (impl.nfa.states[s].accept_rule == r) copy.accept_rule = n + r;
+    }
+    nfa.epsilon(start, base + (rule.start - rule.first));
+    sources.push_back({rule.label, rule.line, rule.file, wildcard_free});
+  }
+  RuleAnalysis search = analyze_rules(nfa, start, sources, max_states);
 
   LintReport report;
-  report.unused = impl_->unused;
+  report.unused = impl.unused;
+  report.dead_rules = std::move(search.dead_rules);
   report.complete = search.complete;
+  report.files.assign(impl.files.begin(), impl.files.end());
 
   // `# lint: allow-overlap A B ...` allows overlaps among its labels; `*`
   // stands for every label.
@@ -973,6 +1001,39 @@ LintReport Script::lint(std::size_t max_states) const {
   for (Overlap& o : search.overlaps)
     (is_allowed(o) ? report.allowed_overlaps : report.overlaps).push_back(std::move(o));
   return report;
+}
+
+std::vector<LintFinding> LintReport::findings(bool best) const {
+  std::vector<LintFinding> out;
+  auto where = [](const std::string& file, int line, const std::string& from) {
+    return file == from ? "line " + std::to_string(line) : file + ":" + std::to_string(line);
+  };
+  for (const Overlap& o : overlaps) {
+    if (best && !o.best_label.empty()) continue;
+    out.push_back({"overlap", o.file, o.line,
+                   o.label + " and " + o.other_label + " (" + where(o.other_file, o.other_line, o.file) +
+                       ") both match \"" + o.example + "\""});
+  }
+  for (const DeadRule& d : dead_rules) {
+    std::string why = d.matches_nothing ? "it matches no input"
+                      : d.covered_by_line
+                          ? where(d.covered_by_file, d.covered_by_line, d.file) +
+                                " matches everything it does first"
+                          : "earlier rules of the label match everything it does first";
+    out.push_back({"dead-rule", d.file, d.line,
+                   "this rule of " + d.label + " is never used by match(): " + why});
+  }
+  for (const UnusedDefinition& d : unused)
+    out.push_back({"unused", d.file, d.line, d.name + " is never used"});
+  for (const LintDirectiveError& e : directive_errors)
+    out.push_back({"directive", e.file, e.line, e.message});
+  auto file_index = [&](const std::string& file) {
+    return std::find(files.begin(), files.end(), file) - files.begin();
+  };
+  std::stable_sort(out.begin(), out.end(), [&](const LintFinding& a, const LintFinding& b) {
+    return std::make_pair(file_index(a.file), a.line) < std::make_pair(file_index(b.file), b.line);
+  });
+  return out;
 }
 
 std::vector<Match> Script::match(const std::string& text) const {

@@ -118,8 +118,9 @@ The C API has `nlu_script_explain` and Python `Script.explain`, whose
 
 ## Linting scripts
 
-`--lint` reports labels that match the same input, and entities and
-variables that no rule uses:
+`--lint` reports labels that match the same input, rules that `match()`
+never uses (an earlier rule of the same label matches everything they do
+first), and entities and variables that no rule uses:
 
 ```sh
 ./build/nlu_script_cli --lint rules.nlu
@@ -147,8 +148,17 @@ allows every overlap of the other labels on its line. Allowed overlaps are
 counted but not listed. An unknown label or command in a `# lint:` comment is
 a finding itself; such comments never affect matching.
 
+With `--best`, overlaps that `match_best()` always resolves are left out:
+those where one label matches each shared input without wildcards and the
+other always needs one (an entity rule against a catch-all, say). The
+overlap's `best_label` names the winner. `--verbose` also lists allowed and
+resolved overlaps.
+
 The exit status is 1 when there are findings, so `--lint` can run in CI; the
-demo script is linted that way in `ctest`.
+demo script is linted that way in `ctest`. In code, `Script::lint()` returns
+an `nlu::LintReport`, and `LintReport::findings(best)` the lines `--lint`
+prints. The C API has `nlu_script_lint` and Python `Script.lint(best=False)`,
+both returning those findings.
 
 ## Script files
 
@@ -426,9 +436,6 @@ for (const nlu::Match& m : script.match("I lost my debit card")) {
 ```
 
 `script.match_best(text)` keeps only the most specific labels.
-`Script::lint()` returns the same checks as `--lint` as an `nlu::LintReport`
-(overlaps, unused definitions, and whether the search was complete).
-
 Compiling reports every error in the script at once: `CompileError::errors()`
 lists them by position (`line`, `column`, `message`), and `what()` has one per
 line. A broken label or definition line hides the lines indented under it, so
