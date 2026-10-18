@@ -71,6 +71,9 @@
       run by `nlu_script_cli --test SCRIPT TESTS...` (failures show the
       script line behind each actual output; exit status 1 on failure).
       `examples/demo.test` covers the demo and runs in `ctest`
+- [x] Decomposed Hangul (NFD conjoining jamo) is composed into syllables in
+      input and scripts before matching; slot text and offsets still refer
+      to the original bytes
 
 ## Next
 
@@ -101,9 +104,9 @@
       wrong pairs like `적금를`. Entity values are known at compile time;
       after a wildcard, split its last character into syllables with and
       without a final consonant
-- [ ] Unicode NFC normalization of the input (and patterns): decomposed
-      Hangul (NFD, e.g. text copied from macOS file names) looks the same but
-      never matches today; `normalize()` already maps back to original bytes
+- [ ] Full Unicode NFC beyond Hangul (e.g. `e` + U+0301 for `é`): needs the
+      Unicode composition tables, which Hangul's algorithmic composition did
+      not
 - [ ] Normalized values for numbers and amounts (`3만 원` -> `value=30000`),
       together with the Korean numerals system entity
 - [ ] Typo tolerance (edit distance 1) via a Levenshtein automaton; costs

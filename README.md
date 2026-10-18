@@ -116,7 +116,9 @@ merged. Definitions can be used before they are defined.
 A pattern must match the **whole** input. Before matching, the input is
 normalized: whitespace runs collapse to one space, leading and trailing
 whitespace is dropped, and ASCII letters are matched case-insensitively.
-Slot text and offsets always refer to the original input.
+Decomposed Hangul (NFD, as in text copied from macOS file names) is composed
+into syllables first, in the input and in scripts alike, so it matches the
+precomposed form. Slot text and offsets always refer to the original input.
 
 Matching is language-neutral: Korean, English and mixed input (`OTP 재발급`)
 follow the same rules. Punctuation in the input is not stripped, so

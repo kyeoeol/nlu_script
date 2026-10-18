@@ -1,5 +1,6 @@
 import os
 import tempfile
+import unicodedata
 import unittest
 
 import nlu_script
@@ -49,6 +50,12 @@ class ScriptTest(unittest.TestCase):
             self.assertEqual(slot.text, currency)
             self.assertEqual(text[slot.begin:slot.end], currency)
             self.assertEqual(slot.attributes, {"code": "JPY"})
+
+    def test_decomposed_hangul_input_matches(self):
+        text = unicodedata.normalize("NFD", "체크카드 분실 신고")
+        slot = self.script.match(text)[0].slots[0]
+        self.assertEqual(text[slot.begin:slot.end], unicodedata.normalize("NFD", "체크카드"))
+        self.assertEqual(slot.attributes, {"type": "DEBIT"})
 
     def test_context_manager_closes_script(self):
         with nlu_script.Script("t\n    잔액 조회\n") as script:
