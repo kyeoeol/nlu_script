@@ -31,6 +31,7 @@ struct Match {
   std::string label;
   std::vector<Slot> slots;  // ordered by the position of their opening tag
   std::string tagged;       // original input with slot tags inserted
+  int line;                 // 1-based script line of the rule that matched
 };
 
 class CompileError : public std::runtime_error {

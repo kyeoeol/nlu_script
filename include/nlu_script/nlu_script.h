@@ -46,6 +46,8 @@ NLU_SCRIPT_API void nlu_result_free(nlu_result* result);
 NLU_SCRIPT_API size_t nlu_result_count(const nlu_result* result);
 NLU_SCRIPT_API const char* nlu_result_label(const nlu_result* result, size_t match);
 NLU_SCRIPT_API const char* nlu_result_tagged(const nlu_result* result, size_t match);
+/* 1-based script line of the rule that matched. */
+NLU_SCRIPT_API int nlu_result_line(const nlu_result* result, size_t match);
 
 NLU_SCRIPT_API size_t nlu_result_slot_count(const nlu_result* result, size_t match);
 NLU_SCRIPT_API const char* nlu_result_slot_name(const nlu_result* result, size_t match,

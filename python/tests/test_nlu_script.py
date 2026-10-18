@@ -35,6 +35,10 @@ class ScriptTest(unittest.TestCase):
         self.assertEqual([m.label for m in matches], ["card:lost"])
         self.assertEqual(matches[0].tagged, "<card type=\"DEBIT\">체크카드</card> 분실 신고")
 
+    def test_match_reports_the_line_of_the_rule_that_matched(self):
+        self.assertEqual(self.script.match("yen exchange rate")[0].line, 6)
+        self.assertEqual(self.script.match("신용카드 분실 신고")[0].line, 10)
+
     def test_no_match_returns_empty_list(self):
         self.assertEqual(self.script.match("thank you"), [])
 

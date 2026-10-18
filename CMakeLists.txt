@@ -51,17 +51,33 @@ foreach(target nlu_script_static nlu_script)
   target_link_libraries(${target} PUBLIC Threads::Threads)
 endforeach()
 
+# The script test runner (`--test`) is shared by the CLI and the test suite.
+add_library(nlu_script_tools STATIC tools/script_tests.cpp)
+target_include_directories(nlu_script_tools PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/tools)
+target_link_libraries(nlu_script_tools PUBLIC nlu_script_static)
+
 add_executable(nlu_script_cli tools/nlu_script_cli.cpp)
-target_link_libraries(nlu_script_cli PRIVATE nlu_script_static)
+target_link_libraries(nlu_script_cli PRIVATE nlu_script_tools)
 
 if(NLU_SCRIPT_BUILD_TESTS)
   enable_testing()
   add_executable(nlu_script_tests
     tests/test_main.cpp
     tests/test_pattern.cpp
-    tests/test_script.cpp)
-  target_link_libraries(nlu_script_tests PRIVATE nlu_script_static)
+    tests/test_script.cpp
+    tests/test_script_tests.cpp)
+  target_link_libraries(nlu_script_tests PRIVATE nlu_script_tools)
   add_test(NAME nlu_script_tests COMMAND nlu_script_tests)
+
+  # The demo script's own test cases, run the way script authors run theirs.
+  add_test(NAME nlu_script_demo_test
+    COMMAND nlu_script_cli --test examples/demo.nlu examples/demo.test
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+  # A failing case must make `--test` exit with failure.
+  add_test(NAME nlu_script_cli_test_failure
+    COMMAND nlu_script_cli --test examples/demo.nlu tests/data/demo_failing.test
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+  set_tests_properties(nlu_script_cli_test_failure PROPERTIES WILL_FAIL TRUE)
 
   add_executable(nlu_script_c_api_test tests/test_c_api.c)
   target_link_libraries(nlu_script_c_api_test PRIVATE nlu_script)

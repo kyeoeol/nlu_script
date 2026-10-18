@@ -1,0 +1,84 @@
+# Test cases for demo.nlu. Run them with:
+#   ./build/nlu_script_cli --test examples/demo.nlu examples/demo.test
+# Each sentence is followed by the indented output expected for it; '-' means
+# no label matches.
+
+# card:lost, card:freeze
+Report a lost Visa credit card
+    card:lost:Report a lost <card brand="VISA" type="CREDIT">Visa credit card</card>
+I lost my debit card
+    card:lost:I lost my <card type="DEBIT">debit card</card>
+마스터 체크카드를 분실했어요
+    card:lost:<card brand="MASTERCARD" type="DEBIT">마스터 체크카드</card>를 분실했어요
+Freeze my card ending in 1234
+    card:freeze:Freeze my card ending in <last4>1234</last4>
+끝자리 5678 카드 정지해주세요
+    card:freeze:끝자리 <last4>5678</last4> 카드 정지해주세요
+
+# transfer:send, transfer:status
+Send 50 dollars to Alex
+    transfer:send:Send <amount currency="USD">50</amount> dollars to <recipient>Alex</recipient>
+엄마한테 3만 원 보내줘
+    transfer:send:<recipient>엄마</recipient>한테 <amount currency="KRW">3만</amount> 원 보내줘
+송금이 안 들어갔어요
+    transfer:status:송금이 안 들어갔어요
+did my transfer go through
+    transfer:status:did my transfer go through
+
+# payment:refund, payment:installment
+환불해주세요
+    payment:refund:환불해주세요
+스타벅스 결제 환불해줘
+    payment:refund:<merchant>스타벅스</merchant> 결제 환불해줘
+refund my payment at Corner Bakery
+    payment:refund:refund my payment at <merchant>Corner Bakery</merchant>
+3 개월 할부로 바꿔주세요
+    payment:installment:<NUMBER>3</NUMBER> 개월 할부로 바꿔주세요
+split it into 6 monthly payments
+    payment:installment:split it into <NUMBER>6</NUMBER> monthly payments
+
+# exchange:rate
+오늘 달러 환율 알려줘
+    exchange:rate:오늘 <currency code="USD">달러</currency> 환율 알려줘
+what is the yen exchange rate
+    exchange:rate:what is the <currency code="JPY">yen</currency> exchange rate
+
+# account:close:product and account:close. Savings and deposits go to
+# account:close:product; account:close skips any account name mentioning them,
+# so a name that only contains one matches neither.
+적금 해지하고 싶어요
+    account:close:product:<product value="savings">적금</product> 해지하고 싶어요
+정기적금을 해지해주세요
+    account:close:product:<product value="savings">정기적금</product>을 해지해주세요
+close my fixed deposit account
+    account:close:product:close my <product value="deposit">fixed deposit</product> account
+청약통장을 해지해주세요
+    account:close:<account>청약통장</account>을 해지해주세요
+close my brokerage account
+    account:close:close my <account>brokerage</account> account
+close my joint savings account
+    -
+
+# account:phone, account:login, account:password:reset
+휴대폰 번호 010-9876-5432로 변경해주세요
+    account:phone:휴대폰 번호 <TELNUM>010-9876-5432</TELNUM>로 변경해주세요
+change my phone number to 01098765432
+    account:phone:change my phone number to <TELNUM>01098765432</TELNUM>
+로그인이 안 돼요
+    account:login:로그인이 안 돼요
+I can't sign in
+    account:login:I can't sign in
+재설정 비밀번호 해주세요
+    account:password:reset:재설정 비밀번호 해주세요
+reset password
+    account:password:reset:reset password
+I forgot my PIN
+    account:password:reset:I forgot my PIN
+
+# agent:connect, and no match
+상담원 연결해주세요
+    agent:connect:상담원 연결해주세요
+talk to a human
+    agent:connect:talk to a human
+thank you
+    -
