@@ -59,6 +59,7 @@ struct Edge {
 enum class Normalizer : std::uint8_t {
   None,
   KoreanNumber,  // value: the number written with digits and Korean numerals
+  DateTime,      // day_offset, weekday, month, hour, ...: see datetime.hpp
 };
 
 struct Action {

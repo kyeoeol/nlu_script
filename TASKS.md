@@ -98,14 +98,22 @@
 - [x] `# lint: allow-overlap A B ...` comments mark intended overlaps (`*`
       for every label); they are reported as allowed, and mistakes in such
       comments are findings. The demo marks its three, and `ctest` lints it
+- [x] `DATETIME` system entity (Korean and English): relative days, weeks,
+      months and years, weekdays, calendar dates, parts of the day and clock
+      times, normalized into `day_offset`, `week_offset`, `weekday`, `month`,
+      `day`, `part_of_day`, `hour` (24-hour when the part of day says),
+      `minute` and more; digits are range-checked by the grammar. System
+      entity grammars moved to `src/system_entities.cpp`. The demo has an
+      `agent:callback` label that uses it
 
 ## Next
 
-- [ ] Datetime extractor: a bundled script of datetime rules plus a
-      normalizer (relative days like `day="+1"`, `minute`, `part_of_day`), with
-      a short how-to
-- [ ] More system entities (dates, times, currency, ordinals, native Korean
-      numbers like 하나/둘/세, English number words)
+- [ ] More system entities (currency, ordinals, native Korean numbers like
+      하나/둘/세, English number words)
+- [ ] `DATETIME`: ranges (`3시부터 5시까지`, `from 3 to 5pm`), durations
+      (`2시간 뒤`, `in 2 hours`), weekday after a date (`3월 5일 월요일`), a time
+      before a date (`3pm tomorrow`), and a helper that resolves the attributes
+      against a reference time
 - [ ] `TELNUM` for non-Korean formats (e.g. `+1 555-123-4567`,
       `(555) 123-4567`); English sentences work today, but only with Korean
       numbers

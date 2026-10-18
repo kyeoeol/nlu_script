@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "nlu_script/nlu_script.hpp"
+#include "system_entities.hpp"
 
 namespace nlu {
 namespace detail {
@@ -18,127 +19,6 @@ constexpr std::size_t kMaxExclusionStates = 20000;
 
 [[noreturn]] void fail(const SourcePos& pos, const std::string& message) {
   throw CompileError(message, pos.line, pos.column);
-}
-
-// --- system entities ------------------------------------------------------
-
-std::shared_ptr<Node> node(Node::Kind kind) {
-  auto n = std::make_shared<Node>();
-  n->kind = kind;
-  return n;
-}
-
-NodePtr literal(const std::u32string& text) {
-  auto n = node(Node::Kind::Literal);
-  n->text = text;
-  return n;
-}
-
-NodePtr choice(std::vector<NodePtr> options) {
-  auto n = node(Node::Kind::Choice);
-  n->children = std::move(options);
-  return n;
-}
-
-NodePtr optional(NodePtr body) {
-  auto n = node(Node::Kind::Optional);
-  n->children.push_back(std::move(body));
-  return n;
-}
-
-NodePtr digit() {
-  std::vector<NodePtr> digits;
-  for (char32_t c = U'0'; c <= U'9'; ++c) digits.push_back(literal(std::u32string(1, c)));
-  return choice(std::move(digits));
-}
-
-// `body` repeated `min` to `max` (-1: unbounded) times, without spaces.
-NodePtr repeated(NodePtr body, int min, int max) {
-  auto n = node(Node::Kind::Repeat);
-  n->children.push_back(std::move(body));
-  n->min = min;
-  n->max = max;
-  n->soft_repeat = false;
-  return n;
-}
-
-NodePtr digits(int min, int max) { return repeated(digit(), min, max); }
-
-// Tokens joined without spaces.
-NodePtr glued(std::vector<NodePtr> items) {
-  auto n = node(Node::Kind::Sequence);
-  n->hard_joins.assign(items.size() - 1, true);
-  n->children = std::move(items);
-  return n;
-}
-
-// Tokens that may be separated by a space.
-NodePtr spaced(std::vector<NodePtr> items) {
-  auto n = node(Node::Kind::Sequence);
-  n->hard_joins.assign(items.size() - 1, false);
-  n->children = std::move(items);
-  return n;
-}
-
-NodePtr literals(const char32_t* const* words) {
-  std::vector<NodePtr> options;
-  for (; *words; ++words) options.push_back(literal(*words));
-  return choice(std::move(options));
-}
-
-// Numbers written with digits and Korean numerals: 35000, 35,000, 3만 5천,
-// 삼만오천, 2,500만, 1억 2천만. Below 만 a number is either digits or
-// numerals (with single digits allowed for numerals: 3천5백); 만, 억 and 조
-// groups may be separated by spaces. A space only ever separates two parts,
-// so the entity never ends in one.
-NodePtr korean_number() {
-  static const char32_t* const kSinoDigits[] = {U"일", U"이", U"삼", U"사", U"오",
-                                                U"육", U"칠", U"팔", U"구", nullptr};
-  static const char32_t* const kDigits[] = {U"1", U"2", U"3", U"4", U"5", U"6", U"7",
-                                            U"8", U"9", nullptr};
-  NodePtr sino = literals(kSinoDigits);
-  NodePtr d = choice({sino, literals(kDigits)});
-  NodePtr comma_groups =
-      glued({digits(1, 3), repeated(glued({literal(U","), digits(3, 3)}), 1, -1)});
-  NodePtr arabic = choice({comma_groups, digits(1, -1)});
-
-  // Below 10,000 in numerals: [d]천 [d]백 [d]십 [d], highest unit first.
-  NodePtr ten = glued({optional(d), literal(U"십"), optional(d)});
-  NodePtr hundred = glued({optional(d), literal(U"백"), optional(choice({ten, d}))});
-  NodePtr thousand = glued({optional(d), literal(U"천"), optional(choice({hundred, ten, d}))});
-  NodePtr small = choice({arabic, thousand, hundred, ten, sino});
-
-  // [small]만 [small], [small]억 [만 part | small], [small]조 [억 part | ...].
-  auto group = [&](const char32_t* unit) { return glued({optional(small), literal(unit)}); };
-  auto part = [&](const char32_t* unit, std::vector<NodePtr> lower) {
-    std::vector<NodePtr> options;
-    for (NodePtr& l : lower) options.push_back(spaced({group(unit), l}));
-    options.push_back(group(unit));
-    return choice(std::move(options));
-  };
-  NodePtr man = part(U"만", {small});
-  NodePtr eok = part(U"억", {man, small});
-  NodePtr jo = part(U"조", {eok, man, small});
-  return choice({jo, eok, man, small});
-}
-
-struct SystemEntity {
-  NodePtr body;
-  Normalizer normalizer;
-};
-
-const std::map<std::string, SystemEntity>& system_entities() {
-  static const std::map<std::string, SystemEntity> entities = [] {
-    std::map<std::string, SystemEntity> m;
-    m["NUMBER"] = {digits(1, -1), Normalizer::None};
-    NodePtr separator = optional(choice({literal(U"-"), literal(U" ")}));
-    m["TELNUM"] = {glued({literal(U"0"), digits(1, 2), separator, digits(3, 4), separator,
-                          digits(4, 4)}),
-                   Normalizer::None};
-    m["KO_NUMBER"] = {korean_number(), Normalizer::KoreanNumber};
-    return m;
-  }();
-  return entities;
 }
 
 // --- determinization, used to compile exclusions ----------------------------

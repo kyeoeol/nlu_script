@@ -290,8 +290,9 @@ space.
 | `` `@{NAME} `` | system entity, captured as slot `<NAME>` |
 
 System entities: `NUMBER` (digits), `TELNUM` (Korean phone numbers such as
-`010-9876-5432`, `031-765-4321`, `01098765432`) and `KO_NUMBER` (numbers in
-digits and Korean numerals, see below). They work the same in Korean and
+`010-9876-5432`, `031-765-4321`, `01098765432`), `KO_NUMBER` (numbers in
+digits and Korean numerals) and `DATETIME` (dates and times), described
+below. They work the same in Korean and
 English sentences (``change my phone number to `@{TELNUM}``); `TELNUM` does
 not yet recognize other countries' number formats.
 
@@ -307,6 +308,37 @@ sino-Korean digits 일 to 구 or Arabic digits). Its slot gets the number as a
 
 Values of 10^18 or more match without a `value`. Native Korean numbers
 (하나, 둘, 세) are not recognized.
+
+`DATETIME` matches dates and times in Korean and English and describes them
+with attributes relative to now, which the caller resolves against its own
+clock and time zone:
+
+```
+`@{DATETIME}::(에) 전화 주세요
+  "내일 오후 3시에 전화 주세요"
+  -> <DATETIME day_offset="+1" part_of_day="PM" hour="15">내일 오후 3시</DATETIME>에 전화 주세요
+call me back (at) `@{DATETIME}
+  "call me back next friday morning"
+  -> call me back <DATETIME week_offset="+1" weekday="FRI" part_of_day="MORNING">next friday morning</DATETIME>
+```
+
+| Written | Attributes |
+|---|---|
+| 오늘, 내일, 모레, 글피, 어제, 그제, 그저께; today, tomorrow, yesterday, the day after tomorrow | `day_offset` (`0`, `+1`, `-1`, ...) |
+| 이번/다음/지난 주, 담주; this/next/last week | `week_offset` |
+| 월요일 ... 일요일; monday ... sunday, next monday | `weekday` (`MON` ... `SUN`), `week_offset` |
+| 2026년, 3월, 5일, 삼월 십오일; march 5th, 5th of march, dec 31 | `year`, `month`, `day` |
+| 올해, 내년, 작년; 이번/다음/지난 달 | `year_offset`, `month_offset` |
+| 새벽, 아침, 오전, 낮, 점심, 오후, 저녁, 밤; morning, afternoon, evening, night, tonight, am, pm | `part_of_day` (`DAWN`, `MORNING`, `AM`, `DAY`, `NOON`, `PM`, `EVENING`, `NIGHT`) |
+| 3시, 세 시, 열두시, 15시, 30분, 반, 정오, 자정; 3pm, 3:30 pm, 15:30, 3 o'clock, noon, midnight | `hour`, `minute` |
+
+A date comes before a time (`다음 주 월요일 저녁 7시 반`, `tomorrow at 3pm`).
+`hour` is on a 24-hour clock when the part of the day settles it (오후 3시
+gives 15, 밤 11시 23, 밤 1시 1, 12am 0); otherwise it is the hour as
+written (세 시 gives 3). Digits are checked against the calendar and clock
+(13월, 32일, 25시 and 3시 60분 don't match); numerals out of range (십삼월)
+match without that attribute. Prepositions and particles around the entity
+(`at`, `on`, `에`) belong to the pattern.
 
 ### Slots and attributes
 
