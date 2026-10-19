@@ -192,6 +192,100 @@ static void test_compile_error(void) {
   nlu_string_free(error);
 }
 
+static void test_compile_diagnostics(void) {
+  /* The included file's name looks like the location part of an error. */
+  static const char* kPath = "nlu_script_c_api_diagnostics.nlu";
+  static const char* kMissing = "x: line 3, column 4: y.nlu";
+  nlu_diagnostics* diagnostics = NULL;
+  nlu_script* script;
+  FILE* f = fopen(kPath, "wb");
+  CHECK(f != NULL);
+  if (!f) return;
+  fprintf(f, "include %s\ncard:lost\n    [신용|체크카드 분실\n", kMissing);
+  fclose(f);
+  script = nlu_script_compile_file_diagnose(kPath, &diagnostics);
+  remove(kPath);
+  CHECK(script == NULL);
+  CHECK(nlu_diagnostics_count(diagnostics) == 2);
+  CHECK(strcmp(nlu_diagnostics_file(diagnostics, 0), kPath) == 0);
+  CHECK(nlu_diagnostics_line(diagnostics, 0) == 1);
+  CHECK(nlu_diagnostics_column(diagnostics, 0) == 9);
+  CHECK(strstr(nlu_diagnostics_message(diagnostics, 0), kMissing) != NULL);
+  CHECK(nlu_diagnostics_line(diagnostics, 1) == 3);
+  CHECK(nlu_diagnostics_column(diagnostics, 1) > 0);
+  CHECK(nlu_diagnostics_file(diagnostics, 2) == NULL);
+  CHECK(nlu_diagnostics_line(diagnostics, 2) == 0);
+  /* The text is the message nlu_script_compile_file reports. */
+  CHECK(strstr(nlu_diagnostics_text(diagnostics), nlu_diagnostics_message(diagnostics, 1)) !=
+        NULL);
+  nlu_diagnostics_free(diagnostics);
+
+  script = nlu_script_compile_diagnose("card\n    debit card\n", &diagnostics);
+  CHECK(script != NULL);
+  CHECK(diagnostics == NULL);
+  nlu_script_free(script);
+
+  /* A file that cannot be read is no compile error. */
+  script = nlu_script_compile_file_diagnose("/nonexistent/script.nlu", &diagnostics);
+  CHECK(script == NULL);
+  CHECK(nlu_diagnostics_count(diagnostics) == 0);
+  CHECK(strstr(nlu_diagnostics_text(diagnostics), "/nonexistent/script.nlu") != NULL);
+  nlu_diagnostics_free(diagnostics);
+}
+
+static void test_run_tests(void) {
+  nlu_script* script = nlu_script_compile(
+      "card:lost\n    I lost my debit card\nreport:any\n    I <?>+?\n", NULL, NULL, NULL);
+  nlu_test_report* report;
+  char* error = NULL;
+  CHECK(script != NULL);
+  if (!script) return;
+  report = nlu_script_run_tests(script,
+                                "I lost my debit card\n"
+                                "    card:lost:I lost my debit card\n"
+                                "thank you\n"
+                                "    card:lost:thank you\n"
+                                "I lost my wallet\n"
+                                "    -\n",
+                                "rules.test", 0, &error);
+  CHECK(error == NULL);
+  CHECK(nlu_test_report_passed(report) == 0);
+  CHECK(nlu_test_report_failed(report) == 3);
+  /* Two labels match where one was expected. */
+  CHECK(nlu_test_report_line(report, 0) == 1);
+  CHECK(strcmp(nlu_test_report_input(report, 0), "I lost my debit card") == 0);
+  CHECK(nlu_test_report_expected_count(report, 0) == 1);
+  CHECK(nlu_test_report_actual_count(report, 0) == 2);
+  CHECK(strcmp(nlu_test_report_actual(report, 0, 1), "report:any:I lost my debit card") == 0);
+  CHECK(nlu_test_report_actual_line(report, 0, 1) == 4);
+  CHECK(strcmp(nlu_test_report_actual_file(report, 0, 1), "") == 0);
+  /* Nothing matches: the actual output is "-", with no rule behind it. */
+  CHECK(nlu_test_report_line(report, 1) == 3);
+  CHECK(nlu_test_report_actual_count(report, 1) == 1);
+  CHECK(strcmp(nlu_test_report_actual(report, 1, 0), "-") == 0);
+  CHECK(nlu_test_report_actual_line(report, 1, 0) == 0);
+  CHECK(strcmp(nlu_test_report_actual_file(report, 1, 0), "") == 0);
+  CHECK(strcmp(nlu_test_report_expected(report, 2, 0), "-") == 0);
+  CHECK(nlu_test_report_input(report, 3) == NULL);
+  CHECK(nlu_test_report_actual(report, 0, 2) == NULL);
+  nlu_test_report_free(report);
+
+  /* With `best`, the most specific label alone passes. */
+  report = nlu_script_run_tests(
+      script, "I lost my debit card\n    card:lost:I lost my debit card\n", NULL, 1, NULL);
+  CHECK(nlu_test_report_passed(report) == 1);
+  CHECK(nlu_test_report_failed(report) == 0);
+  nlu_test_report_free(report);
+
+  CHECK(nlu_script_run_tests(script, "    -\n", "rules.test", 0, &error) == NULL);
+  CHECK(error != NULL && strstr(error, "rules.test:1:") == error);
+  nlu_string_free(error);
+  CHECK(nlu_script_run_tests_file(script, "/nonexistent/rules.test", 0, &error) == NULL);
+  CHECK(error != NULL && strstr(error, "/nonexistent/rules.test") != NULL);
+  nlu_string_free(error);
+  nlu_script_free(script);
+}
+
 static void test_missing_file(void) {
   char* error = NULL;
   int line = -1;
@@ -211,6 +305,8 @@ int main(void) {
   test_search();
   test_save_and_load();
   test_compile_error();
+  test_compile_diagnostics();
+  test_run_tests();
   test_missing_file();
   printf("C API: %d failed checks\n", failures);
   return failures == 0 ? 0 : 1;

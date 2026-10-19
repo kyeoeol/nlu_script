@@ -74,6 +74,8 @@ class ScriptTest(unittest.TestCase):
             self.assertEqual((failure.line, failure.input), (4, "엔화 환율"))
             self.assertEqual(failure.expected, ["card:lost:엔화 환율"])
             self.assertEqual(failure.actual, ["exchange:rate:<통화 code=\"JPY\">엔화</통화> 환율"])
+            # The rule behind each actual line, as `nlu_script_cli --test` shows it.
+            self.assertEqual(failure.rules, [("", 5)])
         finally:
             os.remove(path)
 
@@ -163,6 +165,24 @@ class CompileTest(unittest.TestCase):
         self.assertEqual(caught.exception.line, 2)
         self.assertIn("@{card}", caught.exception.errors[1].message)
         self.assertEqual(caught.exception.errors[1].file, "")
+
+    def test_compile_errors_are_read_field_by_field(self):
+        # The included file's name looks like the location part of an error.
+        directory = tempfile.mkdtemp()
+        try:
+            main = os.path.join(directory, "main.nlu")
+            with open(main, "w", encoding="utf-8") as f:
+                f.write("include x: line 3, column 4: y.nlu\ncard\n    [unclosed\n")
+            with self.assertRaises(nlu_script.CompileError) as caught:
+                nlu_script.Script.from_file(main)
+            errors = caught.exception.errors
+            self.assertEqual([(e.file, e.line, e.column) for e in errors],
+                             [(main, 1, 9), (main, 3, errors[1].column)])
+            self.assertIn("x: line 3, column 4: y.nlu", errors[0].message)
+            self.assertEqual((caught.exception.line, caught.exception.column), (1, 9))
+        finally:
+            os.remove(main)
+            os.rmdir(directory)
 
     def test_from_file(self):
         handle, path = tempfile.mkstemp(suffix=".nlu")
