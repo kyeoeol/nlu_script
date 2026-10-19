@@ -1,19 +1,19 @@
 #include "system_entities.hpp"
 
+#include <iterator>
 #include <memory>
+#include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
+
+#include "datetime.hpp"
+#include "vocabulary.hpp"
 
 namespace nlu {
 namespace detail {
 
 namespace {
-
-// Null-terminated word lists, shared by the entities that read them.
-const char32_t* const kSinoDigits[] = {U"일", U"이", U"삼", U"사", U"오",
-                                       U"육", U"칠", U"팔", U"구", nullptr};
-const char32_t* const kNativeTens[] = {U"열", U"스물", U"서른", U"마흔", U"쉰",
-                                       U"예순", U"일흔", U"여든", U"아흔", nullptr};
 
 // --- building blocks --------------------------------------------------------
 
@@ -78,9 +78,45 @@ NodePtr spaced(std::vector<NodePtr> items) {
   return n;
 }
 
-NodePtr literals(const char32_t* const* words) {
+// The text of a table entry: the entry itself, or its `text`.
+const char32_t* text_of(const char32_t* text) { return text; }
+template <typename Word>
+const char32_t* text_of(const Word& w) {
+  return w.text;
+}
+
+// The words of `table`.
+template <typename Table>
+std::vector<NodePtr> literal_list(const Table& table) {
   std::vector<NodePtr> options;
-  for (; *words; ++words) options.push_back(literal(*words));
+  for (const auto& w : table) options.push_back(literal(text_of(w)));
+  return options;
+}
+template <typename Table>
+NodePtr literals(const Table& table) {
+  return choice(literal_list(table));
+}
+
+// One of the words of `table` whose value lies in [low, high].
+template <std::size_t N>
+NodePtr literals(const NumberWord (&table)[N], int low, int high) {
+  std::vector<NodePtr> options;
+  for (const NumberWord& w : table)
+    if (w.value >= low && w.value <= high) options.push_back(literal(w.text));
+  return choice(std::move(options));
+}
+
+// One of the characters of `chars`.
+NodePtr characters(std::u32string_view chars) {
+  std::vector<NodePtr> options;
+  for (char32_t c : chars) options.push_back(literal(std::u32string(1, c)));
+  return choice(std::move(options));
+}
+
+// Native Korean numbers from 1 to `max` in the form used before a counter.
+NodePtr native_counting_numbers(int max) {
+  std::vector<NodePtr> options;
+  for (int n = 1; n <= max; ++n) options.push_back(literal(native_counting_form(n)));
   return choice(std::move(options));
 }
 
@@ -100,11 +136,9 @@ NodePtr arabic_number() {
 // Native Korean numbers from 1 to 99: 하나, 열, 스물셋, 아흔아홉, and the
 // forms used before a counter (한, 두, 세, 네, 스무).
 NodePtr native_korean_number() {
-  static const char32_t* const kOnes[] = {U"하나", U"둘", U"셋", U"넷", U"다섯",
-                                          U"여섯", U"일곱", U"여덟", U"아홉", nullptr};
-  static const char32_t* const kCountingOnes[] = {U"한", U"두", U"세", U"네", nullptr};
-  NodePtr ones = choice({literals(kOnes), literals(kCountingOnes)});
-  return choice({glued({literals(kNativeTens), optional(ones)}), ones, literal(U"스무")});
+  NodePtr ones = choice({literals(kNativeOnes), literals(kNativeCountingOnes)});
+  return choice({glued({literals(kNativeTens), optional(ones)}), ones,
+                 literal(kNativeCountingTwenty.text)});
 }
 
 // Numbers written with digits and Korean numerals: 35000, 35,000, 3만 5천,
@@ -113,10 +147,8 @@ NodePtr native_korean_number() {
 // groups may be separated by spaces. A space only ever separates two parts,
 // so the entity never ends in one.
 NodePtr korean_number() {
-  static const char32_t* const kDigits[] = {U"1", U"2", U"3", U"4", U"5", U"6", U"7",
-                                            U"8", U"9", nullptr};
-  NodePtr sino = literals(kSinoDigits);
-  NodePtr d = choice({sino, literals(kDigits)});
+  NodePtr sino = characters(kSinoDigits);
+  NodePtr d = choice({sino, range(U'1', U'9')});
   NodePtr arabic = arabic_number();
 
   // Below 10,000 in numerals: [d]천 [d]백 [d]십 [d], highest unit first.
@@ -133,21 +165,14 @@ NodePtr korean_number() {
 
 // --- ORDINAL, EN_NUMBER, MONEY ---------------------------------------------------
 
-const char32_t* const kEnglishUnits[] = {U"one", U"two", U"three", U"four", U"five", U"six",
-                                         U"seven", U"eight", U"nine", nullptr};
-const char32_t* const kEnglishTeens[] = {U"ten",      U"eleven",  U"twelve",   U"thirteen",
-                                         U"fourteen", U"fifteen", U"sixteen",  U"seventeen",
-                                         U"eighteen", U"nineteen", nullptr};
-const char32_t* const kEnglishTens[] = {U"twenty", U"thirty",  U"forty",  U"fifty",
-                                        U"sixty",  U"seventy", U"eighty", U"ninety", nullptr};
-
 // One to 999,999,999,999 in English words, or in digits: twenty-one, two
 // hundred and five, three thousand five hundred, 3 million, 1,250.
 NodePtr english_number() {
-  NodePtr units = literals(kEnglishUnits);
+  NodePtr units = literals(kEnglishSmall, 1, 9);
   NodePtr tens = literals(kEnglishTens);
   NodePtr below_100 = choice({glued({tens, literal(U"-"), units}), spaced({tens, units}), tens,
-                              literals(kEnglishTeens), units, literal(U"zero")});
+                              literals(kEnglishSmall, 10, 19), units,
+                              literal(word_for(kEnglishSmall, 0))});
   NodePtr hundreds_of = spaced({choice({units, literal(U"a")}), literal(U"hundred")});
   NodePtr below_1000 = choice({spaced({hundreds_of, literal(U"and"), below_100}),
                                spaced({hundreds_of, below_100}), hundreds_of, below_100});
@@ -160,14 +185,17 @@ NodePtr english_number() {
 
 // 첫 번째, 두번째, 3번째, 셋째; first, twelfth, twenty-first, 21st.
 NodePtr ordinal() {
-  static const char32_t* const kCountingOnes[] = {U"한", U"두", U"세", U"네", U"다섯",
-                                                  U"여섯", U"일곱", U"여덟", U"아홉", nullptr};
-  static const char32_t* const kTh[] = {U"첫", U"둘", U"셋", U"넷", U"다섯", U"여섯",
-                                        U"일곱", U"여덟", U"아홉", U"열", nullptr};
-  NodePtr counting = choice({glued({literals(kNativeTens), optional(literals(kCountingOnes))}),
-                             literals(kCountingOnes), literal(U"첫"), literal(U"스무")});
+  // N번째 counts in the form used before a counter, N째 in the one said
+  // alone (셋째), except for 첫째.
+  NodePtr counting_ones = native_counting_numbers(9);
+  NodePtr counting = choice({glued({literals(kNativeTens), optional(counting_ones)}), counting_ones,
+                             literal(kNativeFirst.text), literal(kNativeCountingTwenty.text)});
+  std::vector<NodePtr> th = {literal(kNativeFirst.text)};
+  for (const NumberWord& w : kNativeOnes)
+    if (w.value >= 2) th.push_back(literal(w.text));
+  th.push_back(literal(word_for(kNativeTens, 10)));
   NodePtr korean = choice({spaced({choice({counting, digits(1, 3)}), literal(U"번째")}),
-                           glued({literals(kTh), literal(U"째")})});
+                           glued({choice(std::move(th)), literal(U"째")})});
 
   // Digits with the suffix their last digits call for: 1st, 11th, 21st, 3rd.
   NodePtr not_one = choice({literal(U"0"), range(U'2', U'9')});
@@ -176,18 +204,10 @@ NodePtr ordinal() {
                              glued({lead, literal(U"1st")}), glued({lead, literal(U"2nd")}),
                              glued({lead, literal(U"3rd")}),
                              glued({lead, choice({literal(U"0"), range(U'4', U'9')}), literal(U"th")})});
-  static const char32_t* const kOnesOrdinal[] = {U"first", U"second", U"third", U"fourth",
-                                                 U"fifth", U"sixth",  U"seventh", U"eighth",
-                                                 U"ninth", nullptr};
-  static const char32_t* const kOtherOrdinals[] = {
-      U"tenth",       U"eleventh",   U"twelfth",     U"thirteenth", U"fourteenth",
-      U"fifteenth",   U"sixteenth",  U"seventeenth", U"eighteenth", U"nineteenth",
-      U"twentieth",   U"thirtieth",  U"fortieth",    U"fiftieth",   U"sixtieth",
-      U"seventieth",  U"eightieth",  U"ninetieth",   nullptr};
-  NodePtr ones = literals(kOnesOrdinal);
+  NodePtr ones = literals(kEnglishOrdinals, 1, 9);
   NodePtr tens = literals(kEnglishTens);
   NodePtr english = choice({glued({tens, literal(U"-"), ones}), spaced({tens, ones}), ones,
-                            literals(kOtherOrdinals), suffixed});
+                            literals(kEnglishOrdinals, 10, 99), suffixed});
   return choice({korean, english});
 }
 
@@ -196,18 +216,10 @@ NodePtr ordinal() {
 NodePtr money() {
   NodePtr decimal =
       glued({arabic_number(), optional(glued({literal(U"."), digits(1, 2)}))});
-  static const char32_t* const kCurrenciesKo[] = {U"원", U"달러", U"불", U"엔", U"유로",
-                                                  U"위안", U"파운드", nullptr};
-  static const char32_t* const kSymbols[] = {U"$", U"₩", U"€", U"£", U"¥", nullptr};
-  static const char32_t* const kCurrenciesEn[] = {
-      U"dollar", U"dollars", U"buck", U"bucks", U"euro",  U"euros", U"yen",
-      U"won",    U"pound",   U"pounds", U"yuan", nullptr};
-  static const char32_t* const kCodes[] = {U"usd", U"krw", U"eur", U"jpy", U"gbp", U"cny",
-                                           nullptr};
-  NodePtr codes = literals(kCodes);
-  return choice({spaced({choice({korean_number(), decimal}), literals(kCurrenciesKo)}),
-                 spaced({literals(kSymbols), decimal}),
-                 spaced({choice({decimal, english_number()}), literals(kCurrenciesEn)}),
+  NodePtr codes = literals(kCurrencyCodes);
+  return choice({spaced({choice({korean_number(), decimal}), literals(kCurrencyWordsKo)}),
+                 spaced({literals(kCurrencySymbols), decimal}),
+                 spaced({choice({decimal, english_number()}), literals(kCurrencyWordsEn)}),
                  spaced({codes, decimal}), spaced({decimal, codes})});
 }
 
@@ -256,59 +268,50 @@ NodePtr minute_digits() {
 
 // Dates and times in Korean and English, such as 내일 오후 3시, 다음 주 월요일,
 // 2026년 3월 5일, 세 시 반, tomorrow 3pm, next monday, march 5th, 15:30. The
-// words and numbers must match the attributes datetime_attributes() reads.
+// words come from vocabulary.hpp, which datetime_attributes() reads too.
 NodePtr datetime() {
-  NodePtr sino_digit = literals(kSinoDigits);
+  NodePtr sino_digit = characters(kSinoDigits);
   NodePtr sino_upto_99 = choice(
       {glued({optional(sino_digit), literal(U"십"), optional(sino_digit)}), sino_digit});
 
   // Korean dates.
-  static const char32_t* const kRelativeDays[] = {U"오늘", U"내일", U"모레", U"글피",
-                                                  U"어제", U"그제", U"그저께", nullptr};
-  static const char32_t* const kWeekdaysKo[] = {U"월", U"화", U"수", U"목",
-                                                U"금", U"토", U"일", nullptr};
-  static const char32_t* const kWhichKo[] = {U"이번", U"다음", U"지난", U"저번", nullptr};
-  static const char32_t* const kRelativeYears[] = {U"올해", U"내년", U"작년", U"재작년",
-                                                   nullptr};
   NodePtr which_ko = literals(kWhichKo);
   NodePtr week_ko = choice({spaced({which_ko, literal(U"주")}), literal(U"담주")});
-  NodePtr weekday_ko = glued({literals(kWeekdaysKo), literal(U"요일")});
+  NodePtr weekday_ko = glued({characters(kWeekdaysKo), literal(U"요일")});
   NodePtr week_part_ko = in_order({week_ko, weekday_ko});
   NodePtr year_ko = choice({glued({choice({digits(4, 4), digits(2, 2)}), literal(U"년")}),
-                            literals(kRelativeYears)});
+                            literals(kRelativeYearsKo)});
   NodePtr month_ko = choice({glued({choice({month_digits(), sino_upto_99}), literal(U"월")}),
                              spaced({which_ko, literal(U"달")})});
   NodePtr day_ko = glued({choice({day_digits(), sino_upto_99}), literal(U"일")});
-  NodePtr date_ko = choice({literals(kRelativeDays), week_part_ko,
+  NodePtr date_ko = choice({literals(kRelativeDaysKo), week_part_ko,
                             in_order({year_ko, month_ko, day_ko, weekday_ko})});
 
   // Korean times.
-  static const char32_t* const kNativeHours[] = {U"한", U"두", U"세", U"네", U"다섯",
-                                                 U"여섯", U"일곱", U"여덟", U"아홉", U"열",
-                                                 U"열한", U"열두", nullptr};
-  static const char32_t* const kPartsKo[] = {U"새벽", U"아침", U"오전", U"낮", U"점심",
-                                             U"오후", U"저녁", U"밤", nullptr};
+  NodePtr native_hour = native_counting_numbers(kMaxWordHour);
   NodePtr hour_ko =
-      spaced({choice({hour24_digits(), literals(kNativeHours), sino_upto_99}), literal(U"시")});
+      spaced({choice({hour24_digits(), native_hour, sino_upto_99}), literal(U"시")});
   NodePtr minute_ko =
       choice({spaced({choice({minute_digits(), sino_upto_99}), literal(U"분")}), literal(U"반")});
   NodePtr clock_ko = choice({spaced({hour_ko, minute_ko}), hour_ko});
-  NodePtr part_ko = literals(kPartsKo);
-  NodePtr time_ko = choice({spaced({part_ko, clock_ko}), clock_ko, part_ko, literal(U"정오"),
-                            literal(U"자정")});
+  NodePtr part_ko = literals(kPartsOfDayKo);
+  std::vector<NodePtr> times_ko = {spaced({part_ko, clock_ko}), clock_ko, part_ko};
+  for (const NumberWord& w : kClockWordsKo) times_ko.push_back(literal(w.text));
+  NodePtr time_ko = choice(std::move(times_ko));
   NodePtr single_ko = in_order({date_ko, time_ko});
 
   // Korean durations: 2시간 뒤, 1시간 30분 후, 이틀 전, 한 달 후.
-  static const char32_t* const kDayCounts[] = {U"하루", U"이틀", U"사흘", U"나흘", nullptr};
-  NodePtr count_ko = choice({digits(1, 3), sino_upto_99, literals(kNativeHours)});
-  auto amount_ko = [&](std::vector<NodePtr> units) {
-    return spaced({count_ko, choice(std::move(units))});
-  };
-  NodePtr span_ko = in_order(
-      {amount_ko({literal(U"년")}), amount_ko({literal(U"개월"), literal(U"달")}),
-       amount_ko({literal(U"주"), literal(U"주일")}),
-       choice({amount_ko({literal(U"일")}), literals(kDayCounts)}), amount_ko({literal(U"시간")}),
-       amount_ko({literal(U"분")})});
+  NodePtr count_ko = choice({digits(1, 3), sino_upto_99, native_hour});
+  std::vector<NodePtr> amounts_ko;
+  for (std::size_t grain = 0; grain < std::size(kGrains); ++grain) {
+    std::vector<NodePtr> units;
+    for (const DurationUnit& u : kDurationUnitsKo)
+      if (u.grain == static_cast<int>(grain)) units.push_back(literal(u.text));
+    NodePtr amount = spaced({count_ko, choice(std::move(units))});
+    if (std::string(kGrains[grain]) == "day") amount = choice({amount, literals(kDayCountsKo)});
+    amounts_ko.push_back(amount);
+  }
+  NodePtr span_ko = in_order(std::move(amounts_ko));
   NodePtr duration_ko = spaced({span_ko, choice({literal(U"뒤"), literal(U"후"), literal(U"전")})});
 
   // Korean ranges: 3시부터 5시까지, 3시에서 5시 사이, 3시~5시, 3~5시.
@@ -320,18 +323,7 @@ NodePtr datetime() {
        spaced({single_ko, dash, single_ko}), spaced({hour24_digits(), dash, hour_ko})});
 
   // English dates.
-  static const char32_t* const kRelativeDaysEn[] = {
-      U"today", U"tomorrow", U"yesterday", U"the day after tomorrow",
-      U"the day before yesterday", nullptr};
-  static const char32_t* const kWeekdaysEn[] = {U"monday", U"tuesday", U"wednesday",
-                                                U"thursday", U"friday", U"saturday",
-                                                U"sunday", nullptr};
-  static const char32_t* const kMonthsEn[] = {
-      U"january", U"february", U"march", U"april", U"may", U"june", U"july", U"august",
-      U"september", U"october", U"november", U"december", U"jan", U"feb", U"mar", U"apr",
-      U"jun", U"jul", U"aug", U"sep", U"sept", U"oct", U"nov", U"dec", nullptr};
-  static const char32_t* const kWhichEn[] = {U"this", U"next", U"last", nullptr};
-  static const char32_t* const kOrdinals[] = {U"st", U"nd", U"rd", U"th", nullptr};
+  static const char32_t* const kOrdinals[] = {U"st", U"nd", U"rd", U"th"};
   NodePtr which_en = literals(kWhichEn);
   NodePtr weekday_en = literals(kWeekdaysEn);
   NodePtr week_en = choice({spaced({which_en, weekday_en}), weekday_en,
@@ -342,18 +334,13 @@ NodePtr datetime() {
                             spaced({day_en, literal(U"of"), month_en})});
 
   // English times.
-  static const char32_t* const kAmPm[] = {U"am", U"pm", U"a.m.", U"p.m.", nullptr};
-  static const char32_t* const kPartsEn[] = {
-      U"morning", U"afternoon", U"evening", U"night", U"in the morning",
-      U"in the afternoon", U"in the evening", U"at night", U"this morning",
-      U"this afternoon", U"this evening", U"tonight", nullptr};
   NodePtr minutes_en = glued({literal(U":"), range(U'0', U'5'), range(U'0', U'9')});
-  NodePtr clock_en =
-      choice({spaced({glued({hour12_digits(), optional(minutes_en)}), literals(kAmPm)}),
-              glued({hour24_digits(), minutes_en}),
-              spaced({hour12_digits(), literal(U"o'clock")}), literal(U"noon"),
-              literal(U"midnight")});
-  NodePtr part_en = literals(kPartsEn);
+  std::vector<NodePtr> clocks_en = {
+      spaced({glued({hour12_digits(), optional(minutes_en)}), literals(kAmPm)}),
+      glued({hour24_digits(), minutes_en}), spaced({hour12_digits(), literal(U"o'clock")})};
+  for (const NumberWord& w : kClockWordsEn) clocks_en.push_back(literal(w.text));
+  NodePtr clock_en = choice(std::move(clocks_en));
+  NodePtr part_en = literals(kPartsOfDayEn);
   NodePtr time_en = choice({spaced({clock_en, part_en}), clock_en, part_en});
 
   // "tomorrow at 3pm": `at` may join a date and a time; "3pm tomorrow" and
@@ -365,16 +352,21 @@ NodePtr datetime() {
               time_en});
 
   // English durations: in 2 hours, in an hour, 3 days ago, 2 weeks from now.
-  static const char32_t* const kCountsEn[] = {
-      U"a",   U"an",    U"one",   U"two",  U"three",  U"four",   U"five", U"six",
-      U"seven", U"eight", U"nine", U"ten", U"eleven", U"twelve", nullptr};
-  NodePtr count_en = choice({digits(1, 3), literals(kCountsEn)});
-  auto amount_en = [&](const char32_t* unit) {
-    std::u32string plural = std::u32string(unit) + U"s";
-    return spaced({count_en, choice({literal(unit), literal(plural)})});
-  };
-  NodePtr span_en = in_order({amount_en(U"year"), amount_en(U"month"), amount_en(U"week"),
-                              amount_en(U"day"), amount_en(U"hour"), amount_en(U"minute")});
+  std::vector<NodePtr> counts_en = literal_list(kCountArticlesEn);
+  for (const NumberWord& w : kEnglishSmall)
+    if (w.value >= 1 && w.value <= kMaxWordHour) counts_en.push_back(literal(w.text));
+  NodePtr count_en = choice({digits(1, 3), choice(std::move(counts_en))});
+  std::vector<NodePtr> amounts_en;
+  for (std::size_t grain = 0; grain < std::size(kGrains); ++grain) {
+    std::vector<NodePtr> units;
+    for (const DurationUnit& u : kDurationUnitsEn) {
+      if (u.grain != static_cast<int>(grain)) continue;
+      units.push_back(literal(u.text));
+      units.push_back(literal(std::u32string(u.text) + U"s"));
+    }
+    amounts_en.push_back(spaced({count_en, choice(std::move(units))}));
+  }
+  NodePtr span_en = in_order(std::move(amounts_en));
   NodePtr duration_en =
       choice({spaced({literal(U"in"), span_en}),
               spaced({span_en, choice({literal(U"later"), literal(U"ago"),
