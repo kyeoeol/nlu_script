@@ -95,8 +95,13 @@ rules.test:2: I lost my debit card
 ```
 
 The exit status is 0 when every case passes and 1 otherwise, so the command
-can run in CI. From Python, `script.run_tests("rules.test")` runs the same
-file and returns a `TestReport(passed, failed, failures)`.
+can run in CI. The library runs the same files: `Script::run_tests(text,
+name)` and `Script::run_tests_file(path)` in C++ return a `TestReport` whose
+failures hold the expected and actual lines and the matches behind them;
+`nlu_script_run_tests` / `nlu_script_run_tests_file` in C; and
+`script.run_tests("rules.test")` in Python returns a `TestReport(passed,
+failed, failures)`, each failure a `TestFailure(line, input, expected, actual,
+rules)` with the `(file, line)` of the rule behind each actual line.
 
 ## Searching free text
 
@@ -535,7 +540,9 @@ Compiling reports every error in the script at once: `CompileError::errors()`
 lists them by position (`line`, `column`, `message`), and `what()` has one per
 line. A broken label or definition line hides the lines indented under it, so
 one mistake is reported once. The C API returns the same lines in its error
-message, Python's `CompileError.errors` as `(line, column, message)` tuples,
+message, and each error with its `line`, `column`, `message` and `file` from
+`nlu_script_compile_diagnose` (see [C API](#c-api)); Python's
+`CompileError.errors` lists them as `Diagnostic(line, column, message, file)`,
 and the CLI prints each as `rules.nlu:3:5: message`.
 
 `Script::match` and `Script::search` are thread-safe, and concurrent calls
@@ -587,6 +594,23 @@ for (size_t i = 0; i < nlu_result_count(result); ++i)
          nlu_result_specificity(result, i));
 nlu_result_free(result);
 nlu_script_free(script);
+```
+
+For every compile error with its location, compile with
+`nlu_script_compile_diagnose` (or `nlu_script_compile_file_diagnose`):
+
+```c
+nlu_diagnostics* diagnostics = NULL;
+nlu_script* script = nlu_script_compile_file_diagnose("rules.nlu", &diagnostics);
+if (!script && diagnostics) {
+  for (size_t i = 0; i < nlu_diagnostics_count(diagnostics); ++i)
+    fprintf(stderr, "%s:%d:%d: %s\n", nlu_diagnostics_file(diagnostics, i),
+            nlu_diagnostics_line(diagnostics, i), nlu_diagnostics_column(diagnostics, i),
+            nlu_diagnostics_message(diagnostics, i));
+  if (nlu_diagnostics_count(diagnostics) == 0)  /* not a compile error */
+    fprintf(stderr, "%s\n", nlu_diagnostics_text(diagnostics));
+  nlu_diagnostics_free(diagnostics);
+}
 ```
 
 ## Python

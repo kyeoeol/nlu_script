@@ -202,6 +202,24 @@
       excluded wildcard no longer counts as pattern text in `specificity` or
       in lint's wildcard-free copies; `resolve_datetime()` ignores values out
       of range and clamps `now`, so caller input can't overflow
+- [x] One source for system entity vocabulary: `src/vocabulary.hpp` has one
+      table per vocabulary (numerals, English number and ordinal words,
+      currencies, relative days, weekdays, months, parts of the day, clock
+      words, duration units, day counts), read by both the grammar and the
+      value readers; native hours and counts come from the counting forms,
+      and the readers' space-less and plural forms from the tables. Same
+      compiled bytes and attributes as before on 7,661 inputs
+- [x] Structured diagnostics in the C API: `nlu_script_compile_diagnose` /
+      `nlu_script_compile_file_diagnose` return every compile error with its
+      line, column, message and file (`nlu_diagnostics_*`). Python reads them
+      instead of parsing the joined message with a regex, which split a file
+      name containing `: line 3, column 4: ` in the wrong place
+- [x] One script test runner: `Script::run_tests` / `run_tests_file` and
+      `output_lines` moved from the CLI's `nlu_script_tools` library into the
+      library (C API `nlu_script_run_tests`, `nlu_test_report_*`). Python's
+      `run_tests` calls it instead of its own copy, which had drifted (any
+      Unicode space counted as indentation), and its failures now carry the
+      rule behind each actual line (`TestFailure.rules`)
 - [x] `search()` runs on the shared lazy DFA (`LazyDfa::run` from each
       position) instead of determinizing from scratch on every call, so
       `cache_stats()` now counts search traffic too. A warm search of a
@@ -221,13 +239,6 @@
 
 ## Next
 
-- [ ] Structured diagnostics in the C API, so Python stops parsing
-      `CompileError::what()` with a regex
-- [ ] One script test runner: move `tools/script_tests.cpp` into the library
-      (and the C API) so Python's `run_tests` stops re-implementing it
-- [ ] One source for system entity vocabulary: the grammar in
-      `system_entities.cpp` and the value readers in `datetime.cpp` /
-      `numbers.cpp` list the same words separately
 - [ ] The DFA cache lock yields in a loop while it waits, so threads waiting
       out a long eviction (a full 200,000-state cache) stay busy; block after
       a while instead (C++20 `std::atomic::wait`, or a fallback mutex)

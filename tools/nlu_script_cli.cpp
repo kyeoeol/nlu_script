@@ -6,8 +6,8 @@
 // With --save, compiles the script and saves it for loading without
 // compiling (Script::save); SCRIPT may be such a file anywhere.
 //
-// With --test, runs script test files instead (see script_tests.hpp) and
-// exits with 1 if any case fails. With --lint, reports labels that match the
+// With --test, runs script test files instead (Script::run_tests) and exits
+// with 1 if any case fails. With --lint, reports labels that match the
 // same input and unused definitions, and exits with 1 if it finds any.
 #include <algorithm>
 #include <fstream>
@@ -16,7 +16,6 @@
 #include <vector>
 
 #include "nlu_script/nlu_script.hpp"
-#include "script_tests.hpp"
 
 namespace {
 
@@ -39,17 +38,26 @@ int usage(const char* program) {
 
 int run_tests(const std::string& script_path, const std::vector<std::string>& tests, bool best) {
   nlu::Script script = open_script(script_path);
-  nlu_tools::TestSummary total;
+  int passed = 0;
+  std::size_t failed = 0;
   for (const std::string& path : tests) {
-    std::ifstream in(path, std::ios::binary);
-    if (!in) throw std::runtime_error("cannot open " + path);
-    nlu_tools::TestSummary s =
-        nlu_tools::run_script_tests(script, script_path, in, path, std::cout, best);
-    total.passed += s.passed;
-    total.failed += s.failed;
+    nlu::TestReport report = script.run_tests_file(path, best);
+    passed += report.passed;
+    failed += report.failures.size();
+    for (const nlu::TestFailure& f : report.failures) {
+      std::cout << path << ":" << f.line << ": " << f.input << "\n";
+      for (const std::string& line : f.expected) std::cout << "  expected: " << line << "\n";
+      for (std::size_t i = 0; i < f.actual.size(); ++i) {
+        std::cout << "  actual:   " << f.actual[i];
+        if (i < f.matches.size())
+          std::cout << "  (" << (f.matches[i].file.empty() ? script_path : f.matches[i].file)
+                    << ":" << f.matches[i].line << ")";
+        std::cout << "\n";
+      }
+    }
   }
-  std::cout << total.passed << " passed, " << total.failed << " failed\n";
-  return total.failed == 0 ? 0 : 1;
+  std::cout << passed << " passed, " << failed << " failed\n";
+  return failed == 0 ? 0 : 1;
 }
 
 int run_lint(const std::string& script_path, bool best, bool verbose) {
@@ -134,7 +142,7 @@ int main(int argc, char** argv) {
     while (std::getline(std::cin, line)) {
       std::vector<nlu::Match> matches =
           search ? script.search(line) : best ? script.match_best(line) : script.match(line);
-      for (const std::string& out : nlu_tools::output_lines(matches)) std::cout << out << "\n";
+      for (const std::string& out : nlu::output_lines(matches)) std::cout << out << "\n";
       if (explain && matches.empty()) {
         for (const nlu::Explanation& e : script.explain(line)) {
           std::cout << "  " << e.label << " (" << (e.file.empty() ? script_path : e.file) << ":"
