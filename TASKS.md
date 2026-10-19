@@ -237,14 +237,24 @@
       match, a cold cache from 0.89 to 0.72 µs, and while one thread matched
       new inputs, three on cached ones went from 50 to 2.9 µs per match
 
+- [x] The DFA cache lock sleeps once spinning and yielding haven't helped:
+      waiters count themselves and wait on a condition variable that
+      releases signal (C++17, so no `std::atomic::wait`). With 7 threads
+      matching cached inputs while one evicts 400,000-state caches, process
+      CPU went from 11.5 to 8.9 s (7.8 to 6.0 cores) at the same throughput;
+      warm matching on 1 and 4 threads is unchanged (the sleeping state sits
+      behind a pointer, since inside the lock it slowed cached matches by
+      about 4%)
+- [x] `loading_rejects_anything_but_a_saved_script` corrupted a 575 KB saved
+      script (the `DATETIME` grammar) every 97 bytes: 13 s natively, about 5
+      minutes under ThreadSanitizer, and the sections after the automaton
+      were barely touched. It now corrupts every byte, and tries every
+      truncation, of a 3 KB script with every section of the format (2.2 s
+      under TSan; the whole suite 0.7 s natively, 13 s under TSan). That
+      found a crash: a corrupt script whose slot actions don't nest made
+      matching pop an empty slot stack, which it now skips
 ## Next
 
-- [ ] The DFA cache lock yields in a loop while it waits, so threads waiting
-      out a long eviction (a full 200,000-state cache) stay busy; block after
-      a while instead (C++20 `std::atomic::wait`, or a fallback mutex)
-- [ ] `loading_rejects_anything_but_a_saved_script` takes about 5 minutes
-      under ThreadSanitizer on macOS (it did before the lock change too),
-      which makes TSan runs of the whole suite slow
 - [ ] Publish wheels to PyPI (e.g. on a version tag)
 - [ ] If GitHub retires the Intel macOS runner (`macos-15-intel`), build the
       x86_64 wheel on the arm64 runner instead: cross-compile (pass

@@ -9,6 +9,7 @@
 //     spans and attribute assignments.
 #include <algorithm>
 #include <atomic>
+#include <condition_variable>
 #include <deque>
 #include <fstream>
 #include <map>
@@ -522,47 +523,90 @@ class LazyDfa {
     std::unique_ptr<Closure> closure_;
   };
 
-  // A reader-writer lock that spins, then yields, while it waits. Exclusive
-  // sections are short; std::shared_mutex (with libc++) hands over through a
-  // condition variable, and readers slept through every state another thread
-  // added. Waiting writers keep new readers out. A per-thread cache, which
-  // only its thread uses, skips the lock.
+  // A reader-writer lock for short exclusive sections. A thread waiting for
+  // it spins, then yields, then sleeps until a thread releases it, so threads
+  // waiting out a long eviction don't keep cores busy. (std::shared_mutex,
+  // with libc++, sleeps at once, and readers slept through every state
+  // another thread added.) Waiting writers keep new readers out. A
+  // per-thread cache, which only its thread uses, skips the lock.
   class Lock {
    public:
     explicit Lock(bool used) : used_(used) {}
     void lock() {
+      int idle = 0;
+      if (used_ && !state_.compare_exchange_strong(idle, -1, std::memory_order_acquire))
+        lock_slowly();
+    }
+    void unlock() {
       if (!used_) return;
+      state_.store(0);
+      wake();
+    }
+    void lock_shared() {
+      if (used_ && !try_lock_shared()) lock_shared_slowly();
+    }
+    void unlock_shared() {
+      if (used_ && state_.fetch_sub(1) == 1) wake();
+    }
+
+   private:
+    static constexpr int kSpins = 64, kYields = 64;
+
+    bool try_lock_shared() {
+      int readers = state_.load(std::memory_order_relaxed);
+      return writers_.load(std::memory_order_relaxed) == 0 && readers >= 0 &&
+             state_.compare_exchange_weak(readers, readers + 1, std::memory_order_acquire);
+    }
+
+    void lock_slowly() {
       writers_.fetch_add(1, std::memory_order_relaxed);
-      for (int tries = 0;; wait(tries)) {
+      for (int tries = 0;; wait(tries, [&] { return state_.load() == 0; })) {
         int idle = 0;
         if (state_.compare_exchange_weak(idle, -1, std::memory_order_acquire)) break;
       }
       writers_.fetch_sub(1, std::memory_order_relaxed);
     }
-    void unlock() {
-      if (used_) state_.store(0, std::memory_order_release);
-    }
-    void lock_shared() {
-      if (!used_) return;
-      for (int tries = 0;; wait(tries)) {
-        if (writers_.load(std::memory_order_relaxed) > 0) continue;
-        int readers = state_.load(std::memory_order_relaxed);
-        if (readers >= 0 &&
-            state_.compare_exchange_weak(readers, readers + 1, std::memory_order_acquire))
-          return;
-      }
-    }
-    void unlock_shared() {
-      if (used_) state_.fetch_sub(1, std::memory_order_release);
+
+    void lock_shared_slowly() {
+      for (int tries = 0; !try_lock_shared();)
+        wait(tries, [&] { return writers_.load() == 0 && state_.load() >= 0; });
     }
 
-   private:
-    static void wait(int& tries) {
-      if (++tries > 64) std::this_thread::yield();
+    // Called after each failed attempt; sleeps, once spinning and yielding
+    // haven't helped, until `ready` holds. Sleepers count themselves before
+    // checking `ready` and releasers change the state before checking the
+    // count (both sequentially consistent), so a release either sees the
+    // sleeper or happens before its check.
+    template <typename Ready>
+    void wait(int& tries, Ready ready) {
+      if (++tries <= kSpins) return;
+      if (tries <= kSpins + kYields) {
+        std::this_thread::yield();
+        return;
+      }
+      std::unique_lock<std::mutex> lock(sleep_->mutex);
+      sleepers_.fetch_add(1);
+      while (!ready()) sleep_->woken.wait(lock);
+      sleepers_.fetch_sub(1);
+      tries = 0;
+    }
+
+    void wake() {
+      if (sleepers_.load() == 0) return;
+      std::lock_guard<std::mutex> lock(sleep_->mutex);
+      sleep_->woken.notify_all();
     }
 
     std::atomic<int> state_{0};    // readers holding the lock, or -1 for a writer
     std::atomic<int> writers_{0};  // writers waiting for it
+    std::atomic<int> sleepers_{0};
+    // Out of line: inside the lock they spread the cache's hot fields over
+    // more cache lines, and matching a cached input got about 4% slower.
+    struct Sleep {
+      std::mutex mutex;
+      std::condition_variable woken;
+    };
+    const std::unique_ptr<Sleep> sleep_ = std::make_unique<Sleep>();
     const bool used_;
   };
 
@@ -909,13 +953,14 @@ Match build_match(const Nfa& nfa, const CompiledRule& rule, int specificity,
         event_instance[i] = open.back();
         break;
       case Action::Kind::Close:
+        if (open.empty()) break;  // only in a corrupt loaded script
         instances[open.back()].close_pos = events[i].pos;
         event_instance[i] = open.back();
         open.pop_back();
         break;
       case Action::Kind::Assign:
         if (a.slot < 0) {
-          set_attribute(instances[open.back()].attributes, a.key, a.value);
+          if (!open.empty()) set_attribute(instances[open.back()].attributes, a.key, a.value);
         } else {
           deferred.push_back(i);
         }
