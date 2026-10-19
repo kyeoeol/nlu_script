@@ -1,10 +1,12 @@
 #include "numbers.hpp"
 
+#include <algorithm>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "unicode.hpp"
+#include "vocabulary.hpp"
 
 namespace nlu {
 namespace detail {
@@ -22,10 +24,8 @@ bool mul_add(Value a, Value b, Value c, Value& out) {
 }
 
 int sino_digit(char32_t c) {
-  const char32_t digits[] = U"일이삼사오육칠팔구";
-  for (int i = 0; digits[i]; ++i)
-    if (digits[i] == c) return i + 1;
-  return -1;
+  const std::size_t at = kSinoDigits.find(c);
+  return at == std::u32string_view::npos ? -1 : static_cast<int>(at) + 1;
 }
 
 Value small_unit(char32_t c) {
@@ -49,30 +49,23 @@ Value large_unit(char32_t c) {
 // Native Korean numbers from 1 to 99 (하나, 스물셋, 스무, 한); -1 if `s` is
 // not one.
 int native_value(const std::u32string& s) {
-  static const std::pair<const char32_t*, int> tens[] = {
-      {U"스물", 20}, {U"서른", 30}, {U"마흔", 40}, {U"예순", 60}, {U"일흔", 70},
-      {U"여든", 80}, {U"아흔", 90}, {U"스무", 20}, {U"열", 10},   {U"쉰", 50}};
-  static const std::pair<const char32_t*, int> ones[] = {
-      {U"하나", 1}, {U"다섯", 5}, {U"여섯", 6}, {U"일곱", 7}, {U"여덟", 8}, {U"아홉", 9},
-      {U"한", 1},   {U"둘", 2},   {U"두", 2},   {U"셋", 3},   {U"세", 3},   {U"넷", 4},
-      {U"네", 4}};
+  // The ten, if any, then the one.
   int value = 0;
   std::size_t i = 0;
-  for (const auto& t : tens) {
-    std::u32string w = t.first;
-    if (s.compare(0, w.size(), w) == 0) {
-      value = t.second;
-      i = w.size();
-      break;
+  auto ten = [&](const NumberWord& w) {
+    if (i == 0 && starts_with(s, 0, w.text)) {
+      value = w.value;
+      i = std::char_traits<char32_t>::length(w.text);
     }
-  }
+  };
+  for (const NumberWord& w : kNativeTens) ten(w);
+  ten(kNativeCountingTwenty);
   if (i == s.size()) return value > 0 ? value : -1;  // 열, 스물, 스무
-  if (s.compare(0, 2, U"스무") == 0) return -1;     // 스무 stands alone
-  for (const auto& o : ones) {
-    std::u32string w = o.first;
-    if (s.compare(i, std::u32string::npos, w) == 0) return value + o.second;
-  }
-  return -1;
+  if (starts_with(s, 0, kNativeCountingTwenty.text)) return -1;  // 스무 stands alone
+  const std::u32string_view rest = std::u32string_view(s).substr(i);
+  int one = value_of(kNativeOnes, rest);
+  if (one < 0) one = value_of(kNativeCountingOnes, rest);
+  return one > 0 ? value + one : -1;
 }
 
 }  // namespace
@@ -151,19 +144,18 @@ std::vector<std::string> words_of(const std::string& text) {
   return out;
 }
 
+std::u32string widen(const std::string& text) {
+  std::u32string out;
+  for (const DecodedChar& d : decode_utf8(text)) out += d.code;
+  return out;
+}
+
 int english_word_value(const std::string& word) {
-  static const char* const small[] = {"zero",    "one",     "two",       "three",    "four",
-                                      "five",    "six",     "seven",     "eight",    "nine",
-                                      "ten",     "eleven",  "twelve",    "thirteen", "fourteen",
-                                      "fifteen", "sixteen", "seventeen", "eighteen", "nineteen"};
-  static const char* const tens[] = {"twenty", "thirty",  "forty",  "fifty",
-                                     "sixty",  "seventy", "eighty", "ninety"};
-  for (int i = 0; i < 20; ++i)
-    if (word == small[i]) return i;
-  for (int i = 0; i < 8; ++i)
-    if (word == tens[i]) return 20 + 10 * i;
-  if (word == "a") return 1;
-  return -1;
+  const std::u32string w = widen(word);
+  int value = value_of(kEnglishSmall, w);
+  if (value < 0) value = value_of(kEnglishTens, w);
+  if (value < 0 && word == "a") value = 1;
+  return value;
 }
 
 bool digits_value(const std::string& word, Value& out) {
@@ -217,8 +209,8 @@ bool ordinal_value(const std::string& text, std::string& value) {
   for (const char32_t* suffix : {U"번째", U"째"}) {
     if (!ends(suffix)) continue;
     std::u32string head = s.substr(0, s.size() - std::char_traits<char32_t>::length(suffix));
-    if (head == U"첫") {
-      value = "1";
+    if (head == kNativeFirst.text) {
+      value = std::to_string(kNativeFirst.value);
       return true;
     }
     if (int native = native_value(head); native > 0) {
@@ -233,14 +225,6 @@ bool ordinal_value(const std::string& text, std::string& value) {
     return false;
   }
   // English: 21st, twenty-first, twelfth.
-  static const std::pair<const char*, int> ordinals[] = {
-      {"first", 1},       {"second", 2},      {"third", 3},       {"fourth", 4},
-      {"fifth", 5},       {"sixth", 6},       {"seventh", 7},     {"eighth", 8},
-      {"ninth", 9},       {"tenth", 10},      {"eleventh", 11},   {"twelfth", 12},
-      {"thirteenth", 13}, {"fourteenth", 14}, {"fifteenth", 15},  {"sixteenth", 16},
-      {"seventeenth", 17}, {"eighteenth", 18}, {"nineteenth", 19}, {"twentieth", 20},
-      {"thirtieth", 30},  {"fortieth", 40},   {"fiftieth", 50},   {"sixtieth", 60},
-      {"seventieth", 70}, {"eightieth", 80},  {"ninetieth", 90}};
   std::vector<std::string> words = words_of(text);
   if (words.empty()) return false;
   int total = 0;
@@ -248,11 +232,9 @@ bool ordinal_value(const std::string& text, std::string& value) {
     const std::string& w = words[i];
     bool found = false;
     if (i + 1 == words.size()) {
-      for (const auto& o : ordinals) {
-        if (w == o.first) {
-          total += o.second;
-          found = true;
-        }
+      if (int ordinal = value_of(kEnglishOrdinals, widen(w)); ordinal > 0) {
+        total += ordinal;
+        found = true;
       }
       if (!found && w.size() > 2) {
         Value n = 0;
@@ -272,21 +254,29 @@ bool ordinal_value(const std::string& text, std::string& value) {
 }
 
 bool money_value(const std::string& text, std::string& value, std::string& currency) {
-  static const std::pair<const char*, const char*> markers[] = {
-      {"파운드", "GBP"}, {"달러", "USD"}, {"유로", "EUR"}, {"위안", "CNY"}, {"원", "KRW"},
-      {"불", "USD"},     {"엔", "JPY"},   {"$", "USD"},    {"₩", "KRW"},    {"€", "EUR"},
-      {"£", "GBP"},      {"¥", "JPY"},    {"dollars", "USD"}, {"dollar", "USD"},
-      {"bucks", "USD"},  {"buck", "USD"}, {"euros", "EUR"}, {"euro", "EUR"},
-      {"pounds", "GBP"}, {"pound", "GBP"}, {"yuan", "CNY"}, {"yen", "JPY"}, {"won", "KRW"},
-      {"usd", "USD"},    {"krw", "KRW"},  {"eur", "EUR"},  {"jpy", "JPY"},  {"gbp", "GBP"},
-      {"cny", "CNY"}};
+  // Every currency marker in UTF-8, longest first, so dollars wins over
+  // dollar and euro over eur.
+  static const std::vector<std::pair<std::string, const char*>> markers = [] {
+    std::vector<std::pair<std::string, const char*>> out;
+    auto add = [&](const auto& table) {
+      for (const NamedWord& w : table) out.emplace_back(to_utf8(w.text), w.name);
+    };
+    add(kCurrencyWordsKo);
+    add(kCurrencySymbols);
+    add(kCurrencyWordsEn);
+    add(kCurrencyCodes);
+    std::stable_sort(out.begin(), out.end(), [](const auto& a, const auto& b) {
+      return a.first.size() > b.first.size();
+    });
+    return out;
+  }();
   std::string amount = lowercase(text);
   currency.clear();
   for (const auto& m : markers) {
     std::size_t at = amount.find(m.first);
     if (at == std::string::npos) continue;
     currency = m.second;
-    amount.erase(at, std::string(m.first).size());
+    amount.erase(at, m.first.size());
     break;
   }
   if (currency.empty()) return false;

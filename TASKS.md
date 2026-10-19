@@ -202,6 +202,13 @@
       excluded wildcard no longer counts as pattern text in `specificity` or
       in lint's wildcard-free copies; `resolve_datetime()` ignores values out
       of range and clamps `now`, so caller input can't overflow
+- [x] One source for system entity vocabulary: `src/vocabulary.hpp` has one
+      table per vocabulary (numerals, English number and ordinal words,
+      currencies, relative days, weekdays, months, parts of the day, clock
+      words, duration units, day counts), read by both the grammar and the
+      value readers; native hours and counts come from the counting forms,
+      and the readers' space-less and plural forms from the tables. Same
+      compiled bytes and attributes as before on 7,661 inputs
 - [x] Structured diagnostics in the C API: `nlu_script_compile_diagnose` /
       `nlu_script_compile_file_diagnose` return every compile error with its
       line, column, message and file (`nlu_diagnostics_*`). Python reads them
@@ -216,9 +223,6 @@
 
 ## Next
 
-- [ ] One source for system entity vocabulary: the grammar in
-      `system_entities.cpp` and the value readers in `datetime.cpp` /
-      `numbers.cpp` list the same words separately
 - [ ] `search()` determinizes from scratch on every call; reuse the shared
       lazy DFA (changes what `cache_stats()` reports)
 - [ ] Lazy DFA: compute new transitions outside the exclusive lock, and drop
