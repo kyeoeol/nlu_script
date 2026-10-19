@@ -31,6 +31,7 @@ set(NLU_SCRIPT_SOURCES
   src/numbers.cpp
   src/parser.cpp
   src/script.cpp
+  src/script_tests.cpp
   src/system_entities.cpp
   src/unicode.cpp)
 
@@ -58,13 +59,8 @@ foreach(target nlu_script_static nlu_script)
   target_link_libraries(${target} PUBLIC Threads::Threads)
 endforeach()
 
-# The script test runner (`--test`) is shared by the CLI and the test suite.
-add_library(nlu_script_tools STATIC tools/script_tests.cpp)
-target_include_directories(nlu_script_tools PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/tools)
-target_link_libraries(nlu_script_tools PUBLIC nlu_script_static)
-
 add_executable(nlu_script_cli tools/nlu_script_cli.cpp)
-target_link_libraries(nlu_script_cli PRIVATE nlu_script_tools)
+target_link_libraries(nlu_script_cli PRIVATE nlu_script_static)
 
 # Times matching against generated scripts of growing size.
 add_executable(nlu_script_bench tools/nlu_script_bench.cpp)
@@ -82,7 +78,7 @@ if(NLU_SCRIPT_BUILD_TESTS)
     tests/test_pattern.cpp
     tests/test_script.cpp
     tests/test_script_tests.cpp)
-  target_link_libraries(nlu_script_tests PRIVATE nlu_script_tools)
+  target_link_libraries(nlu_script_tests PRIVATE nlu_script_static)
   add_test(NAME nlu_script_tests COMMAND nlu_script_tests)
 
   # The demo script's own test cases, run the way script authors run theirs.

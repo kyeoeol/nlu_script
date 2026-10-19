@@ -1,8 +1,11 @@
-#include "script_tests.hpp"
-
+// Script test files: Script::run_tests and output_lines.
+#include <fstream>
+#include <sstream>
 #include <stdexcept>
 
-namespace nlu_tools {
+#include "nlu_script/nlu_script.hpp"
+
+namespace nlu {
 
 namespace {
 
@@ -22,26 +25,16 @@ struct Case {
   std::vector<std::string> expected;
 };
 
-}  // namespace
-
-std::vector<std::string> output_lines(const std::vector<nlu::Match>& matches) {
-  std::vector<std::string> out;
-  for (const nlu::Match& m : matches) out.push_back(m.label + ":" + m.tagged);
-  if (out.empty()) out.push_back("-");
-  return out;
-}
-
-TestSummary run_script_tests(const nlu::Script& script, const std::string& script_name,
-                             std::istream& tests, const std::string& tests_name,
-                             std::ostream& report, bool best) {
+std::vector<Case> read_cases(const std::string& tests, const std::string& name) {
   auto error = [&](int line, const std::string& message) {
-    return std::runtime_error(tests_name + ":" + std::to_string(line) + ": " + message);
+    return std::runtime_error(name + ":" + std::to_string(line) + ": " + message);
   };
 
   std::vector<Case> cases;
+  std::istringstream in(tests);
   std::string raw;
   int line_no = 0;
-  while (std::getline(tests, raw)) {
+  while (std::getline(in, raw)) {
     ++line_no;
     std::string content = trim(raw);
     if (content.empty() || content[0] == '#') continue;
@@ -59,27 +52,39 @@ TestSummary run_script_tests(const nlu::Script& script, const std::string& scrip
   }
   if (!cases.empty() && cases.back().expected.empty())
     throw error(cases.back().line, "no expected output; write '-' to expect no match");
-
-  TestSummary summary;
-  for (const Case& c : cases) {
-    std::vector<nlu::Match> matches = best ? script.match_best(c.input) : script.match(c.input);
-    std::vector<std::string> actual = output_lines(matches);
-    if (actual == c.expected) {
-      ++summary.passed;
-      continue;
-    }
-    ++summary.failed;
-    report << tests_name << ":" << c.line << ": " << c.input << "\n";
-    for (const std::string& line : c.expected) report << "  expected: " << line << "\n";
-    for (std::size_t i = 0; i < actual.size(); ++i) {
-      report << "  actual:   " << actual[i];
-      if (i < matches.size())
-        report << "  (" << (matches[i].file.empty() ? script_name : matches[i].file) << ":"
-               << matches[i].line << ")";
-      report << "\n";
-    }
-  }
-  return summary;
+  return cases;
 }
 
-}  // namespace nlu_tools
+}  // namespace
+
+std::vector<std::string> output_lines(const std::vector<Match>& matches) {
+  std::vector<std::string> out;
+  for (const Match& m : matches) out.push_back(m.label + ":" + m.tagged);
+  if (out.empty()) out.push_back("-");
+  return out;
+}
+
+TestReport Script::run_tests(const std::string& tests, const std::string& name, bool best) const {
+  TestReport report;
+  for (Case& c : read_cases(tests, name)) {
+    std::vector<Match> matches = best ? match_best(c.input) : match(c.input);
+    std::vector<std::string> actual = output_lines(matches);
+    if (actual == c.expected) {
+      ++report.passed;
+      continue;
+    }
+    report.failures.push_back(TestFailure{c.line, std::move(c.input), std::move(c.expected),
+                                          std::move(actual), std::move(matches)});
+  }
+  return report;
+}
+
+TestReport Script::run_tests_file(const std::string& path, bool best) const {
+  std::ifstream in(path, std::ios::binary);
+  if (!in) throw std::runtime_error("cannot open " + path);
+  std::ostringstream tests;
+  tests << in.rdbuf();
+  return run_tests(tests.str(), path, best);
+}
+
+}  // namespace nlu

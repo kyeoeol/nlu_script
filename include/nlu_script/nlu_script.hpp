@@ -123,6 +123,40 @@ struct LintReport {
   std::vector<LintFinding> findings(bool best = false) const;
 };
 
+// Script test files: example sentences with the output expected for each,
+// as nlu_script_cli prints it.
+//
+//   # comment
+//   I lost my debit card
+//       card:lost:I lost my <card type="DEBIT">debit card</card>
+//   thank you
+//       -
+//
+// An unindented line is an input sentence; the lines indented (with spaces
+// or tabs) after it are the output lines expected for it, in order. `-`
+// expects no match.
+
+// The output lines for an input's matches: `label:tagged` per match, or `-`
+// when nothing matched.
+std::vector<std::string> output_lines(const std::vector<Match>& matches);
+
+// A test case whose output differs from the expected lines.
+struct TestFailure {
+  int line;  // 1-based line of the input sentence in the test file
+  std::string input;
+  std::vector<std::string> expected;
+  std::vector<std::string> actual;  // output_lines(matches)
+  // What matched, one per actual line (none for `-`), with the rule's line
+  // and file.
+  std::vector<Match> matches;
+};
+
+// From Script::run_tests().
+struct TestReport {
+  int passed = 0;
+  std::vector<TestFailure> failures;  // in test file order
+};
+
 // One error in a script.
 struct Diagnostic {
   int line;    // 1-based, 0 if unknown
@@ -131,11 +165,6 @@ struct Diagnostic {
   std::string file;  // see Match::file
 };
 
-// Thrown by Script::compile with every error found in the script, ordered by
-// file (the main script, then included files as they are read) and position.
-// what() lists them, one per line ("rules.nlu: line 3, column 5: ..."; the
-// file is left out for the main script compiled from a string); line(),
-// column() and message() describe the first.
 // A local date and time; hour and minute are -1 when not given.
 struct DateTimeValue {
   int year;
@@ -183,6 +212,11 @@ struct CacheOptions {
   bool per_thread = false;
 };
 
+// Thrown by Script::compile with every error found in the script, ordered by
+// file (the main script, then included files as they are read) and position.
+// what() lists them, one per line ("rules.nlu: line 3, column 5: ..."; the
+// file is left out for the main script compiled from a string); line(),
+// column() and message() describe the first.
 class CompileError : public std::runtime_error {
  public:
   CompileError(const std::string& message, int line, int column);
@@ -255,6 +289,16 @@ class Script {
   // definitions that no rule uses. The overlap search explores the automaton
   // of all rules, up to `max_states` states.
   LintReport lint(std::size_t max_states = 100000) const;
+
+  // Runs the cases of a script test file (its contents; `name` locates
+  // errors). With `best`, cases expect the output of match_best() instead of
+  // match(). Throws std::runtime_error ("name:line: message") if the file is
+  // malformed.
+  TestReport run_tests(const std::string& tests, const std::string& name = "tests",
+                       bool best = false) const;
+  // Like run_tests(), reading the file at `path`. Throws std::runtime_error if
+  // it cannot be read.
+  TestReport run_tests_file(const std::string& path, bool best = false) const;
 
   struct Impl;
 

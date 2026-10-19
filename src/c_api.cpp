@@ -25,6 +25,15 @@ struct nlu_lint {
   bool complete;
 };
 
+struct nlu_diagnostics {
+  std::string text;
+  std::vector<nlu::Diagnostic> errors;
+};
+
+struct nlu_test_report {
+  nlu::TestReport report;
+};
+
 namespace {
 
 char* copy_string(const std::string& s) {
@@ -33,23 +42,50 @@ char* copy_string(const std::string& s) {
   return out;
 }
 
-void report(char** error, int* line, int* column, const std::string& message, int l, int c) {
-  if (error) *error = copy_string(message);
-  if (line) *line = l;
-  if (column) *column = c;
+// Compiles, or records why compiling failed in `failure`.
+template <typename Compile>
+nlu_script* try_compile(Compile compile, nlu_diagnostics& failure) {
+  try {
+    try {
+      return new nlu_script{compile()};
+    } catch (const nlu::CompileError& e) {
+      failure = nlu_diagnostics{e.what(), e.errors()};
+    } catch (const std::exception& e) {
+      failure = nlu_diagnostics{e.what(), {}};
+    }
+  } catch (const std::exception&) {  // out of memory while recording the failure
+  }
+  return nullptr;
 }
 
 template <typename Compile>
 nlu_script* compile_with(Compile compile, char** error, int* line, int* column) {
+  nlu_diagnostics failure;
+  nlu_script* script = try_compile(compile, failure);
+  const nlu::Diagnostic* first = failure.errors.empty() ? nullptr : &failure.errors[0];
+  if (error) *error = script ? nullptr : copy_string(failure.text);
+  if (line) *line = first ? first->line : 0;
+  if (column) *column = first ? first->column : 0;
+  return script;
+}
+
+template <typename Compile>
+nlu_script* compile_diagnosed(Compile compile, nlu_diagnostics** diagnostics) {
+  nlu_diagnostics failure;
+  nlu_script* script = try_compile(compile, failure);
+  if (diagnostics)
+    *diagnostics = script ? nullptr : new (std::nothrow) nlu_diagnostics(std::move(failure));
+  return script;
+}
+
+template <typename Run>
+nlu_test_report* run_tests_with(const nlu_script* script, Run run, char** error) {
   if (error) *error = nullptr;
-  if (line) *line = 0;
-  if (column) *column = 0;
+  if (!script) return nullptr;
   try {
-    return new nlu_script{compile()};
-  } catch (const nlu::CompileError& e) {
-    report(error, line, column, e.what(), e.line(), e.column());
+    return new nlu_test_report{run(script->script)};
   } catch (const std::exception& e) {
-    report(error, line, column, e.what(), 0, 0);
+    if (error) *error = copy_string(e.what());
   }
   return nullptr;
 }
@@ -74,6 +110,14 @@ const nlu::Explanation* explanation_at(const nlu_explanation* e, size_t i) {
 
 const nlu::LintFinding* finding_at(const nlu_lint* l, size_t i) {
   return l && i < l->findings.size() ? &l->findings[i] : nullptr;
+}
+
+const nlu::Diagnostic* diagnostic_at(const nlu_diagnostics* d, size_t i) {
+  return d && i < d->errors.size() ? &d->errors[i] : nullptr;
+}
+
+const nlu::TestFailure* failure_at(const nlu_test_report* r, size_t i) {
+  return r && i < r->report.failures.size() ? &r->report.failures[i] : nullptr;
 }
 
 const nlu::Slot* slot_at(const nlu_result* r, size_t match, size_t slot) {
@@ -101,7 +145,43 @@ nlu_script* nlu_script_compile_file(const char* path, char** error, int* line, i
                       column);
 }
 
+nlu_script* nlu_script_compile_diagnose(const char* source, nlu_diagnostics** diagnostics) {
+  return compile_diagnosed([&] { return nlu::Script::compile(source ? source : ""); },
+                           diagnostics);
+}
+
+nlu_script* nlu_script_compile_file_diagnose(const char* path, nlu_diagnostics** diagnostics) {
+  return compile_diagnosed([&] { return nlu::Script::compile_file(path ? path : ""); },
+                           diagnostics);
+}
+
 void nlu_script_free(nlu_script* script) { delete script; }
+
+void nlu_diagnostics_free(nlu_diagnostics* d) { delete d; }
+
+const char* nlu_diagnostics_text(const nlu_diagnostics* d) { return d ? d->text.c_str() : nullptr; }
+
+size_t nlu_diagnostics_count(const nlu_diagnostics* d) { return d ? d->errors.size() : 0; }
+
+int nlu_diagnostics_line(const nlu_diagnostics* d, size_t i) {
+  const nlu::Diagnostic* x = diagnostic_at(d, i);
+  return x ? x->line : 0;
+}
+
+int nlu_diagnostics_column(const nlu_diagnostics* d, size_t i) {
+  const nlu::Diagnostic* x = diagnostic_at(d, i);
+  return x ? x->column : 0;
+}
+
+const char* nlu_diagnostics_message(const nlu_diagnostics* d, size_t i) {
+  const nlu::Diagnostic* x = diagnostic_at(d, i);
+  return x ? x->message.c_str() : nullptr;
+}
+
+const char* nlu_diagnostics_file(const nlu_diagnostics* d, size_t i) {
+  const nlu::Diagnostic* x = diagnostic_at(d, i);
+  return x ? x->file.c_str() : nullptr;
+}
 
 char* nlu_script_save(const nlu_script* script, size_t* size) {
   if (!script) return nullptr;
@@ -305,6 +385,74 @@ const char* nlu_lint_message(const nlu_lint* l, size_t i) {
 size_t nlu_lint_allowed(const nlu_lint* l) { return l ? l->allowed : 0; }
 
 int nlu_lint_complete(const nlu_lint* l) { return l && l->complete ? 1 : 0; }
+
+nlu_test_report* nlu_script_run_tests(const nlu_script* script, const char* tests,
+                                      const char* name, int best, char** error) {
+  return run_tests_with(
+      script,
+      [&](const nlu::Script& s) {
+        return s.run_tests(tests ? tests : "", name ? name : "tests", best != 0);
+      },
+      error);
+}
+
+nlu_test_report* nlu_script_run_tests_file(const nlu_script* script, const char* path, int best,
+                                           char** error) {
+  return run_tests_with(
+      script, [&](const nlu::Script& s) { return s.run_tests_file(path ? path : "", best != 0); },
+      error);
+}
+
+void nlu_test_report_free(nlu_test_report* r) { delete r; }
+
+size_t nlu_test_report_passed(const nlu_test_report* r) {
+  return r ? static_cast<size_t>(r->report.passed) : 0;
+}
+
+size_t nlu_test_report_failed(const nlu_test_report* r) {
+  return r ? r->report.failures.size() : 0;
+}
+
+int nlu_test_report_line(const nlu_test_report* r, size_t i) {
+  const nlu::TestFailure* f = failure_at(r, i);
+  return f ? f->line : 0;
+}
+
+const char* nlu_test_report_input(const nlu_test_report* r, size_t i) {
+  const nlu::TestFailure* f = failure_at(r, i);
+  return f ? f->input.c_str() : nullptr;
+}
+
+size_t nlu_test_report_expected_count(const nlu_test_report* r, size_t i) {
+  const nlu::TestFailure* f = failure_at(r, i);
+  return f ? f->expected.size() : 0;
+}
+
+const char* nlu_test_report_expected(const nlu_test_report* r, size_t i, size_t j) {
+  const nlu::TestFailure* f = failure_at(r, i);
+  return f && j < f->expected.size() ? f->expected[j].c_str() : nullptr;
+}
+
+size_t nlu_test_report_actual_count(const nlu_test_report* r, size_t i) {
+  const nlu::TestFailure* f = failure_at(r, i);
+  return f ? f->actual.size() : 0;
+}
+
+const char* nlu_test_report_actual(const nlu_test_report* r, size_t i, size_t j) {
+  const nlu::TestFailure* f = failure_at(r, i);
+  return f && j < f->actual.size() ? f->actual[j].c_str() : nullptr;
+}
+
+int nlu_test_report_actual_line(const nlu_test_report* r, size_t i, size_t j) {
+  const nlu::TestFailure* f = failure_at(r, i);
+  return f && j < f->matches.size() ? f->matches[j].line : 0;
+}
+
+const char* nlu_test_report_actual_file(const nlu_test_report* r, size_t i, size_t j) {
+  const nlu::TestFailure* f = failure_at(r, i);
+  if (!f || j >= f->actual.size()) return nullptr;
+  return j < f->matches.size() ? f->matches[j].file.c_str() : "";
+}
 
 int nlu_resolve_datetime(const char* const* keys, const char* const* values, size_t count,
                          const nlu_datetime* now, nlu_datetime* start, nlu_datetime* end,

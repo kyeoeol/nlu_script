@@ -27,6 +27,8 @@ typedef struct nlu_script nlu_script;
 typedef struct nlu_result nlu_result;
 typedef struct nlu_explanation nlu_explanation;
 typedef struct nlu_lint nlu_lint;
+typedef struct nlu_diagnostics nlu_diagnostics;
+typedef struct nlu_test_report nlu_test_report;
 
 /* A local date and time; hour and minute are -1 when not given. */
 typedef struct nlu_datetime {
@@ -43,7 +45,30 @@ NLU_SCRIPT_API nlu_script* nlu_script_compile(const char* source, char** error, 
                                               int* column);
 NLU_SCRIPT_API nlu_script* nlu_script_compile_file(const char* path, char** error, int* line,
                                                    int* column);
+/* Like nlu_script_compile and nlu_script_compile_file, with every error
+ * as a structured diagnostic. On failure returns NULL and, if `diagnostics` is
+ * not NULL, stores an object to release with nlu_diagnostics_free (NULL on
+ * allocation failure); on success stores NULL. */
+NLU_SCRIPT_API nlu_script* nlu_script_compile_diagnose(const char* source,
+                                                       nlu_diagnostics** diagnostics);
+NLU_SCRIPT_API nlu_script* nlu_script_compile_file_diagnose(const char* path,
+                                                            nlu_diagnostics** diagnostics);
 NLU_SCRIPT_API void nlu_script_free(nlu_script* script);
+
+/* Why compiling failed. `text` is the whole message, as nlu_script_compile
+ * reports it. The diagnostics are the compile errors, ordered by file (the
+ * main script, then included files as they are read) and position; there are
+ * none when compiling failed for another reason (a script file that cannot be
+ * read). `line` is 1-based (0 if unknown), `column` 1-based in code points,
+ * and `file` as in nlu_result_file. Accessors return NULL or 0 for
+ * out-of-range indices. */
+NLU_SCRIPT_API void nlu_diagnostics_free(nlu_diagnostics* diagnostics);
+NLU_SCRIPT_API const char* nlu_diagnostics_text(const nlu_diagnostics* diagnostics);
+NLU_SCRIPT_API size_t nlu_diagnostics_count(const nlu_diagnostics* diagnostics);
+NLU_SCRIPT_API int nlu_diagnostics_line(const nlu_diagnostics* diagnostics, size_t i);
+NLU_SCRIPT_API int nlu_diagnostics_column(const nlu_diagnostics* diagnostics, size_t i);
+NLU_SCRIPT_API const char* nlu_diagnostics_message(const nlu_diagnostics* diagnostics, size_t i);
+NLU_SCRIPT_API const char* nlu_diagnostics_file(const nlu_diagnostics* diagnostics, size_t i);
 
 /* Saves a compiled script as bytes for nlu_script_load (as Script::save in
  * C++). Returns a buffer to release with nlu_string_free and stores its
@@ -130,6 +155,37 @@ NLU_SCRIPT_API int nlu_lint_line(const nlu_lint* lint, size_t i);
 NLU_SCRIPT_API const char* nlu_lint_message(const nlu_lint* lint, size_t i);
 NLU_SCRIPT_API size_t nlu_lint_allowed(const nlu_lint* lint);
 NLU_SCRIPT_API int nlu_lint_complete(const nlu_lint* lint);
+
+/* Runs the cases of a script test file (see the README), as
+ * Script::run_tests in C++: `tests` is the file's contents and `name` (if not
+ * NULL) locates errors. With `best` nonzero, cases expect match_best output.
+ * Returns NULL if `script` is NULL; on a malformed (or, for
+ * nlu_script_run_tests_file, unreadable) file returns NULL and, if `error` is
+ * not NULL, stores a message ("name:line: ...") to release with
+ * nlu_string_free. */
+NLU_SCRIPT_API nlu_test_report* nlu_script_run_tests(const nlu_script* script, const char* tests,
+                                                     const char* name, int best, char** error);
+NLU_SCRIPT_API nlu_test_report* nlu_script_run_tests_file(const nlu_script* script,
+                                                          const char* path, int best,
+                                                          char** error);
+NLU_SCRIPT_API void nlu_test_report_free(nlu_test_report* report);
+/* Cases that passed, and the failures, each indexed by `i` in file order:
+ * the line and text of its input sentence, its expected output lines, and
+ * its actual output lines with the line and file of the rule behind each (0
+ * and "" for "-"). Accessors return NULL or 0 for out-of-range indices. */
+NLU_SCRIPT_API size_t nlu_test_report_passed(const nlu_test_report* report);
+NLU_SCRIPT_API size_t nlu_test_report_failed(const nlu_test_report* report);
+NLU_SCRIPT_API int nlu_test_report_line(const nlu_test_report* report, size_t i);
+NLU_SCRIPT_API const char* nlu_test_report_input(const nlu_test_report* report, size_t i);
+NLU_SCRIPT_API size_t nlu_test_report_expected_count(const nlu_test_report* report, size_t i);
+NLU_SCRIPT_API const char* nlu_test_report_expected(const nlu_test_report* report, size_t i,
+                                                    size_t j);
+NLU_SCRIPT_API size_t nlu_test_report_actual_count(const nlu_test_report* report, size_t i);
+NLU_SCRIPT_API const char* nlu_test_report_actual(const nlu_test_report* report, size_t i,
+                                                  size_t j);
+NLU_SCRIPT_API int nlu_test_report_actual_line(const nlu_test_report* report, size_t i, size_t j);
+NLU_SCRIPT_API const char* nlu_test_report_actual_file(const nlu_test_report* report, size_t i,
+                                                       size_t j);
 
 /* Resolves the attributes of a DATETIME slot (`count` key/value pairs)
  * against `now`, as nlu::resolve_datetime in C++. Fills `start`, and `end`

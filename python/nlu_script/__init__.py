@@ -16,7 +16,6 @@ import ctypes.util
 import datetime
 import itertools
 import os
-import re
 import sys
 
 __all__ = ["CompileError", "DateTimeRange", "Diagnostic", "Explanation", "LintFinding",
@@ -53,7 +52,6 @@ def _load_library():
 
 
 _lib = _load_library()
-_c_int_p = ctypes.POINTER(ctypes.c_int)
 
 
 def _declare(name, restype, *argtypes):
@@ -65,9 +63,15 @@ def _declare(name, restype, *argtypes):
 
 _size = ctypes.c_size_t
 _ptr = ctypes.c_void_p
-_compile = _declare("nlu_script_compile", _ptr, ctypes.c_char_p, _ptr, _c_int_p, _c_int_p)
-_compile_file = _declare("nlu_script_compile_file", _ptr, ctypes.c_char_p, _ptr, _c_int_p,
-                         _c_int_p)
+_compile = _declare("nlu_script_compile_diagnose", _ptr, ctypes.c_char_p, _ptr)
+_compile_file = _declare("nlu_script_compile_file_diagnose", _ptr, ctypes.c_char_p, _ptr)
+_diagnostics_free = _declare("nlu_diagnostics_free", None, _ptr)
+_diagnostics_text = _declare("nlu_diagnostics_text", ctypes.c_char_p, _ptr)
+_diagnostics_count = _declare("nlu_diagnostics_count", _size, _ptr)
+_diagnostics_line = _declare("nlu_diagnostics_line", ctypes.c_int, _ptr, _size)
+_diagnostics_column = _declare("nlu_diagnostics_column", ctypes.c_int, _ptr, _size)
+_diagnostics_message = _declare("nlu_diagnostics_message", ctypes.c_char_p, _ptr, _size)
+_diagnostics_file = _declare("nlu_diagnostics_file", ctypes.c_char_p, _ptr, _size)
 _script_free = _declare("nlu_script_free", None, _ptr)
 _save = _declare("nlu_script_save", _ptr, _ptr, ctypes.POINTER(_size))
 _load = _declare("nlu_script_load", _ptr, ctypes.c_char_p, _size, _ptr)
@@ -113,6 +117,20 @@ _lint_line = _declare("nlu_lint_line", ctypes.c_int, _ptr, _size)
 _lint_message = _declare("nlu_lint_message", ctypes.c_char_p, _ptr, _size)
 _lint_allowed = _declare("nlu_lint_allowed", _size, _ptr)
 _lint_complete = _declare("nlu_lint_complete", ctypes.c_int, _ptr)
+_run_tests = _declare("nlu_script_run_tests", _ptr, _ptr, ctypes.c_char_p, ctypes.c_char_p,
+                      ctypes.c_int, _ptr)
+_tests_free = _declare("nlu_test_report_free", None, _ptr)
+_tests_passed = _declare("nlu_test_report_passed", _size, _ptr)
+_tests_failed = _declare("nlu_test_report_failed", _size, _ptr)
+_tests_line = _declare("nlu_test_report_line", ctypes.c_int, _ptr, _size)
+_tests_input = _declare("nlu_test_report_input", ctypes.c_char_p, _ptr, _size)
+_tests_expected_count = _declare("nlu_test_report_expected_count", _size, _ptr, _size)
+_tests_expected = _declare("nlu_test_report_expected", ctypes.c_char_p, _ptr, _size, _size)
+_tests_actual_count = _declare("nlu_test_report_actual_count", _size, _ptr, _size)
+_tests_actual = _declare("nlu_test_report_actual", ctypes.c_char_p, _ptr, _size, _size)
+_tests_actual_line = _declare("nlu_test_report_actual_line", ctypes.c_int, _ptr, _size, _size)
+_tests_actual_file = _declare("nlu_test_report_actual_file", ctypes.c_char_p, _ptr, _size,
+                              _size)
 class _DateTime(ctypes.Structure):
     _fields_ = [("year", ctypes.c_int), ("month", ctypes.c_int), ("day", ctypes.c_int),
                 ("hour", ctypes.c_int), ("minute", ctypes.c_int)]
@@ -169,10 +187,6 @@ class Match(collections.namedtuple("Match",
     __slots__ = ()
 
 
-# The C library reports each error as "[file: ]line L, column C: message".
-_ERROR_LINE = re.compile(r"^(?:(.*): )?line (\d+), column (\d+): (.*)$")
-
-
 class Explanation(collections.namedtuple("Explanation",
                                           "label line file matched complete expected")):
     """How far one rule got into an input, from Script.explain(). `matched` is
@@ -184,42 +198,16 @@ class Explanation(collections.namedtuple("Explanation",
 
 LintFinding = collections.namedtuple("LintFinding", "kind file line message")
 LintReport = collections.namedtuple("LintReport", "findings allowed complete")
-TestFailure = collections.namedtuple("TestFailure", "line input expected actual")
 TestReport = collections.namedtuple("TestReport", "passed failed failures")
 
 
-def _output_lines(matches):
-    """The CLI's output for one input: `label:tagged` per match, or `-`."""
-    return [m.label + ":" + m.tagged for m in matches] or ["-"]
+class TestFailure(collections.namedtuple("TestFailure", "line input expected actual rules")):
+    """A script test case whose output differs: the line of its input sentence,
+    the input, the expected and actual output lines, and for each actual line
+    the (file, line) of the rule behind it (none for "-"; `file` is empty for a
+    script compiled from a string)."""
 
-
-def _read_test_cases(path):
-    """Returns (line, input, expected lines) for each case of a script test file
-    (see the README); raises ValueError naming the line of a malformed case."""
-    cases = []
-    with open(path, encoding="utf-8") as f:
-        for number, raw in enumerate(f, 1):
-            raw = raw.rstrip("\r\n")
-            text = raw.strip()
-            if not text or text.startswith("#"):
-                continue
-            if not raw[0].isspace():
-                if cases and not cases[-1][2]:
-                    raise ValueError("%s:%d: no expected output; write '-' to expect no match"
-                                     % (path, cases[-1][0]))
-                cases.append((number, raw.rstrip(), []))
-                continue
-            if not cases:
-                raise ValueError("%s:%d: expected output before any input sentence"
-                                 % (path, number))
-            expected = cases[-1][2]
-            if expected and (text == "-" or expected[0] == "-"):
-                raise ValueError("%s:%d: '-' must be the only expected output" % (path, number))
-            expected.append(text)
-    if cases and not cases[-1][2]:
-        raise ValueError("%s:%d: no expected output; write '-' to expect no match"
-                         % (path, cases[-1][0]))
-    return cases
+    __slots__ = ()
 
 
 DateTimeRange = collections.namedtuple("DateTimeRange", "start end grain")
@@ -253,24 +241,22 @@ def resolve_datetime(attributes, now):
 
 
 def _compile_with(function, argument):
-    error = ctypes.c_void_p()
-    line = ctypes.c_int()
-    column = ctypes.c_int()
-    handle = function(argument, ctypes.byref(error), ctypes.byref(line), ctypes.byref(column))
+    diagnostics = ctypes.c_void_p()
+    handle = function(argument, ctypes.byref(diagnostics))
     if handle:
         return handle
-    message = _decode(ctypes.string_at(error.value)) if error.value else "unknown error"
-    _string_free(error)
-    if line.value > 0:
-        errors = []
-        for text in message.split("\n"):
-            found = _ERROR_LINE.match(text)
-            if found:
-                errors.append(Diagnostic(int(found.group(2)), int(found.group(3)),
-                                         found.group(4), found.group(1) or ""))
-            else:
-                errors.append(Diagnostic(0, 0, text, ""))
-        raise CompileError(message, line.value, column.value, errors)
+    if not diagnostics.value:
+        raise MemoryError("nlu_script_compile failed")
+    try:
+        message = _decode(_diagnostics_text(diagnostics))
+        errors = [Diagnostic(_diagnostics_line(diagnostics, i), _diagnostics_column(diagnostics, i),
+                             _decode(_diagnostics_message(diagnostics, i)),
+                             _decode(_diagnostics_file(diagnostics, i)))
+                  for i in range(_diagnostics_count(diagnostics))]
+    finally:
+        _diagnostics_free(diagnostics)
+    if errors:
+        raise CompileError(message, errors[0].line, errors[0].column, errors)
     raise OSError(message)
 
 
@@ -379,15 +365,35 @@ class Script:
 
     def run_tests(self, path, best=False):
         """Runs a script test file (as `nlu_script_cli --test`) and returns a
-        TestReport. With `best`, cases expect match_best() output."""
-        passed, failures = 0, []
-        for line, text, expected in _read_test_cases(path):
-            actual = _output_lines(self.match_best(text) if best else self.match(text))
-            if actual == expected:
-                passed += 1
-            else:
-                failures.append(TestFailure(line, text, expected, actual))
-        return TestReport(passed, len(failures), failures)
+        TestReport. With `best`, cases expect match_best() output. Raises
+        ValueError ("path:line: ...") for a malformed file."""
+        with open(path, "rb") as f:
+            tests = f.read()
+        error = ctypes.c_void_p()
+        report = _run_tests(self._checked(), tests, os.fsencode(path), 1 if best else 0,
+                            ctypes.byref(error))
+        if not report:
+            message = _decode(ctypes.string_at(error.value)) if error.value else None
+            _string_free(error)
+            if message is None:
+                raise MemoryError("nlu_script_run_tests failed")
+            raise ValueError(message)
+        try:
+            failures = []
+            for i in range(_tests_failed(report)):
+                count = _tests_actual_count(report, i)
+                # "-" (nothing matched) has no rule: its line is 0.
+                rules = [(_decode(_tests_actual_file(report, i, j)),
+                          _tests_actual_line(report, i, j))
+                         for j in range(count) if _tests_actual_line(report, i, j)]
+                failures.append(TestFailure(
+                    _tests_line(report, i), _decode(_tests_input(report, i)),
+                    [_decode(_tests_expected(report, i, j))
+                     for j in range(_tests_expected_count(report, i))],
+                    [_decode(_tests_actual(report, i, j)) for j in range(count)], rules))
+            return TestReport(_tests_passed(report), len(failures), failures)
+        finally:
+            _tests_free(report)
 
     def close(self):
         handle, self._handle = getattr(self, "_handle", None), None
