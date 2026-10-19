@@ -736,19 +736,53 @@ TEST(saved_scripts_load_and_match_the_same) {
   CHECK_EQ(loaded.search("so I lost my credit card today").size(), 1u);
 }
 
+namespace {
+
+// Every section of the save format (options, guards, exclusion sets, slot
+// actions, rules, unused definitions, files and lint comments) in a few KB,
+// so every byte can be corrupted. System entities would add hundreds of KB
+// of automaton and nothing else.
+const char* kCorruptScript =
+    "option ignore-trailing-punctuation\n"
+    "option fold-width\n"
+    "@card: [신용{type=CREDIT}|체크{type=DEBIT}]카드\n"
+    "@unused: 안 씀\n"
+    "# lint: allow-overlap report:any *\n"
+    "card:lost\n"
+    "    @{card}(을/를) [분실했어요|잃어버렸어요]\n"
+    "    I lost my <card>[credit{type=CREDIT}|debit{type=DEBIT}] card</card>\n"
+    "pick\n"
+    "    <n>`@{NUMBER}</n>번 주세요\n"
+    "close\n"
+    "    \\[<?>+?을/를] <?>+? 해지\n"
+    "report:any\n"
+    "    I <?>+?\n";
+
+}  // namespace
+
 TEST(loading_rejects_anything_but_a_saved_script) {
-  const std::string saved = nlu::Script::compile(kSaveScript).save();
   CHECK_THROWS(std::runtime_error, nlu::Script::load(""));
   CHECK_THROWS(std::runtime_error, nlu::Script::load("card:lost\n    I lost my card\n"));
-  CHECK_THROWS(std::runtime_error, nlu::Script::load(saved.substr(0, saved.size() / 2)));
-  // Corrupt bytes are caught by the checks on every count and index.
+  const std::string saved = nlu::Script::compile(kCorruptScript).save();
+  int accepted_truncations = 0;
+  for (std::size_t size = 0; size < saved.size(); ++size) {
+    try {
+      nlu::Script::load(saved.substr(0, size));
+      ++accepted_truncations;
+    } catch (const std::runtime_error&) {
+    }
+  }
+  CHECK_EQ(accepted_truncations, 0);
+  // Corrupt bytes are caught by the checks on every count and index; what
+  // they let through loads into a script that matches without crashing.
   int rejected = 0;
-  for (std::size_t at = 8; at < saved.size(); at += 97) {
+  for (std::size_t at = 8; at < saved.size(); ++at) {
     std::string bad = saved;
     bad[at] = static_cast<char>(bad[at] ^ 0x5a);
     try {
       nlu::Script s = nlu::Script::load(bad);
       s.match("I lost my debit card");
+      s.search("3번 주세요 체크카드를 분실했어요");
     } catch (const std::runtime_error&) {
       ++rejected;
     }
