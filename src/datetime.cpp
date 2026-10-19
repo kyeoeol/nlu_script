@@ -8,6 +8,7 @@
 #include "nlu_script/nlu_script.hpp"
 #include "numbers.hpp"
 #include "unicode.hpp"
+#include "vocabulary.hpp"
 
 namespace nlu {
 namespace detail {
@@ -32,6 +33,13 @@ const std::string* get(const Attributes& attrs, const std::string& key) {
 
 std::string offset(int n) { return n > 0 ? "+" + std::to_string(n) : std::to_string(n); }
 
+std::u32string strip_spaces(std::u32string_view s) {
+  std::u32string out;
+  for (char32_t c : s)
+    if (c != U' ') out += c;
+  return out;
+}
+
 // A word and the attributes it sets. Words are matched without spaces, since
 // spaces are removed from the text first.
 struct Word {
@@ -41,93 +49,64 @@ struct Word {
 
 std::vector<Word> make_words() {
   std::vector<Word> words;
-  auto add = [&](std::u32string text, Attributes attrs) {
-    words.push_back({std::move(text), std::move(attrs)});
+  auto add = [&](std::u32string_view text, Attributes attrs) {
+    words.push_back({strip_spaces(text), std::move(attrs)});
   };
+  auto clock = [](int hour) -> Attributes { return {{"hour", std::to_string(hour)}, {"minute", "0"}}; };
   // Korean
-  const std::pair<const char32_t*, int> days_ko[] = {{U"오늘", 0},  {U"내일", 1}, {U"모레", 2},
-                                                     {U"글피", 3},  {U"어제", -1}, {U"그제", -2},
-                                                     {U"그저께", -2}};
-  for (const auto& d : days_ko) add(d.first, {{"day_offset", offset(d.second)}});
-  const std::pair<const char32_t*, int> which_ko[] = {
-      {U"이번", 0}, {U"다음", 1}, {U"지난", -1}, {U"저번", -1}};
-  for (const auto& w : which_ko) {
-    add(std::u32string(w.first) + U"주", {{"week_offset", offset(w.second)}});
-    add(std::u32string(w.first) + U"달", {{"month_offset", offset(w.second)}});
+  for (const NumberWord& d : kRelativeDaysKo) add(d.text, {{"day_offset", offset(d.value)}});
+  for (const NumberWord& w : kWhichKo) {
+    add(std::u32string(w.text) + U"주", {{"week_offset", offset(w.value)}});
+    add(std::u32string(w.text) + U"달", {{"month_offset", offset(w.value)}});
   }
   add(U"담주", {{"week_offset", "+1"}});
-  const std::pair<const char32_t*, int> years_ko[] = {
-      {U"올해", 0}, {U"내년", 1}, {U"작년", -1}, {U"재작년", -2}};
-  for (const auto& y : years_ko) add(y.first, {{"year_offset", offset(y.second)}});
-  const char* const weekday_names[] = {"MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"};
-  const char32_t weekdays_ko[] = U"월화수목금토일";
-  for (int i = 0; i < 7; ++i)
-    add(std::u32string(1, weekdays_ko[i]) + U"요일", {{"weekday", weekday_names[i]}});
-  const std::pair<const char32_t*, const char*> parts_ko[] = {
-      {U"새벽", "DAWN"}, {U"아침", "MORNING"}, {U"오전", "AM"},      {U"낮", "DAY"},
-      {U"점심", "NOON"}, {U"오후", "PM"},      {U"저녁", "EVENING"}, {U"밤", "NIGHT"}};
-  for (const auto& p : parts_ko) add(p.first, {{"part_of_day", p.second}});
-  add(U"정오", {{"hour", "12"}, {"minute", "0"}});
-  add(U"자정", {{"hour", "0"}, {"minute", "0"}});
+  for (const NumberWord& y : kRelativeYearsKo) add(y.text, {{"year_offset", offset(y.value)}});
+  for (std::size_t i = 0; i < kWeekdaysKo.size(); ++i)
+    add(std::u32string(1, kWeekdaysKo[i]) + U"요일", {{"weekday", kWeekdayNames[i]}});
+  for (const NamedWord& p : kPartsOfDayKo) add(p.text, {{"part_of_day", p.name}});
+  for (const NumberWord& c : kClockWordsKo) add(c.text, clock(c.value));
   add(U"반", {{"minute", "30"}});
   // English
-  const std::pair<const char32_t*, int> days_en[] = {{U"today", 0},
-                                                     {U"tomorrow", 1},
-                                                     {U"yesterday", -1},
-                                                     {U"thedayaftertomorrow", 2},
-                                                     {U"thedaybeforeyesterday", -2}};
-  for (const auto& d : days_en) add(d.first, {{"day_offset", offset(d.second)}});
-  const char32_t* const weekdays_en[] = {U"monday", U"tuesday",  U"wednesday", U"thursday",
-                                         U"friday", U"saturday", U"sunday"};
-  const std::pair<const char32_t*, int> which_en[] = {{U"this", 0}, {U"next", 1}, {U"last", -1}};
+  for (const NumberWord& d : kRelativeDaysEn) add(d.text, {{"day_offset", offset(d.value)}});
   for (int i = 0; i < 7; ++i) {
-    add(weekdays_en[i], {{"weekday", weekday_names[i]}});
-    for (const auto& w : which_en)
-      add(std::u32string(w.first) + weekdays_en[i],
-          {{"week_offset", offset(w.second)}, {"weekday", weekday_names[i]}});
+    add(kWeekdaysEn[i], {{"weekday", kWeekdayNames[i]}});
+    for (const NumberWord& w : kWhichEn)
+      add(std::u32string(w.text) + kWeekdaysEn[i],
+          {{"week_offset", offset(w.value)}, {"weekday", kWeekdayNames[i]}});
   }
-  for (const auto& w : which_en)
-    add(std::u32string(w.first) + U"week", {{"week_offset", offset(w.second)}});
-  const char32_t* const months_en[] = {U"january", U"february", U"march",     U"april",
-                                       U"may",     U"june",     U"july",      U"august",
-                                       U"september", U"october", U"november", U"december"};
-  for (int i = 0; i < 12; ++i) {
-    add(months_en[i], {{"month", std::to_string(i + 1)}});
-    add(std::u32string(months_en[i]).substr(0, 3), {{"month", std::to_string(i + 1)}});
+  for (const NumberWord& w : kWhichEn)
+    add(std::u32string(w.text) + U"week", {{"week_offset", offset(w.value)}});
+  for (const NumberWord& m : kMonthsEn) add(m.text, {{"month", std::to_string(m.value)}});
+  for (const PartOfDayEn& p : kPartsOfDayEn) {
+    Attributes attrs;
+    if (p.today) attrs.emplace_back("day_offset", "0");
+    attrs.emplace_back("part_of_day", p.name);
+    add(p.text, std::move(attrs));
   }
-  add(U"sept", {{"month", "9"}});
-  const std::pair<const char32_t*, Attributes> parts_en[] = {
-      {U"morning", {{"part_of_day", "MORNING"}}},
-      {U"afternoon", {{"part_of_day", "PM"}}},
-      {U"evening", {{"part_of_day", "EVENING"}}},
-      {U"night", {{"part_of_day", "NIGHT"}}},
-      {U"inthemorning", {{"part_of_day", "MORNING"}}},
-      {U"intheafternoon", {{"part_of_day", "PM"}}},
-      {U"intheevening", {{"part_of_day", "EVENING"}}},
-      {U"atnight", {{"part_of_day", "NIGHT"}}},
-      {U"thismorning", {{"day_offset", "0"}, {"part_of_day", "MORNING"}}},
-      {U"thisafternoon", {{"day_offset", "0"}, {"part_of_day", "PM"}}},
-      {U"thisevening", {{"day_offset", "0"}, {"part_of_day", "EVENING"}}},
-      {U"tonight", {{"day_offset", "0"}, {"part_of_day", "NIGHT"}}},
-      {U"am", {{"part_of_day", "AM"}}},
-      {U"a.m.", {{"part_of_day", "AM"}}},
-      {U"pm", {{"part_of_day", "PM"}}},
-      {U"p.m.", {{"part_of_day", "PM"}}}};
-  for (const auto& p : parts_en) add(p.first, p.second);
-  add(U"noon", {{"hour", "12"}, {"minute", "0"}});
-  add(U"midnight", {{"hour", "0"}, {"minute", "0"}});
+  for (const NamedWord& p : kAmPm) add(p.text, {{"part_of_day", p.name}});
+  for (const NumberWord& c : kClockWordsEn) add(c.text, clock(c.value));
   // Longest first, so 그저께 wins over 그제 and march over mar.
   std::stable_sort(words.begin(), words.end(),
                    [](const Word& a, const Word& b) { return a.text.size() > b.text.size(); });
   return words;
 }
 
-const std::pair<const char32_t*, int> kNativeHours[] = {
-    {U"열한", 11}, {U"열두", 12}, {U"다섯", 5}, {U"여섯", 6}, {U"일곱", 7}, {U"여덟", 8},
-    {U"아홉", 9},  {U"한", 1},    {U"두", 2},   {U"세", 3},   {U"네", 4},   {U"열", 10}};
+// Words for numbers, with their values.
+using Numbers = std::vector<std::pair<std::u32string, int>>;
+
+// Native Korean hours: 한 (1) to 열두 (12).
+const Numbers& native_hours() {
+  static const Numbers hours = [] {
+    Numbers out;
+    for (int n = 1; n <= kMaxWordHour; ++n) out.emplace_back(native_counting_form(n), n);
+    return out;
+  }();
+  return hours;
+}
 
 bool is_sino(char32_t c) {
-  return std::u32string_view(U"일이삼사오육칠팔구십백천").find(c) != std::u32string_view::npos;
+  return kSinoDigits.find(c) != std::u32string_view::npos || c == U'십' || c == U'백' ||
+         c == U'천';
 }
 
 // Stores `value` under `key` if it lies in [low, high].
@@ -199,8 +178,8 @@ Attributes scan_single(const std::u32string& s) {
     }
     // A native Korean hour: 세 시, 열두시.
     bool native = false;
-    for (const auto& h : kNativeHours) {
-      std::u32string n = h.first;
+    for (const auto& h : native_hours()) {
+      const std::u32string& n = h.first;
       if (starts_with(s, i, n) && starts_with(s, i + n.size(), U"시")) {
         set_field(attrs, "hour", h.second, 1, 12);
         i += n.size() + 1;
@@ -246,47 +225,48 @@ void adjust_hour(Attributes& attrs) {
   if (hour && part) set_attribute(attrs, "hour", std::to_string(to_24_hour(std::stoll(*hour), *part)));
 }
 
-std::u32string strip_spaces(const std::u32string& s) {
-  std::u32string out;
-  for (char32_t c : s)
-    if (c != U' ') out += c;
-  return out;
-}
-
 // --- durations ---------------------------------------------------------------
 
-struct Count {
-  const char32_t* text;
-  int value;
-};
+template <typename T>
+void longest_first(std::vector<std::pair<std::u32string, T>>& words) {
+  std::stable_sort(words.begin(), words.end(),
+                   [](const auto& a, const auto& b) { return a.first.size() > b.first.size(); });
+}
 
-// Counts written as words, longest first.
-const Count kCountWords[] = {
-    {U"eleven", 11}, {U"twelve", 12}, {U"three", 3}, {U"seven", 7}, {U"eight", 8},
-    {U"four", 4},    {U"five", 5},    {U"nine", 9},  {U"one", 1},   {U"two", 2},
-    {U"six", 6},     {U"ten", 10},    {U"an", 1},    {U"a", 1},     {U"열한", 11},
-    {U"열두", 12},   {U"다섯", 5},    {U"여섯", 6},  {U"일곱", 7},  {U"여덟", 8},
-    {U"아홉", 9},    {U"한", 1},      {U"두", 2},    {U"세", 3},    {U"네", 4},
-    {U"열", 10}};
+// Counts written as words (a, two, 열두), longest first.
+const Numbers& count_words() {
+  static const Numbers counts = [] {
+    Numbers out;
+    for (const NumberWord& w : kCountArticlesEn) out.emplace_back(w.text, w.value);
+    for (const NumberWord& w : kEnglishSmall)
+      if (w.value >= 1 && w.value <= kMaxWordHour) out.emplace_back(w.text, w.value);
+    for (const auto& h : native_hours()) out.push_back(h);
+    longest_first(out);
+    return out;
+  }();
+  return counts;
+}
 
-struct DurationUnit {
-  const char32_t* text;
-  const char* field;
-};
+// Units of a duration and the attribute each sets, such as "hours" and
+// hour_offset.
+using Units = std::vector<std::pair<std::u32string, std::string>>;
 
-// Longest first, so 시간 wins over 시 and minutes over minute.
-const DurationUnit kDurationUnits[] = {
-    {U"minutes", "minute_offset"}, {U"minute", "minute_offset"}, {U"months", "month_offset"},
-    {U"month", "month_offset"},    {U"hours", "hour_offset"},    {U"hour", "hour_offset"},
-    {U"weeks", "week_offset"},     {U"week", "week_offset"},     {U"years", "year_offset"},
-    {U"year", "year_offset"},      {U"days", "day_offset"},      {U"day", "day_offset"},
-    {U"시간", "hour_offset"},      {U"개월", "month_offset"},    {U"주일", "week_offset"},
-    {U"분", "minute_offset"},      {U"달", "month_offset"},      {U"주", "week_offset"},
-    {U"일", "day_offset"},         {U"년", "year_offset"}};
-
-const DurationUnit* duration_unit_at(const std::u32string& s, std::size_t at) {
-  for (const DurationUnit& u : kDurationUnits)
-    if (starts_with(s, at, u.text)) return &u;
+// The unit at `at`, if any. Longest first, so 시간 wins over 시 and minutes
+// over minute.
+const Units::value_type* duration_unit_at(const std::u32string& s, std::size_t at) {
+  static const Units units = [] {
+    Units out;
+    auto field = [](int grain) { return std::string(kGrains[grain]) + "_offset"; };
+    for (const DurationUnit& u : kDurationUnitsKo) out.emplace_back(u.text, field(u.grain));
+    for (const DurationUnit& u : kDurationUnitsEn) {
+      out.emplace_back(u.text, field(u.grain));
+      out.emplace_back(std::u32string(u.text) + U"s", field(u.grain));
+    }
+    longest_first(out);
+    return out;
+  }();
+  for (const auto& u : units)
+    if (starts_with(s, at, u.first)) return &u;
   return nullptr;
 }
 
@@ -302,7 +282,6 @@ bool is_duration(const std::u32string& s) {
 // minute_offset=+30, 3daysago day_offset=-3.
 Attributes scan_duration(const std::u32string& s) {
   const int sign = ends_with(s, U"전") || ends_with(s, U"ago") ? -1 : 1;
-  static const Count kDayWords[] = {{U"하루", 1}, {U"이틀", 2}, {U"사흘", 3}, {U"나흘", 4}};
   static const char32_t* const kFiller[] = {U"fromnow", U"later", U"ago", U"in",
                                             U"뒤",      U"후",    U"전"};
   Attributes attrs;
@@ -312,7 +291,7 @@ Attributes scan_duration(const std::u32string& s) {
   };
   while (i < s.size()) {
     bool done = false;
-    for (const Count& d : kDayWords) {
+    for (const NumberWord& d : kDayCountsKo) {
       if (starts_with(s, i, d.text)) {
         add("day_offset", d.value);
         i += std::char_traits<char32_t>::length(d.text);
@@ -329,10 +308,10 @@ Attributes scan_duration(const std::u32string& s) {
       for (; end < s.size() && s[end] >= U'0' && s[end] <= U'9'; ++end)
         value = value * 10 + (s[end] - U'0');
     } else {
-      for (const Count& c : kCountWords) {
-        std::size_t n = std::char_traits<char32_t>::length(c.text);
-        if (starts_with(s, i, c.text) && duration_unit_at(s, i + n)) {
-          value = c.value;
+      for (const auto& c : count_words()) {
+        std::size_t n = c.first.size();
+        if (starts_with(s, i, c.first) && duration_unit_at(s, i + n)) {
+          value = c.second;
           end = i + n;
           break;
         }
@@ -347,9 +326,9 @@ Attributes scan_duration(const std::u32string& s) {
       }
     }
     if (value >= 0) {
-      if (const DurationUnit* unit = duration_unit_at(s, end)) {
-        add(unit->field, value);
-        i = end + std::char_traits<char32_t>::length(unit->text);
+      if (const auto* unit = duration_unit_at(s, end)) {
+        add(unit->second.c_str(), value);
+        i = end + unit->first.size();
         continue;
       }
     }
@@ -486,9 +465,8 @@ int days_in_month(int year, int month) {
 }
 
 int weekday_index(const std::string& name) {  // Monday 0
-  static const char* const names[] = {"MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"};
   for (int i = 0; i < 7; ++i)
-    if (name == names[i]) return i;
+    if (name == detail::kWeekdayNames[i]) return i;
   return -1;
 }
 
