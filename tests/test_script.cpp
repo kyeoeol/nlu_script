@@ -610,6 +610,99 @@ TEST(per_thread_caches_are_separate) {
 
 namespace {
 
+// Rules for search: plain text, slots and system entities.
+std::string search_rules() {
+  return order_rules(150) +
+         "when\n    `@{DATETIME}\n"
+         "money\n    `@{MONEY}\n"
+         "card:lost\n    <card>[체크|신용]카드</card> 분실\n"
+         "agent\n    상담원 <?>+?연결\n";
+}
+
+std::vector<std::string> search_texts() {
+  std::vector<std::string> out;
+  for (int i = 0; i < 150; i += 7)
+    out.push_back("please " + order(i) + " and " + order((i * 13 + 5) % 150) + " today");
+  out.push_back("내일 오후 3시에 5만 원 보내고 체크카드 분실 신고도 할게요");
+  out.push_back("상담원 빨리 연결 order 0 for customer 0 신용카드 분실");
+  out.push_back("an order 7919 for customer 1x and order 7919 for customer 1");
+  return out;
+}
+
+std::string describe(const std::vector<nlu::Match>& found) {
+  std::string out;
+  for (const nlu::Match& m : found)
+    out += m.label + "@" + std::to_string(m.begin) + "-" + std::to_string(m.end) + ":" +
+           m.tagged + "/" + std::to_string(m.specificity) + "\n";
+  return out;
+}
+
+}  // namespace
+
+TEST(search_reuses_the_shared_cache) {
+  nlu::Script s = nlu::Script::compile(search_rules());
+  const std::string text = search_texts().front();
+  const std::string found = describe(s.search(text));
+  const std::size_t states = s.cache_stats().states;
+  CHECK(states > 1u);  // search filled the cache
+  CHECK_EQ(describe(s.search(text)), found);
+  CHECK_EQ(s.cache_stats().states, states);  // and the second search added nothing
+}
+
+TEST(search_is_unchanged_by_a_cache_that_evicts_mid_search) {
+  nlu::Script reference = nlu::Script::compile(search_rules());
+  std::vector<std::string> expected;
+  for (const std::string& text : search_texts()) expected.push_back(describe(reference.search(text)));
+  for (std::size_t max_states : {2, 3, 5, 17}) {
+    nlu::Script s = nlu::Script::compile(search_rules());
+    nlu::CacheOptions options;
+    options.max_states = max_states;
+    s.set_cache_options(options);
+    for (int round = 0; round < 2; ++round)
+      for (std::size_t k = 0; k < expected.size(); ++k)
+        CHECK_EQ(describe(s.search(search_texts()[k])), expected[k]);
+    CHECK(s.cache_stats().evictions > 0);
+    CHECK(s.cache_stats().states <= max_states);
+  }
+}
+
+TEST(concurrent_search_and_match_agree_with_one_thread) {
+  const std::vector<std::string> texts = search_texts();
+  nlu::Script reference = nlu::Script::compile(search_rules());
+  std::vector<std::string> searched, matched;
+  for (const std::string& text : texts) searched.push_back(describe(reference.search(text)));
+  for (int i = 0; i < 150; ++i) matched.push_back(describe(reference.match(order(i))));
+  for (int variant = 0; variant < 3; ++variant) {
+    nlu::Script s = nlu::Script::compile(search_rules());
+    nlu::CacheOptions options;
+    options.max_states = variant == 1 ? 40 : 200000;  // 1: a shared cache that keeps evicting
+    options.per_thread = variant == 2;
+    s.set_cache_options(options);
+    const int kThreads = 4;
+    std::vector<int> wrong(kThreads, 0);
+    std::vector<std::thread> threads;
+    for (int t = 0; t < kThreads; ++t) {
+      threads.emplace_back([&, t] {
+        for (int round = 0; round < 3; ++round) {
+          for (std::size_t k = 0; k < texts.size(); ++k) {
+            const std::size_t i = (k * (2 * t + 1) + t) % texts.size();
+            if (describe(s.search(texts[i])) != searched[i]) ++wrong[t];
+            const int m = static_cast<int>((k * 7 + t * 31 + round) % 150);
+            if (describe(s.match(order(m))) != matched[m]) ++wrong[t];
+          }
+        }
+      });
+    }
+    for (std::thread& t : threads) t.join();
+    int total = 0;
+    for (int w : wrong) total += w;
+    CHECK_EQ(total, 0);
+    if (variant == 1) CHECK(s.cache_stats().evictions > 0);
+  }
+}
+
+namespace {
+
 const char* kSaveScript =
     "option ignore-trailing-punctuation\n"
     "@card: [신용{type=CREDIT}|체크{type=DEBIT}]카드\n"

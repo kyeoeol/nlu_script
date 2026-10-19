@@ -187,14 +187,35 @@ class Closure {
 
   // Returns the sorted closure of `stack`.
   std::vector<int> operator()(std::vector<int> stack, char32_t prev) {
+    stack_ = std::move(stack);
+    return close(prev);
+  }
+
+  // The closure of the states that `set` reaches by consuming `c`.
+  std::vector<int> step(const std::vector<int>& set, char32_t c) {
+    stack_.clear();
+    for (int s : set)
+      for (const Edge& e : nfa_.states[s].edges)
+        if (e.consumes() && nfa_.matches(e, c)) stack_.push_back(e.to);
+    return close(c);
+  }
+
+ private:
+  const Nfa& nfa_;
+  std::vector<unsigned> mark_;
+  unsigned generation_ = 0;
+  std::vector<int> stack_, out_;  // scratch, kept to save allocations
+
+  // The sorted closure of the states in stack_, sized exactly.
+  std::vector<int> close(char32_t prev) {
     if (++generation_ == 0) {
       std::fill(mark_.begin(), mark_.end(), 0);
       generation_ = 1;
     }
-    std::vector<int> out;
-    while (!stack.empty()) {
-      int s = stack.back();
-      stack.pop_back();
+    out_.clear();
+    while (!stack_.empty()) {
+      int s = stack_.back();
+      stack_.pop_back();
       if (mark_[s] == generation_) continue;
       mark_[s] = generation_;
       const State& st = nfa_.states[s];
@@ -203,28 +224,14 @@ class Closure {
         if (e.consumes()) {
           important = true;
         } else if (e.kind != Edge::Kind::Guard || guard_holds(e.guard, prev)) {
-          stack.push_back(e.to);
+          stack_.push_back(e.to);
         }
       }
-      if (important) out.push_back(s);
+      if (important) out_.push_back(s);
     }
-    std::sort(out.begin(), out.end());
-    return out;
+    std::sort(out_.begin(), out_.end());
+    return std::vector<int>(out_.begin(), out_.end());
   }
-
-  // The closure of the states that `set` reaches by consuming `c`.
-  std::vector<int> step(const std::vector<int>& set, char32_t c) {
-    std::vector<int> targets;
-    for (int s : set)
-      for (const Edge& e : nfa_.states[s].edges)
-        if (e.consumes() && nfa_.matches(e, c)) targets.push_back(e.to);
-    return (*this)(std::move(targets), c);
-  }
-
- private:
-  const Nfa& nfa_;
-  std::vector<unsigned> mark_;
-  unsigned generation_ = 0;
 };
 
 }  // namespace detail

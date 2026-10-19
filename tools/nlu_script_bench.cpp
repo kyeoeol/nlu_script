@@ -8,8 +8,9 @@
 //
 // Each rule is "order <n> for customer <i> (please)" under its own label; the
 // inputs cycle through them, so every match finds one rule. Reports compile
-// time, the time per match() once the DFA cache is warm, and the DFA cache's
-// size.
+// time, the time per match() once the DFA cache is warm, the time per
+// search() of free text around 200 of the inputs ("please ... today", warm
+// as well), and the DFA cache's size after both.
 #include <algorithm>
 #include <chrono>
 #include <cstdlib>
@@ -63,23 +64,39 @@ int main(int argc, char** argv) {
       int i = (k * 7) % rules;
       inputs.push_back("order " + std::to_string(i * 7919) + " for customer " + std::to_string(i));
     }
+    std::vector<std::string> texts;
+    for (std::size_t k = 0; k < 200; ++k) texts.push_back("please " + inputs[k] + " today");
     const int rounds = 5;
-    std::vector<std::size_t> found(static_cast<std::size_t>(threads), 0);
-    auto work = [&](int t) {
-      for (const std::string& text : inputs) script.match(text);  // warm the cache
-      for (int r = 0; r < rounds; ++r)
-        for (const std::string& text : inputs) found[t] += script.match(text).size();
+    // Runs work(t) on every thread; returns the time per call of `calls`
+    // calls per thread, across all threads.
+    auto time_threads = [&](auto work, std::size_t calls) {
+      auto begin = std::chrono::steady_clock::now();
+      std::vector<std::thread> pool;
+      for (int t = 0; t < threads; ++t) pool.emplace_back(work, t);
+      for (std::thread& t : pool) t.join();
+      return seconds_since(begin) / static_cast<double>(calls * static_cast<std::size_t>(threads));
     };
-    start = std::chrono::steady_clock::now();
-    std::vector<std::thread> pool;
-    for (int t = 0; t < threads; ++t) pool.emplace_back(work, t);
-    for (std::thread& t : pool) t.join();
-    // Time per match across all threads (warm-up included).
-    const double per_match =
-        seconds_since(start) / ((rounds + 1) * inputs.size() * static_cast<std::size_t>(threads));
+    // Warm-up included in both.
+    std::vector<std::size_t> found(static_cast<std::size_t>(threads), 0);
+    const double per_match = time_threads(
+        [&](int t) {
+          for (const std::string& text : inputs) script.match(text);  // warm the cache
+          for (int r = 0; r < rounds; ++r)
+            for (const std::string& text : inputs) found[t] += script.match(text).size();
+        },
+        (rounds + 1) * inputs.size());
+    std::vector<std::size_t> searched(static_cast<std::size_t>(threads), 0);
+    const double per_search = time_threads(
+        [&](int t) {
+          for (const std::string& text : texts) script.search(text);
+          for (int r = 0; r < rounds; ++r)
+            for (const std::string& text : texts) searched[t] += script.search(text).size();
+        },
+        (rounds + 1) * texts.size());
     nlu::CacheStats stats = script.cache_stats();
     std::cout << rules << " rules: compile " << compile * 1000 << " ms, match "
-              << per_match * 1e6 << " us (" << found[0] / rounds << " found), cache "
+              << per_match * 1e6 << " us (" << found[0] / rounds << " found), search "
+              << per_search * 1e6 << " us (" << searched[0] / rounds << " found), cache "
               << stats.states << " states, " << stats.bytes / 1024 << " KiB, " << stats.evictions
               << " evictions\n";
   }

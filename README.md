@@ -122,7 +122,9 @@ place in the input (byte offsets; character offsets in Python). A match
 neither starts nor ends inside a run of ASCII letters and digits, so `card`
 is not found in `postcard`; Hangul has no such boundary, since particles
 attach to words (`카드` is found in `카드를`). Results of `match()` carry
-`begin` and `end` too, covering the whole input.
+`begin` and `end` too, covering the whole input. Search runs on the same
+DFA cache as `match()`, so text the cache has seen is searched without
+building any automaton states.
 
 ## Explaining a miss
 
@@ -543,16 +545,21 @@ message, and each error with its `line`, `column`, `message` and `file` from
 `CompileError.errors` lists them as `Diagnostic(line, column, message, file)`,
 and the CLI prints each as `rules.nlu:3:5: message`.
 
-`Script::match` is thread-safe, and concurrent calls run in parallel. A call
-waits only while another thread adds a state to the shared DFA cache, which
-mostly happens while the cache warms up.
+`Script::match` and `Script::search` are thread-safe, and concurrent calls
+run in parallel. A call that needs transitions the shared DFA cache lacks
+computes them without holding its lock, and waits only while a thread adds
+finished ones, so a cold or thrashing cache doesn't hold other calls up.
 
 The cache is bounded (`CacheOptions`: 200,000 states and 64 MiB by
 default). When it fills up, it keeps the states used since its last
 eviction, up to half of each limit, and drops the rest, so the states most
-inputs pass through stay. `Script::cache_stats()` reports its size and how
-often it evicted; `set_cache_options()` changes the limits, or gives each
-thread its own cache (`per_thread`).
+inputs pass through stay. `match()` and `search()` (and so `match_best()`)
+fill the same cache, and `Script::cache_stats()` reports its size and how
+often it evicted, from both; `set_cache_options()` changes the limits, or
+gives each thread its own cache (`per_thread`). A thread computing new
+transitions borrows scratch space of 4 bytes per automaton state, which the
+cache keeps for reuse, so there is one such buffer per thread that has
+computed transitions at the same time as others.
 
 A compiled script can be saved and loaded again without parsing or
 compiling: `Script::save()` / `Script::load(bytes)` (and `save_file`,
@@ -567,8 +574,11 @@ about half as long as compiling, and the saved file is about 20 MiB.
 `nlu_script_bench` times matching against generated scripts. On an Apple
 silicon Mac, a warm `match()` takes about 2 µs up to 10,000 rules, 4 µs at
 50,000 and 8 µs at 100,000; at 10,000 rules four threads together reach about
-0.9 µs per match. Rules without slots or wildcards are answered by the DFA
-alone, without the Pike VM.
+0.7 µs per match starting from an empty cache, and 2.8 µs with the cache
+capped at 5,000 states, where it keeps evicting. A warm `search()` of a
+sentence around one of the inputs takes about 2 µs at 20,000 rules and 5 µs
+at 100,000. Rules without slots or wildcards are answered by the DFA alone,
+without the Pike VM.
 
 ## C API
 
@@ -638,9 +648,11 @@ yourself, set `NLU_SCRIPT_LIBRARY=/path/to/libnlu_script.so`.
    the product of the wildcard's DFA with the complement of the excluded
    pattern's DFA.
 2. All rules share one NFA. A lazily built DFA (subset construction, cached
-   per state and character) decides which rules accept the input. Threads
-   share the cache: following cached transitions takes a shared lock, and
-   only adding a new transition takes the exclusive lock.
+   per state and character) decides which rules accept the input, and
+   search runs it from each position of the text. Threads share the cache:
+   following cached transitions takes a shared lock, new transitions are
+   computed without the lock, and only adding them takes the exclusive
+   lock.
 3. For each accepting rule, a Pike VM replays the input over that rule's
    states. Groups are greedy and wildcards are lazy. The VM records slot
    boundaries and attribute assignments on the winning path.
