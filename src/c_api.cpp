@@ -4,6 +4,7 @@
 #include <cstring>
 #include <new>
 
+#include "datetime.hpp"
 #include "nlu_script/nlu_script.hpp"
 
 struct nlu_script {
@@ -51,6 +52,16 @@ nlu_script* compile_with(Compile compile, char** error, int* line, int* column) 
     report(error, line, column, e.what(), 0, 0);
   }
   return nullptr;
+}
+
+nlu_result* run_match(const nlu_script* script, const char* text,
+                      std::vector<nlu::Match> (nlu::Script::*method)(const std::string&) const) {
+  if (!script) return nullptr;
+  try {
+    return new nlu_result{(script->script.*method)(text ? text : "")};
+  } catch (const std::exception&) {
+    return nullptr;
+  }
 }
 
 const nlu::Match* match_at(const nlu_result* r, size_t match) {
@@ -116,30 +127,15 @@ size_t nlu_script_rule_count(const nlu_script* script) {
 }
 
 nlu_result* nlu_script_match(const nlu_script* script, const char* text) {
-  if (!script) return nullptr;
-  try {
-    return new nlu_result{script->script.match(text ? text : "")};
-  } catch (const std::exception&) {
-    return nullptr;
-  }
+  return run_match(script, text, &nlu::Script::match);
 }
 
 nlu_result* nlu_script_search(const nlu_script* script, const char* text) {
-  if (!script) return nullptr;
-  try {
-    return new nlu_result{script->script.search(text ? text : "")};
-  } catch (const std::exception&) {
-    return nullptr;
-  }
+  return run_match(script, text, &nlu::Script::search);
 }
 
 nlu_result* nlu_script_match_best(const nlu_script* script, const char* text) {
-  if (!script) return nullptr;
-  try {
-    return new nlu_result{script->script.match_best(text ? text : "")};
-  } catch (const std::exception&) {
-    return nullptr;
-  }
+  return run_match(script, text, &nlu::Script::match_best);
 }
 
 void nlu_result_free(nlu_result* result) { delete result; }
@@ -325,9 +321,8 @@ int nlu_resolve_datetime(const char* const* keys, const char* const* values, siz
   copy(r.start, start);
   if (r.has_end) copy(r.end, end);
   if (grain) {
-    static const char* const grains[] = {"year", "month", "week", "day", "hour", "minute"};
-    *grain = grains[0];
-    for (const char* g : grains)
+    *grain = nlu::detail::kGrains[0];
+    for (const char* g : nlu::detail::kGrains)
       if (r.grain == g) *grain = g;
   }
   return r.has_end ? 1 : 0;

@@ -159,7 +159,8 @@ struct DateTimeRange {
 // the month given alone means the next one, today included (금요일, 3월 5일).
 // Fields the text leaves out come from the coarser ones: 다음 달 is the 1st
 // of next month, 다음 주 its Monday. The end of a range takes the start's date
-// when it gives none.
+// when it gives none. Attributes whose values are out of range (month 13,
+// offsets beyond 100,000) are ignored, and `now` is clamped into range.
 DateTimeRange resolve_datetime(const std::vector<std::pair<std::string, std::string>>& attributes,
                                const DateTimeValue& now);
 

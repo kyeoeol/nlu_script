@@ -1,6 +1,7 @@
 #include "datetime.hpp"
 
 #include <algorithm>
+#include <cerrno>
 #include <cstdlib>
 #include <string>
 
@@ -11,11 +12,7 @@
 namespace nlu {
 namespace detail {
 
-namespace {
-
-using Attributes = std::vector<std::pair<std::string, std::string>>;
-
-void set(Attributes& attrs, const std::string& key, const std::string& value) {
+void set_attribute(Attributes& attrs, const std::string& key, const std::string& value) {
   for (auto& kv : attrs) {
     if (kv.first == key) {
       kv.second = value;
@@ -24,6 +21,8 @@ void set(Attributes& attrs, const std::string& key, const std::string& value) {
   }
   attrs.emplace_back(key, value);
 }
+
+namespace {
 
 const std::string* get(const Attributes& attrs, const std::string& key) {
   for (const auto& kv : attrs)
@@ -128,17 +127,13 @@ const std::pair<const char32_t*, int> kNativeHours[] = {
     {U"아홉", 9},  {U"한", 1},    {U"두", 2},   {U"세", 3},   {U"네", 4},   {U"열", 10}};
 
 bool is_sino(char32_t c) {
-  return std::u32string(U"일이삼사오육칠팔구십백천").find(c) != std::u32string::npos;
-}
-
-bool starts_with(const std::u32string& s, std::size_t at, const std::u32string& prefix) {
-  return s.compare(at, prefix.size(), prefix) == 0;
+  return std::u32string_view(U"일이삼사오육칠팔구십백천").find(c) != std::u32string_view::npos;
 }
 
 // Stores `value` under `key` if it lies in [low, high].
 void set_field(Attributes& attrs, const std::string& key, long long value, long long low,
                long long high) {
-  if (value >= low && value <= high) set(attrs, key, std::to_string(value));
+  if (value >= low && value <= high) set_attribute(attrs, key, std::to_string(value));
 }
 
 struct Unit {
@@ -219,7 +214,7 @@ Attributes scan_single(const std::u32string& s) {
     const auto word = std::find_if(words.begin(), words.end(),
                                    [&](const Word& w) { return starts_with(s, i, w.text); });
     if (word != words.end()) {
-      for (const auto& kv : word->attrs) set(attrs, kv.first, kv.second);
+      for (const auto& kv : word->attrs) set_attribute(attrs, kv.first, kv.second);
       after_month_name = get(word->attrs, "month") != nullptr;
       i += word->text.size();
       continue;
@@ -248,7 +243,7 @@ Attributes scan_single(const std::u32string& s) {
 void adjust_hour(Attributes& attrs) {
   const std::string* hour = get(attrs, "hour");
   const std::string* part = get(attrs, "part_of_day");
-  if (hour && part) set(attrs, "hour", std::to_string(to_24_hour(std::stoll(*hour), *part)));
+  if (hour && part) set_attribute(attrs, "hour", std::to_string(to_24_hour(std::stoll(*hour), *part)));
 }
 
 std::u32string strip_spaces(const std::u32string& s) {
@@ -256,10 +251,6 @@ std::u32string strip_spaces(const std::u32string& s) {
   for (char32_t c : s)
     if (c != U' ') out += c;
   return out;
-}
-
-bool ends_with(const std::u32string& s, const std::u32string& suffix) {
-  return s.size() >= suffix.size() && s.compare(s.size() - suffix.size(), suffix.size(), suffix) == 0;
 }
 
 // --- durations ---------------------------------------------------------------
@@ -317,7 +308,7 @@ Attributes scan_duration(const std::u32string& s) {
   Attributes attrs;
   std::size_t i = 0;
   auto add = [&](const char* field, long long value) {
-    set(attrs, field, offset(static_cast<int>(sign * value)));
+    set_attribute(attrs, field, offset(static_cast<int>(sign * value)));
   };
   while (i < s.size()) {
     bool done = false;
@@ -444,15 +435,17 @@ Attributes datetime_attributes(const std::string& text) {
   const std::string* end_hour = get(end, "hour");
   if (start_hour && end_hour) {
     if (!start_part && end_part && std::stoll(*start_hour) % 12 <= std::stoll(*end_hour) % 12)
-      set(start, "part_of_day", *end_part);
+      set_attribute(start, "part_of_day", *end_part);
     else if (start_part && !end_part)
-      set(end, "part_of_day", *start_part);
+      set_attribute(end, "part_of_day", *start_part);
   }
   adjust_hour(start);
   adjust_hour(end);
   for (const auto& kv : end) start.emplace_back("end_" + kv.first, kv.second);
   return start;
 }
+
+const char* const kGrains[6] = {"year", "month", "week", "day", "hour", "minute"};
 
 }  // namespace detail
 
@@ -461,6 +454,7 @@ Attributes datetime_attributes(const std::string& text) {
 namespace {
 
 using detail::Attributes;
+using detail::kGrains;
 
 // Days since 1970-01-01 for a proleptic Gregorian date (Howard Hinnant's
 // days_from_civil), and back.
@@ -505,16 +499,41 @@ const std::string* field(const Attributes& attrs, const std::string& prefix,
   return nullptr;
 }
 
-int number(const std::string* value) { return value ? std::atoi(value->c_str()) : 0; }
-
-const char* const kGrains[] = {"year", "month", "week", "day", "hour", "minute"};
+// The value of field `key` if it is an integer in the field's range (offsets
+// up to 100,000 either way); values that aren't are treated as absent, so
+// arithmetic on them can't overflow.
+bool field_value(const std::string& key, const std::string& text, int& value) {
+  if (text.empty()) return false;
+  errno = 0;
+  char* end = nullptr;
+  const long long v = std::strtoll(text.c_str(), &end, 10);
+  if (errno || *end) return false;
+  long long low = -100000, high = 100000;
+  if (key == "year") low = 0, high = 9999;
+  if (key == "month") low = 1, high = 12;
+  if (key == "day") low = 1, high = 31;
+  if (key == "hour") low = 0, high = 24;
+  if (key == "minute") low = 0, high = 59;
+  if (v < low || v > high) return false;
+  value = static_cast<int>(v);
+  return true;
+}
 
 // Resolves the fields under `prefix` ("" or "end_"). Dates start from `base`,
 // times and durations from `now`; `grain` (an index into kGrains) only gets finer.
 DateTimeValue resolve_one(const Attributes& attrs, const std::string& prefix,
                           const DateTimeValue& now, const DateTimeValue& base, int& grain) {
-  auto has = [&](const char* key) { return field(attrs, prefix, key) != nullptr; };
-  auto get = [&](const char* key) { return number(field(attrs, prefix, key)); };
+  auto get = [&](const char* key) {
+    const std::string* text = field(attrs, prefix, key);
+    int value = 0;
+    return text && field_value(key, *text, value) ? value : 0;
+  };
+  auto has = [&](const char* key) {
+    const std::string* text = field(attrs, prefix, key);
+    int value;
+    return text && (std::string(key) == "weekday" ? weekday_index(*text) >= 0
+                                                  : field_value(key, *text, value));
+  };
   auto finer = [&](int g) { grain = std::max(grain, g); };
   int year = base.year, month = base.month, day = base.day;
   long long today = days_from_civil(now.year, static_cast<unsigned>(now.month),
@@ -564,7 +583,8 @@ DateTimeValue resolve_one(const Attributes& attrs, const std::string& prefix,
   }
   clamp_day();
   long long date = days_from_civil(year, static_cast<unsigned>(month), static_cast<unsigned>(day));
-  const long long monday = today - ((today + 3) % 7 + 7) % 7;  // 1970-01-01 was a Thursday
+  const long long today_weekday = ((today + 3) % 7 + 7) % 7;  // 1970-01-01 was a Thursday
+  const long long monday = today - today_weekday;
   if (has("week_offset")) {
     date = monday + 7LL * get("week_offset");
     finer(2);
@@ -574,7 +594,7 @@ DateTimeValue resolve_one(const Attributes& attrs, const std::string& prefix,
     if (has("week_offset")) {
       date += wd;
     } else if (!has("month") && !has("day")) {
-      date = today + ((wd - ((today + 3) % 7 + 7) % 7) + 7) % 7;  // the next one, today included
+      date = today + ((wd - today_weekday) + 7) % 7;  // the next one, today included
     }
     finer(3);
   }
@@ -586,9 +606,7 @@ DateTimeValue resolve_one(const Attributes& attrs, const std::string& prefix,
   DateTimeValue out{0, 0, 0, -1, -1};
   if (has("hour_offset") || has("minute_offset")) {
     // A duration counts from now.
-    long long minutes = days_from_civil(now.year, static_cast<unsigned>(now.month),
-                                        static_cast<unsigned>(now.day)) * 1440 +
-                        std::max(now.hour, 0) * 60 + std::max(now.minute, 0) +
+    long long minutes = today * 1440 + std::max(now.hour, 0) * 60 + std::max(now.minute, 0) +
                         60LL * get("hour_offset") + get("minute_offset");
     long long days = minutes >= 0 ? minutes / 1440 : (minutes - 1439) / 1440;
     civil_from_days(days + (date - today), out.year, out.month, out.day);
@@ -614,7 +632,13 @@ DateTimeValue resolve_one(const Attributes& attrs, const std::string& prefix,
 }  // namespace
 
 DateTimeRange resolve_datetime(const std::vector<std::pair<std::string, std::string>>& attributes,
-                               const DateTimeValue& now) {
+                               const DateTimeValue& reference) {
+  DateTimeValue now = reference;
+  now.year = std::min(std::max(now.year, 0), 9999);
+  now.month = std::min(std::max(now.month, 1), 12);
+  now.day = std::min(std::max(now.day, 1), days_in_month(now.year, now.month));
+  now.hour = std::min(std::max(now.hour, -1), 23);
+  now.minute = std::min(std::max(now.minute, -1), 59);
   DateTimeRange out;
   int grain = 0;
   out.start = resolve_one(attributes, "", now, now, grain);

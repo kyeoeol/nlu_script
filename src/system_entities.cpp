@@ -9,6 +9,12 @@ namespace detail {
 
 namespace {
 
+// Null-terminated word lists, shared by the entities that read them.
+const char32_t* const kSinoDigits[] = {U"일", U"이", U"삼", U"사", U"오",
+                                       U"육", U"칠", U"팔", U"구", nullptr};
+const char32_t* const kNativeTens[] = {U"열", U"스물", U"서른", U"마흔", U"쉰",
+                                       U"예순", U"일흔", U"여든", U"아흔", nullptr};
+
 // --- building blocks --------------------------------------------------------
 
 std::shared_ptr<Node> node(Node::Kind kind) {
@@ -35,11 +41,14 @@ NodePtr optional(NodePtr body) {
   return n;
 }
 
-NodePtr digit() {
-  std::vector<NodePtr> digits;
-  for (char32_t c = U'0'; c <= U'9'; ++c) digits.push_back(literal(std::u32string(1, c)));
-  return choice(std::move(digits));
+// One of the characters from `first` to `last`.
+NodePtr range(char32_t first, char32_t last) {
+  std::vector<NodePtr> options;
+  for (char32_t c = first; c <= last; ++c) options.push_back(literal(std::u32string(1, c)));
+  return choice(std::move(options));
 }
+
+NodePtr digit() { return range(U'0', U'9'); }
 
 // `body` repeated `min` to `max` (-1: unbounded) times, without spaces.
 NodePtr repeated(NodePtr body, int min, int max) {
@@ -88,23 +97,14 @@ NodePtr arabic_number() {
                  digits(1, -1)});
 }
 
-// One of the characters from `first` to `last`.
-NodePtr range(char32_t first, char32_t last) {
-  std::vector<NodePtr> options;
-  for (char32_t c = first; c <= last; ++c) options.push_back(literal(std::u32string(1, c)));
-  return choice(std::move(options));
-}
-
 // Native Korean numbers from 1 to 99: 하나, 열, 스물셋, 아흔아홉, and the
 // forms used before a counter (한, 두, 세, 네, 스무).
 NodePtr native_korean_number() {
   static const char32_t* const kOnes[] = {U"하나", U"둘", U"셋", U"넷", U"다섯",
                                           U"여섯", U"일곱", U"여덟", U"아홉", nullptr};
   static const char32_t* const kCountingOnes[] = {U"한", U"두", U"세", U"네", nullptr};
-  static const char32_t* const kTens[] = {U"열", U"스물", U"서른", U"마흔", U"쉰",
-                                          U"예순", U"일흔", U"여든", U"아흔", nullptr};
   NodePtr ones = choice({literals(kOnes), literals(kCountingOnes)});
-  return choice({glued({literals(kTens), optional(ones)}), ones, literal(U"스무")});
+  return choice({glued({literals(kNativeTens), optional(ones)}), ones, literal(U"스무")});
 }
 
 // Numbers written with digits and Korean numerals: 35000, 35,000, 3만 5천,
@@ -113,8 +113,6 @@ NodePtr native_korean_number() {
 // groups may be separated by spaces. A space only ever separates two parts,
 // so the entity never ends in one.
 NodePtr korean_number() {
-  static const char32_t* const kSinoDigits[] = {U"일", U"이", U"삼", U"사", U"오",
-                                                U"육", U"칠", U"팔", U"구", nullptr};
   static const char32_t* const kDigits[] = {U"1", U"2", U"3", U"4", U"5", U"6", U"7",
                                             U"8", U"9", nullptr};
   NodePtr sino = literals(kSinoDigits);
@@ -164,8 +162,6 @@ NodePtr english_number() {
 NodePtr ordinal() {
   static const char32_t* const kCountingOnes[] = {U"한", U"두", U"세", U"네", U"다섯",
                                                   U"여섯", U"일곱", U"여덟", U"아홉", nullptr};
-  static const char32_t* const kNativeTens[] = {U"열", U"스물", U"서른", U"마흔", U"쉰",
-                                                U"예순", U"일흔", U"여든", U"아흔", nullptr};
   static const char32_t* const kTh[] = {U"첫", U"둘", U"셋", U"넷", U"다섯", U"여섯",
                                         U"일곱", U"여덟", U"아홉", U"열", nullptr};
   NodePtr counting = choice({glued({literals(kNativeTens), optional(literals(kCountingOnes))}),
@@ -262,8 +258,6 @@ NodePtr minute_digits() {
 // 2026년 3월 5일, 세 시 반, tomorrow 3pm, next monday, march 5th, 15:30. The
 // words and numbers must match the attributes datetime_attributes() reads.
 NodePtr datetime() {
-  static const char32_t* const kSinoDigits[] = {U"일", U"이", U"삼", U"사", U"오",
-                                                U"육", U"칠", U"팔", U"구", nullptr};
   NodePtr sino_digit = literals(kSinoDigits);
   NodePtr sino_upto_99 = choice(
       {glued({optional(sino_digit), literal(U"십"), optional(sino_digit)}), sino_digit});

@@ -263,7 +263,9 @@ line of that rule, so you can tell which pattern produced it.
 
 Each result also has a **specificity**: the number of input characters, not
 counting spaces, that the rule matched with pattern text (literals, entities,
-system entities) rather than wildcards. When several labels match,
+system entities) rather than wildcards (text an excluded wildcard `\X <?>`
+takes is wildcard text too, whatever the exclusion mentions). When several
+labels match,
 `match_best()` keeps only the labels whose most specific rule scores
 highest, and each of those results comes from that rule. Ties keep every
 such label, in script order.
@@ -485,7 +487,9 @@ nlu::DateTimeRange r = nlu::resolve_datetime(slot.attributes, {2026, 10, 21, 14,
 Weeks start on Monday. A weekday, a month or a day of the month given alone
 means the next one, today included (on 2026-10-21, `3월 5일` is 2027-03-05),
 and a coarse date starts at its beginning (`다음 달` is the 1st). Durations
-count from `now`. The C API has `nlu_resolve_datetime`, and Python
+count from `now`. Attributes whose values are out of range (month 13, an
+offset beyond 100,000) are ignored, and `now` is clamped into range. The C
+API has `nlu_resolve_datetime`, and Python
 `nlu_script.resolve_datetime(slot.attributes, now)`, which returns `date` or
 `datetime` objects.
 
@@ -549,13 +553,15 @@ compiling: `Script::save()` / `Script::load(bytes)` (and `save_file`,
 `Script.load(data)` in Python, and `nlu_script_cli --save rules.nlu
 rules.nlub`; the CLI accepts a saved file wherever it takes a script. The
 format is versioned, and loading checks every count and index, so other or
-corrupt data is rejected with an error. At 50,000 rules, loading takes
+corrupt data is rejected with an error; scripts saved by a version with an
+older format must be saved again. At 50,000 rules, loading takes
 about half as long as compiling, and the saved file is about 20 MiB.
 
 `nlu_script_bench` times matching against generated scripts. On an Apple
-silicon Mac, a warm `match()` takes about 4 µs at 10 rules and at 100,000 rules
-alike; four threads together reach about 1.2 µs per match, with a shared
-cache or per-thread ones.
+silicon Mac, a warm `match()` takes about 2 µs up to 10,000 rules, 4 µs at
+50,000 and 8 µs at 100,000; at 10,000 rules four threads together reach about
+0.9 µs per match. Rules without slots or wildcards are answered by the DFA
+alone, without the Pike VM.
 
 ## C API
 

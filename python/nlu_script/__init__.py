@@ -14,6 +14,7 @@ import collections
 import ctypes
 import ctypes.util
 import datetime
+import itertools
 import os
 import re
 import sys
@@ -126,6 +127,12 @@ _string_free = _declare("nlu_string_free", None, _ptr)
 
 def _decode(data):
     return data.decode("utf-8")
+
+
+def _char_offsets(data):
+    """For each byte offset into UTF-8 `data`, the number of characters before it."""
+    starts = (int((byte & 0xC0) != 0x80) for byte in data)  # not a continuation byte
+    return list(itertools.accumulate(starts, initial=0))
 
 
 Diagnostic = collections.namedtuple("Diagnostic", "line column message file")
@@ -328,7 +335,8 @@ class Script:
         if not result:
             raise MemoryError("nlu_script_match failed")
         try:
-            return [self._read_match(result, i, data) for i in range(_result_count(result))]
+            offsets = _char_offsets(data)
+            return [self._read_match(result, i, offsets) for i in range(_result_count(result))]
         finally:
             _result_free(result)
 
@@ -340,10 +348,11 @@ class Script:
         if not result:
             raise MemoryError("nlu_script_explain failed")
         try:
+            offsets = _char_offsets(data)
             return [Explanation(
                 _decode(_explanation_label(result, i)), _explanation_line(result, i),
                 _decode(_explanation_file(result, i)),
-                len(_decode(data[:_explanation_matched(result, i)])),
+                offsets[_explanation_matched(result, i)],
                 bool(_explanation_complete(result, i)),
                 [_decode(_explanation_expected(result, i, j))
                  for j in range(_explanation_expected_count(result, i))])
@@ -400,18 +409,17 @@ class Script:
         return self._handle
 
     @staticmethod
-    def _read_match(result, i, data):
+    def _read_match(result, i, offsets):
         slots = []
         for j in range(_slot_count(result, i)):
             attributes = {_decode(_attribute_key(result, i, j, k)):
                           _decode(_attribute_value(result, i, j, k))
                           for k in range(_attribute_count(result, i, j))}
             text = _decode(_slot_text(result, i, j))
-            begin = len(_decode(data[:_slot_begin(result, i, j)]))
+            begin = offsets[_slot_begin(result, i, j)]
             slots.append(Slot(_decode(_slot_name(result, i, j)), text, begin, begin + len(text),
                               attributes))
-        begin = len(_decode(data[:_result_begin(result, i)]))
-        end = begin + len(_decode(data[_result_begin(result, i):_result_end(result, i)]))
+        begin, end = offsets[_result_begin(result, i)], offsets[_result_end(result, i)]
         return Match(_decode(_result_label(result, i)), slots, _decode(_result_tagged(result, i)),
                      _result_line(result, i), _result_specificity(result, i),
                      _decode(_result_file(result, i)), begin, end)

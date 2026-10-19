@@ -3,6 +3,7 @@
 
 #include <cstddef>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace nlu {
@@ -24,6 +25,14 @@ void normalize_nfc(std::vector<DecodedChar>& chars);
 void append_utf8(char32_t code, std::string& out);
 std::string to_utf8(const std::u32string& text);
 
+// Whether `s` has `prefix` at `at`, which is at most s.size().
+inline bool starts_with(std::u32string_view s, std::size_t at, std::u32string_view prefix) {
+  return s.compare(at, prefix.size(), prefix) == 0;
+}
+inline bool ends_with(std::u32string_view s, std::u32string_view suffix) {
+  return s.size() >= suffix.size() && s.compare(s.size() - suffix.size(), suffix.size(), suffix) == 0;
+}
+
 bool is_space(char32_t c);
 // Simple (one-to-one) Unicode case folding, applied to patterns and input.
 char32_t fold_case(char32_t c);
@@ -40,7 +49,7 @@ struct NormalizedText {
   std::vector<std::size_t> end;    // original byte offset past text[i]
 };
 
-NormalizedText normalize(const std::string& text, bool width_folding = false);
+NormalizedText normalize(const std::string& text, bool width_folding);
 
 }  // namespace detail
 }  // namespace nlu

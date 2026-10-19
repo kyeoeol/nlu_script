@@ -345,6 +345,21 @@ TEST(specificity_counts_characters_matched_by_pattern_text) {
   CHECK_EQ(specificity("달러 환율 1300"), 8);
 }
 
+TEST(excluded_wildcard_text_is_not_pattern_text) {
+  nlu::Script s = nlu::Script::compile(
+      "a\n"
+      "    \\[abc] <?>+?\n"
+      "b\n"
+      "    <?>+?\n");
+  // The exclusion mentions a and b, but both rules match abd by wildcards.
+  std::vector<nlu::Match> found = s.match("abd");
+  CHECK_EQ(found.size(), 2u);
+  for (const nlu::Match& m : found) CHECK_EQ(m.specificity, 0);
+  CHECK_EQ(s.match_best("abd").size(), 2u);
+  nlu::Script loaded = nlu::Script::load(s.save());
+  for (const nlu::Match& m : loaded.match("abd")) CHECK_EQ(m.specificity, 0);
+}
+
 TEST(match_best_keeps_the_most_specific_labels) {
   nlu::Script s = nlu::Script::compile(
       "card:lost\n"
@@ -473,6 +488,13 @@ TEST(option_fold_width) {
   std::vector<nlu::Match> found = wide.match("otp １２개");
   CHECK_EQ(found.size(), 1u);
   if (found.size() == 1) CHECK_EQ(found[0].slots[0].text, std::string("１２"));
+}
+
+TEST(option_lines_take_any_space_after_option) {
+  nlu::Script s = nlu::Script::compile("option\tfold-width\ncard\n    ｃａｒｄ\n");
+  CHECK_EQ(labels(s, "card"), (std::vector<std::string>{"card"}));
+  CHECK_THROWS(nlu::CompileError, nlu::Script::compile("option\tfold-everything\n"));
+  CHECK_THROWS(nlu::CompileError, nlu::Script::compile("a\n    x\noption\tfold-width\n"));
 }
 
 TEST(unknown_or_misplaced_options_are_errors) {
