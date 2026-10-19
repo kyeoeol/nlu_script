@@ -47,10 +47,6 @@ std::string particle_pair_list() {
   return out;
 }
 
-bool ends_with(const std::u32string& s, const std::u32string& suffix) {
-  return s.size() >= suffix.size() && s.compare(s.size() - suffix.size(), suffix.size(), suffix) == 0;
-}
-
 class Parser {
  public:
   Parser(const std::u32string& text, const SourcePos& start, bool width_folding)

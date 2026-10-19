@@ -40,15 +40,32 @@ inline CharClass char_class(char32_t c) {
 
 inline bool guard_holds(Guard g, char32_t prev) {
   if (prev == 0 || prev == U' ') return false;
-  if (prev < 0xAC00 || prev > 0xD7A3) return true;
-  const unsigned final_index = (prev - 0xAC00) % 28;  // 0: none, 8: ㄹ
+  const CharClass cls = char_class(prev);
+  if (cls == CharClass::NotSyllable) return true;
   switch (g) {
-    case Guard::AfterFinal: return final_index != 0;
-    case Guard::AfterNoFinal: return final_index == 0;
-    case Guard::AfterFinalExceptRieul: return final_index != 0 && final_index != 8;
-    case Guard::AfterNoFinalOrRieul: return final_index == 0 || final_index == 8;
+    case Guard::AfterFinal: return cls != CharClass::SyllableNoFinal;
+    case Guard::AfterNoFinal: return cls == CharClass::SyllableNoFinal;
+    case Guard::AfterFinalExceptRieul: return cls == CharClass::SyllableOtherFinal;
+    case Guard::AfterNoFinalOrRieul: return cls != CharClass::SyllableOtherFinal;
     default: return true;
   }
+}
+
+// A character of class `cls` that `chars` (sorted) doesn't mention, to stand
+// for every such character.
+inline char32_t unmentioned(const std::vector<char32_t>& chars, CharClass cls) {
+  auto mentioned = [&](char32_t c) { return std::binary_search(chars.begin(), chars.end(), c); };
+  if (cls == CharClass::NotSyllable || cls == CharClass::All) {
+    for (char32_t c : std::u32string(U"xyzqjkvw"))
+      if (!mentioned(c)) return c;
+    char32_t c = 0x4E00;
+    while (mentioned(c)) ++c;
+    return c;
+  }
+  char32_t c = cls == CharClass::SyllableNoFinal ? 0xAC00 : cls == CharClass::SyllableRieul ? 0xAC08
+                                                                                             : 0xAC01;
+  while (mentioned(c)) c += 28;
+  return c;
 }
 
 struct Edge {
@@ -67,6 +84,10 @@ struct Edge {
   int to;
   Guard guard = Guard::None;  // Guard: the condition
   CharClass char_class = CharClass::All;  // Any: only characters of this class
+  // Consumes text for a wildcard or a typo rather than pattern text: every
+  // Any edge, and the Char edges of an excluded wildcard. It doesn't count
+  // towards a match's specificity.
+  bool wildcard = false;
 
   bool consumes() const {
     return kind != Kind::Epsilon && kind != Kind::Guard && kind != Kind::Action;
@@ -108,15 +129,16 @@ struct Nfa {
     return static_cast<int>(states.size()) - 1;
   }
   void add_edge(int from, Edge::Kind kind, int to, char32_t ch = 0, int set = -1, int action = -1) {
-    states[from].edges.push_back(Edge{kind, ch, set, action, to, Guard::None, CharClass::All});
+    states[from].edges.push_back(
+        Edge{kind, ch, set, action, to, Guard::None, CharClass::All, kind == Edge::Kind::Any});
   }
   void epsilon(int from, int to) { add_edge(from, Edge::Kind::Epsilon, to); }
   void guard(int from, Guard g, int to) {
-    states[from].edges.push_back(Edge{Edge::Kind::Guard, 0, -1, -1, to, g, CharClass::All});
+    states[from].edges.push_back(Edge{Edge::Kind::Guard, 0, -1, -1, to, g, CharClass::All, false});
     has_guards = true;
   }
   void any_of_class(int from, int to, int set, CharClass cls) {
-    states[from].edges.push_back(Edge{Edge::Kind::Any, 0, set, -1, to, Guard::None, cls});
+    states[from].edges.push_back(Edge{Edge::Kind::Any, 0, set, -1, to, Guard::None, cls, true});
     has_guards = true;
   }
   // Whether characters behave differently by their final consonant: the
@@ -143,6 +165,15 @@ struct Nfa {
       default:
         return false;
     }
+  }
+
+  // The rules that the states of `set` accept, sorted.
+  std::vector<int> accepted_rules(const std::vector<int>& set) const {
+    std::vector<int> out;
+    for (int s : set)
+      if (states[s].accept_rule >= 0) out.push_back(states[s].accept_rule);
+    std::sort(out.begin(), out.end());
+    return out;
   }
 };
 
@@ -179,6 +210,15 @@ class Closure {
     }
     std::sort(out.begin(), out.end());
     return out;
+  }
+
+  // The closure of the states that `set` reaches by consuming `c`.
+  std::vector<int> step(const std::vector<int>& set, char32_t c) {
+    std::vector<int> targets;
+    for (int s : set)
+      for (const Edge& e : nfa_.states[s].edges)
+        if (e.consumes() && nfa_.matches(e, c)) targets.push_back(e.to);
+    return (*this)(std::move(targets), c);
   }
 
  private:

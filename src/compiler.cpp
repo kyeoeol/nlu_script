@@ -8,7 +8,6 @@
 #include <utility>
 #include <vector>
 
-#include "nlu_script/nlu_script.hpp"
 #include "system_entities.hpp"
 
 namespace nlu {
@@ -22,10 +21,6 @@ constexpr std::size_t kMaxExclusionStates = 20000;
 // ([[[[a]^(1,100)]^(1,100)]^(1,100)]^(1,100) would take gigabytes). Compiling
 // stops with an error once a rule passes this many states.
 constexpr std::size_t kMaxRuleStates = 500000;
-
-[[noreturn]] void fail(const SourcePos& pos, const std::string& message) {
-  throw_at(pos, message);
-}
 
 // --- determinization, used to compile exclusions ----------------------------
 
@@ -42,22 +37,6 @@ struct Dfa {
 // The CharClasses that unmentioned characters split into.
 const CharClass kOtherClasses[] = {CharClass::NotSyllable, CharClass::SyllableNoFinal,
                                    CharClass::SyllableRieul, CharClass::SyllableOtherFinal};
-
-// A character of class `cls` that `chars` (sorted) doesn't mention.
-char32_t unmentioned(const std::vector<char32_t>& chars, CharClass cls) {
-  auto mentioned = [&](char32_t c) { return std::binary_search(chars.begin(), chars.end(), c); };
-  if (cls == CharClass::NotSyllable || cls == CharClass::All) {
-    for (char32_t c : std::u32string(U"xyzqjkvw"))
-      if (!mentioned(c)) return c;
-    char32_t c = 0x4E00;
-    while (mentioned(c)) ++c;
-    return c;
-  }
-  char32_t c = cls == CharClass::SyllableNoFinal ? 0xAC00 : cls == CharClass::SyllableRieul ? 0xAC08
-                                                                                             : 0xAC01;
-  while (mentioned(c)) c += 28;
-  return c;
-}
 
 // The representative character of each class: see Dfa.
 std::vector<char32_t> class_representatives(const std::vector<char32_t>& chars, bool by_class) {
@@ -83,7 +62,7 @@ Dfa determinize(const Nfa& nfa, int start, const std::vector<char32_t>& reps,
   auto intern = [&](std::vector<int> set) {
     auto it = index.find(set);
     if (it != index.end()) return it->second;
-    if (sets.size() >= kMaxExclusionStates) fail(pos, "exclusion is too complex to compile");
+    if (sets.size() >= kMaxExclusionStates) throw_at(pos, "exclusion is too complex to compile");
     int id = static_cast<int>(sets.size());
     index.emplace(set, id);
     dfa.accept.push_back(std::any_of(set.begin(), set.end(),
@@ -95,12 +74,9 @@ Dfa determinize(const Nfa& nfa, int start, const std::vector<char32_t>& reps,
   intern(closure({start}, 0));
   for (std::size_t d = 0; d < sets.size(); ++d) {
     for (std::size_t cls = 0; cls < classes; ++cls) {
-      std::vector<int> targets;
-      for (int s : sets[d])
-        for (const Edge& e : nfa.states[s].edges)
-          if (e.consumes() && nfa.matches(e, reps[cls])) targets.push_back(e.to);
-      if (targets.empty()) continue;
-      int target = intern(closure(std::move(targets), reps[cls]));
+      std::vector<int> set = closure.step(sets[d], reps[cls]);
+      if (set.empty()) continue;
+      const int target = intern(std::move(set));  // may grow dfa.next
       dfa.next[d][cls] = target;
     }
   }
@@ -121,13 +97,13 @@ class Compiler {
 
   Frag compile(const Node& n) {
     if (nfa_.states.size() - first_state_ > kMaxRuleStates)
-      fail(n.pos, "rule is too large to compile (over " + std::to_string(kMaxRuleStates) +
+      throw_at(n.pos, "rule is too large to compile (over " + std::to_string(kMaxRuleStates) +
                       " automaton states); lower its repetition counts");
     Frag f = compile_body(n);
     if (!with_actions_) return f;
     for (const Assignment& a : n.assignments) {
       if (a.slot.empty() && slot_depth_ == 0)
-        fail(a.pos, "attribute '" + a.key +
+        throw_at(a.pos, "attribute '" + a.key +
                         "' is assigned outside of a slot; use {slot." + a.key + "=...}");
       if (!a.slot.empty()) qualified_.push_back(a);
       int action = static_cast<int>(nfa_.actions.size());
@@ -145,7 +121,7 @@ class Compiler {
   void check_qualified_assignments() const {
     for (const Assignment& a : qualified_)
       if (!slots_seen_.count(a.slot))
-        fail(a.pos, "attribute '" + a.key + "' targets slot <" + a.slot +
+        throw_at(a.pos, "attribute '" + a.key + "' targets slot <" + a.slot +
                         ">, which does not appear in this rule");
   }
 
@@ -163,7 +139,7 @@ class Compiler {
 
   void enter(const SourcePos& pos, const std::string& ref) {
     if (std::find(ref_stack_.begin(), ref_stack_.end(), ref) != ref_stack_.end())
-      fail(pos, ref + " refers to itself");
+      throw_at(pos, ref + " refers to itself");
     ref_stack_.push_back(ref);
   }
 
@@ -219,7 +195,7 @@ class Compiler {
         return compile_slot(n.name, *n.children[0]);
       case Node::Kind::EntityRef: {
         auto it = defs_.entities.find(n.name);
-        if (it == defs_.entities.end()) fail(n.pos, "undefined entity @{" + n.name + "}");
+        if (it == defs_.entities.end()) throw_at(n.pos, "undefined entity @{" + n.name + "}");
         const std::string ref = "@{" + n.name + "}";
         enter(n.pos, ref);
         Frag f = compile_slot(n.name, *it->second.body);
@@ -228,7 +204,7 @@ class Compiler {
       }
       case Node::Kind::VarRef: {
         auto it = defs_.variables.find(n.name);
-        if (it == defs_.variables.end()) fail(n.pos, "undefined variable @var.{" + n.name + "}");
+        if (it == defs_.variables.end()) throw_at(n.pos, "undefined variable @var.{" + n.name + "}");
         enter(n.pos, "@var.{" + n.name + "}");
         Frag f = compile(*it->second.body);
         ref_stack_.pop_back();
@@ -271,12 +247,12 @@ class Compiler {
         if (it == system.end()) {
           std::string known;
           for (const auto& kv : system) known += (known.empty() ? "" : ", ") + kv.first;
-          fail(n.pos, "unknown system entity `@{" + n.name + "}; available: " + known);
+          throw_at(n.pos, "unknown system entity `@{" + n.name + "}; available: " + known);
         }
         return compile_slot(n.name, *it->second.body, it->second.normalizer);
       }
     }
-    fail(n.pos, "internal error: unknown node");
+    throw_at(n.pos, "internal error: unknown node");
   }
 
   // [body]&: the body's automaton, then a copy of it for after the one edit.
@@ -457,7 +433,7 @@ class Compiler {
     auto intern = [&](std::pair<int, int> p) {
       auto it = index.find(p);
       if (it != index.end()) return it->second;
-      if (pairs.size() >= kMaxExclusionStates) fail(n.pos, "exclusion is too complex to compile");
+      if (pairs.size() >= kMaxExclusionStates) throw_at(n.pos, "exclusion is too complex to compile");
       int id = static_cast<int>(pairs.size());
       index.emplace(p, id);
       pairs.push_back(p);
@@ -515,7 +491,10 @@ class Compiler {
         int t = target(others + 1 + k);
         if (t == other) continue;
         exceptions.push_back(chars[k]);
-        if (t >= 0) nfa_.add_edge(state[i], Edge::Kind::Char, state[t], chars[k]);
+        if (t >= 0) {
+          nfa_.add_edge(state[i], Edge::Kind::Char, state[t], chars[k]);
+          nfa_.states[state[i]].edges.back().wildcard = true;
+        }
       }
       int set = -1;
       if (!exceptions.empty()) {

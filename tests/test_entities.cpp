@@ -25,6 +25,18 @@ std::string attributes(const std::string& entity, const std::string& text) {
 
 }  // namespace
 
+TEST(entity_attributes_are_read_from_normalized_text) {
+  nlu::Script s = nlu::Script::compile("option fold-width\nt\n    `@{KO_NUMBER}\n");
+  std::vector<nlu::Match> found = s.match("３만");
+  CHECK_EQ(found.size(), 1u);
+  if (found.size() == 1) {
+    CHECK_EQ(found[0].slots[0].text, std::string("３만"));
+    std::string attributes;
+    for (const auto& kv : found[0].slots[0].attributes) attributes += kv.first + "=" + kv.second;
+    CHECK_EQ(attributes, std::string("value=30000"));
+  }
+}
+
 TEST(korean_numbers_include_native_numbers) {
   CHECK_EQ(attributes("KO_NUMBER", "하나"), std::string("value=1"));
   CHECK_EQ(attributes("KO_NUMBER", "열"), std::string("value=10"));

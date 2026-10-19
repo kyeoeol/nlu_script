@@ -48,29 +48,8 @@ class Determinizer {
   Determinizer(const Nfa& nfa, std::size_t max_states) : nfa_(nfa), closure_(nfa),
                                                         max_states_(max_states) {}
 
-  // Returns the state for the closure of `targets` after consuming `prev`,
-  // -1 for the dead state or when the state limit is reached.
-  int intern(std::vector<int> targets, char32_t prev) {
-    std::vector<int> set = closure_(std::move(targets), prev);
-    if (set.empty()) return -1;
-    auto it = index_.find(set);
-    if (it != index_.end()) return it->second;
-    if (sets_.size() >= max_states_) {
-      complete_ = false;
-      return -1;
-    }
-    std::vector<int> accepts;
-    for (int s : set)
-      if (nfa_.states[s].accept_rule >= 0) accepts.push_back(nfa_.states[s].accept_rule);
-    std::sort(accepts.begin(), accepts.end());
-    int id = static_cast<int>(sets_.size());
-    index_.emplace(set, id);
-    sets_.push_back(std::move(set));
-    accepts_.push_back(std::move(accepts));
-    transitions_.emplace_back();
-    expanded_.push_back(false);
-    return id;
-  }
+  // The state the input starts in, from NFA state `start`.
+  int start(int start) { return intern(closure_({start}, 0)); }
 
   const std::vector<int>& accepts(int d) const { return accepts_[d]; }
   bool complete() const { return complete_; }
@@ -90,24 +69,22 @@ class Determinizer {
         }
       }
     }
-    std::vector<char32_t> alphabet(chars.begin(), chars.end());
+    const std::vector<char32_t> mentioned_chars(chars.begin(), chars.end());
+    std::vector<char32_t> alphabet = mentioned_chars;
     const std::size_t mentioned = alphabet.size();
     if (any) {
-      alphabet.push_back(other_than(chars));
+      alphabet.push_back(unmentioned(mentioned_chars, CharClass::All));
       // Guards tell syllables apart by their final consonant, so each kind
       // needs a character of its own.
       if (nfa_.has_guards)
-        for (char32_t first : {U'가', U'갈', U'각'})
-          alphabet.push_back(syllable_other_than(chars, first));
+        for (CharClass cls : {CharClass::SyllableNoFinal, CharClass::SyllableRieul,
+                              CharClass::SyllableOtherFinal})
+          alphabet.push_back(unmentioned(mentioned_chars, cls));
     }
     std::vector<Transition> out;
     for (std::size_t i = 0; i < alphabet.size(); ++i) {
       const char32_t c = alphabet[i];
-      std::vector<int> targets;
-      for (int s : sets_[d])
-        for (const Edge& e : nfa_.states[s].edges)
-          if (e.consumes() && nfa_.matches(e, c)) targets.push_back(e.to);
-      int next = intern(std::move(targets), c);
+      int next = intern(closure_.step(sets_[d], c));
       const int rank = i < mentioned ? kMentioned
                        : i == mentioned ? kPlaceholder
                                         : kSyllablePlaceholder;
@@ -118,22 +95,23 @@ class Determinizer {
   }
 
  private:
-  // A readable character that no edge of the state mentions, so it stands
-  // for every such character.
-  static char32_t other_than(const std::set<char32_t>& chars) {
-    for (char32_t c : std::u32string(U"xyzqjkvw"))
-      if (!chars.count(c)) return c;
-    char32_t c = 0x4E00;
-    while (chars.count(c)) ++c;
-    return c;
-  }
-
-  // The first syllable from `first` on, with the same final consonant, that
-  // no edge of the state mentions.
-  static char32_t syllable_other_than(const std::set<char32_t>& chars, char32_t first) {
-    char32_t c = first;
-    while (chars.count(c)) c += 28;
-    return c;
+  // Returns the state for `set`, a closure, or -1 for the dead state or when
+  // the state limit is reached.
+  int intern(std::vector<int> set) {
+    if (set.empty()) return -1;
+    auto it = index_.find(set);
+    if (it != index_.end()) return it->second;
+    if (sets_.size() >= max_states_) {
+      complete_ = false;
+      return -1;
+    }
+    int id = static_cast<int>(sets_.size());
+    index_.emplace(set, id);
+    accepts_.push_back(nfa_.accepted_rules(set));
+    sets_.push_back(std::move(set));
+    transitions_.emplace_back();
+    expanded_.push_back(false);
+    return id;
   }
 
   const Nfa& nfa_;
@@ -208,7 +186,7 @@ RuleAnalysis analyze_rules(const Nfa& nfa, int start, const std::vector<RuleSour
   std::vector<bool> used(n, false), seen(n, false);
   std::vector<std::vector<int>> covered_by(n);
 
-  int first = dfa.intern({start}, 0);
+  int first = dfa.start(start);
   if (first >= 0) reach(first, kStart, -1, 0, 0);
   while (!queue.empty()) {
     Entry top = queue.top();

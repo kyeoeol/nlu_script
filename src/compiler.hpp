@@ -25,7 +25,7 @@ struct Definitions {
 // `trailing_punctuation`, the rule also accepts punctuation after its end
 // ("are you there?!"). Throws CompileError.
 int compile_rule(Nfa& nfa, const Definitions& defs, const Node& pattern, int rule,
-                 bool trailing_punctuation = false);
+                 bool trailing_punctuation);
 
 }  // namespace detail
 }  // namespace nlu

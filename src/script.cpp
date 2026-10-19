@@ -115,12 +115,6 @@ std::u32string trim(const std::u32string& s, std::size_t* leading = nullptr) {
   return s.substr(b, e - b);
 }
 
-bool starts_with(const std::u32string& s, const char32_t* prefix) {
-  for (std::size_t i = 0; prefix[i]; ++i)
-    if (i >= s.size() || s[i] != prefix[i]) return false;
-  return true;
-}
-
 // --- paths, for include lines -------------------------------------------------
 // Plain string handling: std::filesystem is not available on every platform
 // the Python wheels target.
@@ -196,7 +190,6 @@ class ScriptParser {
   ParsedScript parse(const std::string& source, const std::string& main_file) {
     out_.files.push_back(main_file);
     if (!main_file.empty()) read_.insert(path_key(resolve("", main_file)));
-    read_options(source, &out_.files.back());
     parse_file(source, &out_.files.back());
     finish(out_.defs.entities, entity_values_, out_.broken_entities, "entity @");
     finish(out_.defs.variables, variable_values_, out_.broken_variables, "variable @var.");
@@ -206,45 +199,11 @@ class ScriptParser {
  private:
   enum class Block { None, Label, Entity, Variable, Broken };
 
-  // `option name` lines come before everything else in the main script, since
-  // they change how the patterns after them are read.
-  void read_options(const std::string& source, const std::string* name) {
-    std::istringstream lines(source);
-    std::string raw;
-    int line_no = 0;
-    bool content = false;  // a line other than an option, a comment or a blank
-    while (std::getline(lines, raw)) {
-      ++line_no;
-      if (!raw.empty() && raw.back() == '\r') raw.pop_back();
-      std::istringstream words(raw);
-      std::string first, option, extra;
-      if (!(words >> first) || first[0] == '#') continue;
-      if (first != "option" || raw.compare(0, 7, "option ") != 0) {
-        content = true;
-        continue;
-      }
-      const SourcePos pos{line_no, 1, name};
-      words >> option;
-      if (content) {
-        out_.errors.push_back({line_no, 1, "option lines must come before rules and definitions",
-                               file_name(pos)});
-      } else if (option == "ignore-trailing-punctuation" && !(words >> extra)) {
-        out_.options.ignore_trailing_punctuation = true;
-      } else if (option == "fold-width" && !(words >> extra)) {
-        out_.options.fold_width = true;
-      } else {
-        out_.errors.push_back(
-            {line_no, 8, "unknown option '" + option +
-                             "'; available: ignore-trailing-punctuation, fold-width",
-             file_name(pos)});
-      }
-    }
-  }
-
   ParsedScript out_;
   std::map<std::string, std::vector<NodePtr>> entity_values_;
   std::map<std::string, std::vector<NodePtr>> variable_values_;
   std::set<std::string> read_;  // resolved paths of the files read so far
+  bool content_ = false;         // a line other than an option was read
 
   // State of the file being parsed.
   struct File {
@@ -286,9 +245,30 @@ class ScriptParser {
     }
   }
 
+  // `option name` lines come before everything else in the main script, since
+  // they change how the patterns after them are read.
+  void read_option(const std::u32string& line, const SourcePos& pos) {
+    if (content_) throw_at(pos, "option lines must come before rules and definitions");
+    std::size_t leading = 0;
+    const std::u32string rest = trim(line.substr(6), &leading);
+    const std::size_t name_end = std::find_if(rest.begin(), rest.end(), is_space) - rest.begin();
+    const std::string name = to_utf8(rest.substr(0, name_end));
+    if (name_end == rest.size() && name == "ignore-trailing-punctuation") {
+      out_.options.ignore_trailing_punctuation = true;
+    } else if (name_end == rest.size() && name == "fold-width") {
+      out_.options.fold_width = true;
+    } else {
+      throw_at(SourcePos{pos.line, 7 + static_cast<int>(leading), pos.file},
+               "unknown option '" + name + "'; available: ignore-trailing-punctuation, fold-width");
+    }
+  }
+
   // Parses one non-blank, non-comment line whose text starts at `first`.
   // Header lines set the block to Broken until they are known to be valid.
   void parse_line(File& f, const std::u32string& line, std::size_t first, const SourcePos& pos) {
+    const bool option =
+        first == 0 && starts_with(line, 0, U"option") && line.size() > 6 && is_space(line[6]);
+    if (!option) content_ = true;
     if (first > 0) {
       if (f.block == Block::Broken) return;
       std::u32string content = trim(line);
@@ -303,14 +283,14 @@ class ScriptParser {
     }
 
     f.block = Block::Broken;
-    if (starts_with(line, U"option") && line.size() > 6 && is_space(line[6])) {
-      // Read by read_options() for the main script.
+    if (option) {
       if (pos.file != &out_.files.front())
         throw_at(pos, "option lines belong in the main script, not an included file");
+      read_option(line, pos);
       f.block = Block::None;
       return;
     }
-    if (starts_with(line, U"include") && line.size() > 7 && is_space(line[7])) {
+    if (starts_with(line, 0, U"include") && line.size() > 7 && is_space(line[7])) {
       std::size_t lead = 0;
       std::u32string path = trim(line.substr(7), &lead);
       if (path.size() >= 2 && path.front() == U'"' && path.back() == U'"')
@@ -320,7 +300,7 @@ class ScriptParser {
       return;
     }
     if (line[0] == U'@') {
-      const bool is_var = starts_with(line, U"@var.");
+      const bool is_var = starts_with(line, 0, U"@var.");
       const std::size_t name_at = is_var ? 5 : 1;
       std::size_t colon = line.find(U':');
       if (colon == std::u32string::npos) throw_at(pos, "expected ':' after the definition name");
@@ -416,10 +396,9 @@ class LazyDfa {
   LazyDfa(const Nfa& nfa, int start, const CacheOptions& options)
       : nfa_(nfa),
         closure_(nfa),
-        start_nfa_(start),
         max_states_(std::max<std::size_t>(options.max_states, 2)),
         max_bytes_(options.max_bytes) {
-    start_ = intern(closure_({start_nfa_}, 0));
+    start_ = intern(closure_({start}, 0));
   }
 
   // Returns the ids of the rules accepting the whole text, ascending.
@@ -452,11 +431,7 @@ class LazyDfa {
       if (it != states_[d].next.end()) {
         d = it->second;
       } else {
-        std::vector<int> targets;
-        for (int s : states_[d].set)
-          for (const Edge& e : nfa_.states[s].edges)
-            if (e.consumes() && nfa_.matches(e, c)) targets.push_back(e.to);
-        std::vector<int> set = closure_(std::move(targets), c);
+        std::vector<int> set = closure_.step(states_[d].set, c);
         if (states_.size() >= max_states_ || bytes_ >= max_bytes_) {
           evict();
           d = intern(std::move(set));
@@ -493,7 +468,6 @@ class LazyDfa {
   // Everything below is guarded by mutex_, except that readers holding the
   // shared lock update used_.
   Closure closure_;
-  int start_nfa_;
   std::size_t max_states_, max_bytes_;
   int start_ = 0;
   unsigned epoch_ = 0;  // bumped by evict(), which renumbers states
@@ -529,9 +503,7 @@ class LazyDfa {
     for (auto it = range.first; it != range.second; ++it)
       if (states_[it->second].set == set) return it->second;
     DState d;
-    for (int s : set)
-      if (nfa_.states[s].accept_rule >= 0) d.accepts.push_back(nfa_.states[s].accept_rule);
-    std::sort(d.accepts.begin(), d.accepts.end());
+    d.accepts = nfa_.accepted_rules(set);
     d.set = std::move(set);
     bytes_ += state_bytes(d);
     int id = static_cast<int>(states_.size());
@@ -590,13 +562,6 @@ class LazyDfa {
 
 // --- phase 2: Pike VM -------------------------------------------------------
 
-struct LogNode {
-  int action;
-  int pos;
-  std::shared_ptr<const LogNode> prev;
-};
-using Log = std::shared_ptr<const LogNode>;
-
 struct Event {
   int action;
   int pos;
@@ -614,7 +579,7 @@ class PikeVm {
   bool run(int start, const std::u32string& text, std::vector<Event>& events, int& wildcard_chars) {
     std::vector<Thread> current;
     std::vector<Thread> next;
-    add(current, start, nullptr, 0, 0, 0);
+    add(current, start, -1, 0, 0, 0);
     for (std::size_t i = 0; i < text.size() && !current.empty(); ++i) {
       next.clear();
       ++generation_;
@@ -623,14 +588,18 @@ class PikeVm {
         const Edge& e = nfa_.states[t.state].edges[t.edge];
         if (nfa_.matches(e, text[i]))
           add(next, e.to, t.log, static_cast<int>(i) + 1, text[i],
-              t.wild + (e.kind == Edge::Kind::Any ? 1 : 0));
+              t.wild + (e.wildcard ? 1 : 0));
       }
       std::swap(current, next);
+      if (log_.size() >= compact_at_) {
+        compact(current);
+        compact_at_ = std::max(kMinCompact, 2 * log_.size());
+      }
     }
     for (const Thread& t : current) {
       if (t.edge >= 0) continue;
       events.clear();
-      for (const LogNode* n = t.log.get(); n; n = n->prev.get()) events.push_back({n->action, n->pos});
+      for (int k = t.log; k >= 0; k = log_[k].prev) events.push_back({log_[k].action, log_[k].pos});
       std::reverse(events.begin(), events.end());
       wildcard_chars = t.wild;
       return true;
@@ -639,80 +608,123 @@ class PikeVm {
   }
 
  private:
+  // The actions taken so far, as a list from the latest back; threads share
+  // their common beginnings. Nodes are only appended during a run.
+  struct LogNode {
+    int action;
+    int pos;
+    int prev;  // index into log_, or -1
+  };
   struct Thread {
     int state;
     int edge;  // consuming edge to follow, or -1 for an accepting thread
-    Log log;
+    int log;   // index into log_, or -1
     int wild;  // characters consumed by wildcards so far
   };
   struct Item {
     bool visit;  // true: explore `state`; false: emit a thread
     int state;
     int edge;
-    Log log;
+    int log;
   };
 
   const Nfa& nfa_;
   int first_;
   std::vector<unsigned> mark_;
   unsigned generation_ = 1;
+  std::vector<LogNode> log_;
+  // log_ is compacted when it reaches compact_at_ nodes, so the nodes of
+  // threads that died don't pile up over long inputs.
+  static constexpr std::size_t kMinCompact = 4096;
+  std::size_t compact_at_ = kMinCompact;
+  std::vector<Item> stack_, children_;  // add()'s, kept to reuse their memory
+
+  // Keeps only the log nodes that `threads` reach, in their order (so a
+  // node's prev still comes before it), and renumbers the threads' logs.
+  void compact(std::vector<Thread>& threads) {
+    std::vector<bool> keep(log_.size(), false);
+    for (const Thread& t : threads)
+      for (int k = t.log; k >= 0 && !keep[k]; k = log_[k].prev) keep[k] = true;
+    std::vector<int> renumber(log_.size(), -1);
+    int n = 0;
+    for (std::size_t k = 0; k < log_.size(); ++k) {
+      if (!keep[k]) continue;
+      const int prev = log_[k].prev;
+      log_[n] = {log_[k].action, log_[k].pos, prev < 0 ? -1 : renumber[prev]};
+      renumber[k] = n++;
+    }
+    log_.resize(static_cast<std::size_t>(n));
+    for (Thread& t : threads)
+      if (t.log >= 0) t.log = renumber[t.log];
+  }
 
   // Depth-first, in edge order, so threads are listed by priority. `prev` is
   // the character consumed last, which guard edges test.
-  void add(std::vector<Thread>& list, int state, Log log, int pos, char32_t prev, int wild) {
-    std::vector<Item> stack;
-    stack.push_back({true, state, -1, std::move(log)});
-    std::vector<Item> children;
-    while (!stack.empty()) {
-      Item item = std::move(stack.back());
-      stack.pop_back();
+  void add(std::vector<Thread>& list, int state, int log, int pos, char32_t prev, int wild) {
+    stack_.clear();
+    stack_.push_back({true, state, -1, log});
+    while (!stack_.empty()) {
+      const Item item = stack_.back();
+      stack_.pop_back();
       if (!item.visit) {
-        list.push_back({item.state, item.edge, std::move(item.log), wild});
+        list.push_back({item.state, item.edge, item.log, wild});
         continue;
       }
       unsigned& mark = mark_[item.state - first_];
       if (mark == generation_) continue;
       mark = generation_;
       const State& st = nfa_.states[item.state];
-      children.clear();
+      children_.clear();
       for (std::size_t k = 0; k < st.edges.size(); ++k) {
         const Edge& e = st.edges[k];
         if (e.kind == Edge::Kind::Epsilon) {
-          children.push_back({true, e.to, -1, item.log});
+          children_.push_back({true, e.to, -1, item.log});
         } else if (e.kind == Edge::Kind::Guard) {
-          if (guard_holds(e.guard, prev)) children.push_back({true, e.to, -1, item.log});
+          if (guard_holds(e.guard, prev)) children_.push_back({true, e.to, -1, item.log});
         } else if (e.kind == Edge::Kind::Action) {
-          children.push_back({true, e.to, -1, std::make_shared<const LogNode>(LogNode{e.action, pos, item.log})});
+          log_.push_back({e.action, pos, item.log});
+          children_.push_back({true, e.to, -1, static_cast<int>(log_.size()) - 1});
         } else {
-          children.push_back({false, item.state, static_cast<int>(k), item.log});
+          children_.push_back({false, item.state, static_cast<int>(k), item.log});
         }
       }
-      if (st.accept_rule >= 0) children.push_back({false, item.state, -1, item.log});
-      for (auto it = children.rbegin(); it != children.rend(); ++it) stack.push_back(std::move(*it));
+      if (st.accept_rule >= 0) children_.push_back({false, item.state, -1, item.log});
+      stack_.insert(stack_.end(), children_.rbegin(), children_.rend());
     }
   }
 };
 
+// Whether the Pike VM can tell anything about a match of the rule with
+// states [first, last) that the DFA doesn't: without actions it records no
+// slots, and without wildcards their character count is 0.
+bool needs_pike_vm(const Nfa& nfa, int first, int last) {
+  for (int s = first; s < last; ++s)
+    for (const Edge& e : nfa.states[s].edges)
+      if (e.kind == Edge::Kind::Action || e.wildcard) return true;
+  return false;
+}
+
 // --- building results -------------------------------------------------------
+
+struct CompiledRule {
+  std::string label;
+  int line;
+  std::string file;
+  int start;  // start state
+  int first;  // the rule's states occupy the id range [first, last)
+  int last;
+  bool needs_vm;  // see needs_pike_vm()
+};
+
 
 struct Instance {
   int slot;
   int open_pos;
   int close_pos;
   std::size_t open_event;
-  std::vector<std::pair<std::string, std::string>> attributes;
+  Attributes attributes;
   Normalizer normalizer;
 };
-
-void set_attribute(Instance& inst, const std::string& key, const std::string& value) {
-  for (auto& kv : inst.attributes) {
-    if (kv.first == key) {
-      kv.second = value;
-      return;
-    }
-  }
-  inst.attributes.emplace_back(key, value);
-}
 
 std::string escape_attribute(const std::string& value) {
   std::string out;
@@ -728,9 +740,11 @@ std::string escape_attribute(const std::string& value) {
   return out;
 }
 
-Match build_match(const Nfa& nfa, const std::string& label, int line, int specificity,
+// The match of `rule` over the bytes [begin, end) of `original`, which
+// contain every event.
+Match build_match(const Nfa& nfa, const CompiledRule& rule, int specificity,
                   const std::vector<Event>& events, const std::string& original,
-                  const NormalizedText& norm) {
+                  const NormalizedText& norm, std::size_t begin, std::size_t end) {
   std::vector<Instance> instances;
   std::vector<int> event_instance(events.size(), -1);
   std::vector<int> open;
@@ -750,7 +764,7 @@ Match build_match(const Nfa& nfa, const std::string& label, int line, int specif
         break;
       case Action::Kind::Assign:
         if (a.slot < 0) {
-          set_attribute(instances[open.back()], a.key, a.value);
+          set_attribute(instances[open.back()].attributes, a.key, a.value);
         } else {
           deferred.push_back(i);
         }
@@ -767,7 +781,7 @@ Match build_match(const Nfa& nfa, const std::string& label, int line, int specif
       if (instances[k].open_event < i || target < 0) target = static_cast<int>(k);
       if (instances[k].open_event > i) break;
     }
-    if (target >= 0) set_attribute(instances[target], a.key, a.value);
+    if (target >= 0) set_attribute(instances[target].attributes, a.key, a.value);
   }
 
   const std::size_t n = norm.text.size();
@@ -780,26 +794,35 @@ Match build_match(const Nfa& nfa, const std::string& label, int line, int specif
     return inst.close_pos > inst.open_pos ? norm.end[inst.close_pos - 1] : open_byte(inst);
   };
 
+  // System entity values are read from the text as normalized for matching
+  // (composed, case-folded, and width-folded with `option fold-width`), the
+  // text their grammars matched.
   std::string value;
   for (Instance& inst : instances) {
-    const std::size_t begin = open_byte(inst);
-    const std::string text = original.substr(begin, close_byte(inst) - begin);
+    if (inst.normalizer == Normalizer::None) continue;
+    const std::string text = to_utf8(
+        norm.text.substr(static_cast<std::size_t>(inst.open_pos),
+                         static_cast<std::size_t>(inst.close_pos - inst.open_pos)));
     std::string currency;
     if ((inst.normalizer == Normalizer::KoreanNumber && korean_number_value(text, value)) ||
         (inst.normalizer == Normalizer::EnglishNumber && english_number_value(text, value)) ||
         (inst.normalizer == Normalizer::Ordinal && ordinal_value(text, value)))
-      set_attribute(inst, "value", value);
+      set_attribute(inst.attributes, "value", value);
     if (inst.normalizer == Normalizer::Money && money_value(text, value, currency)) {
-      set_attribute(inst, "value", value);
-      set_attribute(inst, "currency", currency);
+      set_attribute(inst.attributes, "value", value);
+      set_attribute(inst.attributes, "currency", currency);
     }
     if (inst.normalizer == Normalizer::DateTime)
-      for (const auto& kv : datetime_attributes(text)) set_attribute(inst, kv.first, kv.second);
+      for (const auto& kv : datetime_attributes(text))
+        set_attribute(inst.attributes, kv.first, kv.second);
   }
 
   Match m;
-  m.label = label;
-  m.line = line;
+  m.label = rule.label;
+  m.line = rule.line;
+  m.file = rule.file;
+  m.begin = begin;
+  m.end = end;
   m.specificity = specificity;
   for (const Instance& inst : instances) {
     Slot s;
@@ -811,7 +834,7 @@ Match build_match(const Nfa& nfa, const std::string& label, int line, int specif
     m.slots.push_back(std::move(s));
   }
 
-  std::size_t cursor = 0;
+  std::size_t cursor = begin;
   for (std::size_t i = 0; i < events.size(); ++i) {
     if (event_instance[i] < 0) continue;
     const Instance& inst = instances[event_instance[i]];
@@ -829,7 +852,7 @@ Match build_match(const Nfa& nfa, const std::string& label, int line, int specif
       m.tagged += "</" + name + ">";
     }
   }
-  m.tagged.append(original, cursor, std::string::npos);
+  m.tagged.append(original, cursor, end - cursor);
   return m;
 }
 
@@ -841,51 +864,53 @@ std::tuple<std::size_t, int, int> position_key(const ParsedScript& parsed, const
   return {pos.file ? file : 0, pos.line, pos.column};
 }
 
-// Whether `pattern` refers, directly or through other definitions, to a
-// definition whose values had errors.
-bool uses_broken_definition(const Node& pattern, const ParsedScript& parsed) {
+// The entities and variables that `roots` refer to, directly or through
+// other definitions.
+struct Reached {
   std::set<std::string> entities, variables;
-  std::vector<const Node*> pending{&pattern};
+};
+
+Reached reachable_definitions(std::vector<const Node*> pending, const ParsedScript& parsed) {
+  Reached out;
   while (!pending.empty()) {
     const Node* n = pending.back();
     pending.pop_back();
     const bool entity = n->kind == Node::Kind::EntityRef;
     if (entity || n->kind == Node::Kind::VarRef) {
-      const auto& broken = entity ? parsed.broken_entities : parsed.broken_variables;
-      if (broken.count(n->name)) return true;
       const auto& table = entity ? parsed.defs.entities : parsed.defs.variables;
       auto it = table.find(n->name);
-      if (it != table.end() && it->second.body &&
-          (entity ? entities : variables).insert(n->name).second)
+      if ((entity ? out.entities : out.variables).insert(n->name).second && it != table.end() &&
+          it->second.body)
         pending.push_back(it->second.body.get());
     }
     for (const NodePtr& child : n->children) pending.push_back(child.get());
     if (n->exclusion) pending.push_back(n->exclusion.get());
   }
-  return false;
+  return out;
+}
+
+// Whether `pattern` refers, directly or through other definitions, to a
+// definition whose values had errors.
+bool uses_broken_definition(const Node& pattern, const ParsedScript& parsed) {
+  if (parsed.broken_entities.empty() && parsed.broken_variables.empty()) return false;
+  const Reached reached = reachable_definitions({&pattern}, parsed);
+  auto any_broken = [](const std::set<std::string>& used, const std::set<std::string>& broken) {
+    return std::any_of(used.begin(), used.end(),
+                       [&](const std::string& name) { return broken.count(name) > 0; });
+  };
+  return any_broken(reached.entities, parsed.broken_entities) ||
+         any_broken(reached.variables, parsed.broken_variables);
 }
 
 // --- lint ---------------------------------------------------------------------
 
 // Definitions that no rule reaches, directly or through other definitions.
 std::vector<UnusedDefinition> unused_definitions(const ParsedScript& parsed) {
-  std::set<std::string> entities, variables;
-  std::vector<const Node*> pending;
-  for (const Rule& rule : parsed.rules) pending.push_back(rule.pattern.get());
-  auto use = [&](std::set<std::string>& used, const std::map<std::string, Definition>& table,
-                 const std::string& name) {
-    auto it = table.find(name);
-    if (it != table.end() && it->second.body && used.insert(name).second)
-      pending.push_back(it->second.body.get());
-  };
-  while (!pending.empty()) {
-    const Node* n = pending.back();
-    pending.pop_back();
-    if (n->kind == Node::Kind::EntityRef) use(entities, parsed.defs.entities, n->name);
-    if (n->kind == Node::Kind::VarRef) use(variables, parsed.defs.variables, n->name);
-    for (const NodePtr& child : n->children) pending.push_back(child.get());
-    if (n->exclusion) pending.push_back(n->exclusion.get());
-  }
+  std::vector<const Node*> roots;
+  for (const Rule& rule : parsed.rules) roots.push_back(rule.pattern.get());
+  const Reached reached = reachable_definitions(std::move(roots), parsed);
+  const std::set<std::string>& entities = reached.entities;
+  const std::set<std::string>& variables = reached.variables;
 
   std::vector<std::pair<SourcePos, std::string>> found;
   for (const auto& kv : parsed.defs.entities)
@@ -904,15 +929,6 @@ std::vector<UnusedDefinition> unused_definitions(const ParsedScript& parsed) {
 
 // --- Script -----------------------------------------------------------------
 
-struct CompiledRule {
-  std::string label;
-  int line;
-  std::string file;
-  int start;  // start state
-  int first;  // the rule's states occupy the id range [first, last)
-  int last;
-};
-
 struct Script::Impl {
   Nfa nfa;
   bool fold_width = false;  // `option fold-width`: input is width-folded too
@@ -925,10 +941,10 @@ struct Script::Impl {
   // The DFA cache: one shared, or one per thread (see cache()).
   CacheOptions cache_options;
   mutable std::unique_ptr<LazyDfa> dfa;
-  // Per-thread caches are keyed by `id` and dropped once `alive` expires.
+  // Per-thread caches are keyed by `id` and dropped once `alive` expires;
+  // set_cache_options() replaces both, retiring the caches built before.
   std::uint64_t id = next_id();
   std::shared_ptr<const int> alive = std::make_shared<const int>(0);
-  unsigned cache_generation = 0;  // bumped by set_cache_options()
 
   static std::uint64_t next_id() {
     static std::atomic<std::uint64_t> counter{0};
@@ -939,16 +955,15 @@ struct Script::Impl {
     if (!cache_options.per_thread) return *dfa;
     struct ThreadCache {
       std::weak_ptr<const int> alive;
-      unsigned generation;
       std::unique_ptr<LazyDfa> dfa;
     };
     thread_local std::unordered_map<std::uint64_t, ThreadCache> caches;
     auto it = caches.find(id);
-    if (it != caches.end() && it->second.generation == cache_generation) return *it->second.dfa;
+    if (it != caches.end()) return *it->second.dfa;
     for (auto i = caches.begin(); i != caches.end();)  // drop caches of scripts that are gone
       i = i->second.alive.expired() ? caches.erase(i) : std::next(i);
     ThreadCache& c = caches[id];
-    c = {alive, cache_generation, std::make_unique<LazyDfa>(nfa, start, cache_options)};
+    c = {alive, std::make_unique<LazyDfa>(nfa, start, cache_options)};
     return *c.dfa;
   }
 
@@ -996,6 +1011,7 @@ std::unique_ptr<Script::Impl> compile_source(const std::string& source, const st
       continue;
     }
     r.last = static_cast<int>(impl->nfa.states.size());
+    r.needs_vm = needs_pike_vm(impl->nfa, r.first, r.last);
     impl->nfa.epsilon(impl->start, r.start);
     impl->rules.push_back(std::move(r));
   }
@@ -1043,7 +1059,8 @@ CacheStats Script::cache_stats() const { return impl_->cache().stats(); }
 void Script::set_cache_options(const CacheOptions& options) {
   impl_->cache_options = options;
   impl_->dfa = std::make_unique<LazyDfa>(impl_->nfa, impl_->start, options);
-  ++impl_->cache_generation;
+  impl_->id = Impl::next_id();
+  impl_->alive = std::make_shared<const int>(0);
 }
 
 CacheOptions Script::cache_options() const { return impl_->cache_options; }
@@ -1069,25 +1086,25 @@ std::vector<Explanation> Script::explain(const std::string& text, std::size_t li
   Closure closure(impl.nfa);
   std::vector<int> states = closure({impl.start}, 0);
   for (std::size_t i = 0;; ++i) {
-    std::vector<std::vector<int>> by_rule(n);
-    for (int s : states) {
-      int r = rule_of(s);
-      if (r < 0) continue;
-      by_rule[r].push_back(s);
-      if (i == norm.text.size() && impl.nfa.states[s].accept_rule == r) complete[r] = true;
-    }
-    for (std::size_t r = 0; r < n; ++r) {
-      if (by_rule[r].empty() || i == 0) continue;
-      furthest[r] = i;
-      stopped[r] = std::move(by_rule[r]);
+    // `states` is sorted, so each rule's states are next to each other.
+    for (std::size_t k = 0; k < states.size();) {
+      const int r = rule_of(states[k]);
+      std::size_t end = k + 1;
+      while (end < states.size() && rule_of(states[end]) == r) ++end;
+      if (r >= 0) {
+        if (i == norm.text.size())
+          for (std::size_t j = k; j < end; ++j)
+            if (impl.nfa.states[states[j]].accept_rule == r) complete[r] = true;
+        if (i > 0) {
+          furthest[r] = i;
+          stopped[r].assign(states.begin() + k, states.begin() + end);
+        }
+      }
+      k = end;
     }
     if (i == norm.text.size()) break;
-    std::vector<int> targets;
-    for (int s : states)
-      for (const Edge& e : impl.nfa.states[s].edges)
-        if (e.consumes() && impl.nfa.matches(e, norm.text[i])) targets.push_back(e.to);
-    if (targets.empty()) break;
-    states = closure(std::move(targets), norm.text[i]);
+    states = closure.step(states, norm.text[i]);
+    if (states.empty()) break;
   }
 
   std::vector<std::size_t> order;
@@ -1132,7 +1149,7 @@ LintReport Script::lint(std::size_t max_states) const {
     for (int s = rule.first; s < rule.last; ++s) {
       State& copy = nfa.states[base + (s - rule.first)];
       for (Edge e : impl.nfa.states[s].edges) {
-        if (e.kind == Edge::Kind::Any) {
+        if (e.wildcard) {
           wildcard_free = false;
           continue;
         }
@@ -1253,10 +1270,11 @@ std::vector<Match> Script::Impl::match(const std::string& text, bool best) const
     const CompiledRule& r = rules[id];
     auto it = label_index.find(r.label);
     if (it != label_index.end() && !best) continue;
-    PikeVm vm(nfa, r.first, r.last);
     int wildcard_chars = 0;
-    if (!vm.run(r.start, norm.text, events, wildcard_chars)) continue;
-    Found f{id, events, letters - wildcard_chars};
+    events.clear();
+    if (r.needs_vm && !PikeVm(nfa, r.first, r.last).run(r.start, norm.text, events, wildcard_chars))
+      continue;
+    Found f{id, std::move(events), letters - wildcard_chars};
     if (it == label_index.end()) {
       label_index.emplace(r.label, found.size());
       found.push_back(std::move(f));
@@ -1270,10 +1288,7 @@ std::vector<Match> Script::Impl::match(const std::string& text, bool best) const
   std::vector<Match> out;
   for (const Found& f : found) {
     if (best && f.specificity < top) continue;
-    const CompiledRule& r = rules[f.rule];
-    out.push_back(build_match(nfa, r.label, r.line, f.specificity, f.events, text, norm));
-    out.back().file = r.file;
-    out.back().end = text.size();
+    out.push_back(build_match(nfa, rules[f.rule], f.specificity, f.events, text, norm, 0, text.size()));
   }
   return out;
 }
@@ -1302,24 +1317,16 @@ std::vector<Match> Script::Impl::search(const std::string& text) const {
     if (set.empty()) return -1;
     auto it = index.find(set);
     if (it != index.end()) return it->second;
-    std::vector<int> accepted;
-    for (int s : set)
-      if (nfa.states[s].accept_rule >= 0) accepted.push_back(nfa.states[s].accept_rule);
-    std::sort(accepted.begin(), accepted.end());
     int id = static_cast<int>(sets.size());
     index.emplace(set, id);
+    accepts.push_back(nfa.accepted_rules(set));
     sets.push_back(std::move(set));
-    accepts.push_back(std::move(accepted));
     return id;
   };
   auto step = [&](int d, char32_t c) {
     auto it = next.find({d, c});
     if (it != next.end()) return it->second;
-    std::vector<int> targets;
-    for (int s : sets[d])
-      for (const Edge& e : nfa.states[s].edges)
-        if (e.consumes() && nfa.matches(e, c)) targets.push_back(e.to);
-    int to = intern(closure(std::move(targets), c));
+    int to = intern(closure.step(sets[d], c));
     next.emplace(std::make_pair(d, c), to);
     return to;
   };
@@ -1334,37 +1341,33 @@ std::vector<Match> Script::Impl::search(const std::string& text) const {
     }
     // The longest text from i that some rule matches, ending at a boundary.
     std::size_t end = i;
-    std::vector<int> accepted;
+    int accepting = -1;
     int d = first;
     for (std::size_t j = i; j < n && d >= 0; ++j) {
       d = step(d, t[j]);
       if (d >= 0 && !accepts[d].empty() && t[j] != U' ' && boundary(j + 1)) {
         end = j + 1;
-        accepted = accepts[d];
+        accepting = d;
       }
     }
-    if (accepted.empty()) {
+    if (accepting < 0) {
       ++i;
       continue;
     }
     const std::u32string span = t.substr(i, end - i);
     const int letters = static_cast<int>(span.size() - std::count(span.begin(), span.end(), U' '));
     std::set<std::string> seen;
-    for (int id : accepted) {
+    for (int id : accepts[accepting]) {
       const CompiledRule& r = rules[id];
       if (seen.count(r.label)) continue;
-      PikeVm vm(nfa, r.first, r.last);
       int wildcard_chars = 0;
-      if (!vm.run(r.start, span, events, wildcard_chars)) continue;
+      events.clear();
+      if (r.needs_vm && !PikeVm(nfa, r.first, r.last).run(r.start, span, events, wildcard_chars))
+        continue;
       seen.insert(r.label);
       for (Event& e : events) e.pos += static_cast<int>(i);
-      Match m = build_match(nfa, r.label, r.line, letters - wildcard_chars, events, text, norm);
-      m.file = r.file;
-      m.begin = norm.begin[i];
-      m.end = norm.end[end - 1];
-      // Tags only fall within the span, so it sits at the same offset.
-      m.tagged = m.tagged.substr(m.begin, m.tagged.size() - (text.size() - m.end) - m.begin);
-      out.push_back(std::move(m));
+      out.push_back(build_match(nfa, r, letters - wildcard_chars, events, text, norm,
+                                norm.begin[i], norm.end[end - 1]));
     }
     i = end;
   }
@@ -1378,8 +1381,9 @@ namespace {
 // "\x89NLU" then a line ending and a format version, so text never looks like
 // a saved script and a saved script is never read by another format version.
 const char kMagic[] = "\x89NLU\r\n\x1a\n";
-constexpr std::uint32_t kFormatVersion = 1;
+constexpr std::uint32_t kFormatVersion = 2;  // 2: Edge::wildcard
 static_assert(static_cast<unsigned>(Edge::Kind::Any) < 8, "edge kinds fit in 3 bits");
+static_assert(static_cast<unsigned>(Guard::AfterNoFinalOrRieul) < 8, "guards fit in 3 bits");
 
 // Numbers are LEB128 varints; signed ones are zigzag-encoded first, so small
 // magnitudes (and -1) take one byte.
@@ -1467,7 +1471,8 @@ std::string Script::save() const {
     w.i32(st.accept_rule);
     w.size(st.edges.size());
     for (const Edge& e : st.edges) {
-      w.u8(static_cast<unsigned>(e.kind) | static_cast<unsigned>(e.guard) << 3);
+      w.u8(static_cast<unsigned>(e.kind) | static_cast<unsigned>(e.guard) << 3 |
+           (e.wildcard ? 1u : 0u) << 6);
       w.u8(static_cast<unsigned>(e.char_class));
       w.u32(static_cast<std::uint32_t>(e.ch));
       w.i32(e.set);
@@ -1540,14 +1545,15 @@ Script Script::load(const std::string& bytes) {
     for (std::size_t k = 0; k < edges; ++k) {
       Edge e;
       const unsigned head = r.u8(), cls = r.u8();
-      const unsigned kind = head & 7, guard = head >> 3;
-      if (kind > static_cast<unsigned>(Edge::Kind::Any) ||
+      const unsigned kind = head & 7, guard = head >> 3 & 7, wildcard = head >> 6;
+      if (kind > static_cast<unsigned>(Edge::Kind::Any) || wildcard > 1 ||
           guard > static_cast<unsigned>(Guard::AfterNoFinalOrRieul) ||
           cls > static_cast<unsigned>(CharClass::SyllableOtherFinal))
         Reader::fail("bad edge");
       e.kind = static_cast<Edge::Kind>(kind);
       e.guard = static_cast<Guard>(guard);
       e.char_class = static_cast<CharClass>(cls);
+      e.wildcard = wildcard != 0;
       e.ch = static_cast<char32_t>(r.u32());
       e.set = r.i32();
       e.action = r.i32();
@@ -1611,7 +1617,7 @@ Script Script::load(const std::string& bytes) {
   if (impl->start != 0 || n == 0) Reader::fail("bad start");
   int next_first = 1;
   for (std::size_t id = 0; id < impl->rules.size(); ++id) {
-    const CompiledRule& rule = impl->rules[id];
+    CompiledRule& rule = impl->rules[id];
     if (rule.first != next_first || rule.last <= rule.first || rule.last > n ||
         rule.start < rule.first || rule.start >= rule.last)
       Reader::fail("bad rule");
@@ -1627,6 +1633,7 @@ Script Script::load(const std::string& bytes) {
           Reader::fail("bad edge");
       }
     }
+    rule.needs_vm = needs_pike_vm(nfa, rule.first, rule.last);
     next_first = rule.last;
   }
   if (next_first != n) Reader::fail("bad rule");

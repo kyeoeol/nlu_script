@@ -1,6 +1,7 @@
 // Behavior of the DATETIME system entity and its normalized attributes.
 #include <cstdio>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "harness.hpp"
@@ -143,6 +144,11 @@ TEST(datetime_durations) {
   CHECK_EQ(attributes("in 1 hour 30 minutes"), std::string("hour_offset=+1 minute_offset=+30"));
 }
 
+TEST(datetime_reads_decomposed_hangul) {
+  // 내일 as conjoining jamo (NFD).
+  CHECK_EQ(attributes("\u1102\u1162\u110B\u1175\u11AF"), std::string("day_offset=+1"));
+}
+
 TEST(datetime_more_orders) {
   CHECK_EQ(attributes("3월 5일 월요일"), std::string("month=3 day=5 weekday=MON"));
   CHECK_EQ(attributes("3pm tomorrow"), std::string("hour=15 part_of_day=PM day_offset=+1"));
@@ -204,4 +210,26 @@ TEST(datetime_resolves_against_a_reference_time) {
            std::string("2026-02-01 (month)"));
   CHECK_EQ(resolved("1시간 뒤", nlu::DateTimeValue{2026, 12, 31, 23, 30}),
            std::string("2027-01-01 00:30 (minute)"));
+}
+
+TEST(resolve_datetime_ignores_attributes_out_of_range) {
+  const nlu::DateTimeValue now{2026, 10, 21, 14, 20};
+  auto date = [&](const std::vector<std::pair<std::string, std::string>>& attributes) {
+    nlu::DateTimeValue v = nlu::resolve_datetime(attributes, now).start;
+    return std::to_string(v.year) + "-" + std::to_string(v.month) + "-" + std::to_string(v.day);
+  };
+  CHECK_EQ(date({{"year_offset", "2147483647"}}), std::string("2026-10-21"));
+  CHECK_EQ(date({{"day_offset", "-9999999999"}}), std::string("2026-10-21"));
+  CHECK_EQ(date({{"month", "13"}}), std::string("2026-10-21"));
+  CHECK_EQ(date({{"day", "0"}}), std::string("2026-10-21"));
+  CHECK_EQ(date({{"weekday", "XYZ"}}), std::string("2026-10-21"));
+  CHECK_EQ(date({{"day_offset", "+1x"}}), std::string("2026-10-21"));
+  CHECK_EQ(date({{"day_offset", "+1"}, {"month", "13"}}), std::string("2026-10-22"));
+}
+
+TEST(resolve_datetime_clamps_the_reference_time) {
+  nlu::DateTimeValue v = nlu::resolve_datetime({{"day_offset", "+1"}},
+                                               nlu::DateTimeValue{2026, 13, 40, 99, 99}).start;
+  CHECK_EQ(std::to_string(v.year) + "-" + std::to_string(v.month) + "-" + std::to_string(v.day),
+           std::string("2027-1-1"));
 }

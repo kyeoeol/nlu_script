@@ -89,6 +89,12 @@ int run_lint(const std::string& script_path, bool best, bool verbose) {
   return findings.empty() ? 0 : 1;
 }
 
+void print_errors(const nlu::CompileError& e, const std::string& script_path) {
+  for (const nlu::Diagnostic& d : e.errors())
+    std::cerr << (d.file.empty() ? script_path : d.file) << ":" << d.line << ":" << d.column
+              << ": " << d.message << "\n";
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -98,9 +104,7 @@ int main(int argc, char** argv) {
       open_script(args[1]).save_file(args[2]);
       return 0;
     } catch (const nlu::CompileError& e) {
-      for (const nlu::Diagnostic& d : e.errors())
-        std::cerr << (d.file.empty() ? args[1] : d.file) << ":" << d.line << ":" << d.column
-                  << ": " << d.message << "\n";
+      print_errors(e, args[1]);
     } catch (const std::exception& e) {
       std::cerr << e.what() << "\n";
     }
@@ -146,9 +150,7 @@ int main(int argc, char** argv) {
       std::cout.flush();
     }
   } catch (const nlu::CompileError& e) {
-    for (const nlu::Diagnostic& d : e.errors())
-      std::cerr << (d.file.empty() ? script_path : d.file) << ":" << d.line << ":" << d.column
-                << ": " << d.message << "\n";
+    print_errors(e, script_path);
     return 1;
   } catch (const std::exception& e) {
     std::cerr << e.what() << "\n";

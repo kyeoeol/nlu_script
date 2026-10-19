@@ -114,12 +114,17 @@ void decompose(const DecodedChar& d, std::vector<DecodedChar>& out) {
   out.push_back(d);
 }
 
+// Hangul syllables and CJK unified ideographs have no case and no
+// decomposition, and only a trailing jamo (not inert itself) composes with
+// one.
+bool is_inert(char32_t c) { return (c >= 0xAC00 && c <= 0xD7A3) || (c >= 0x4E00 && c <= 0x9FFF); }
+
 }  // namespace
 
 void normalize_nfc(std::vector<DecodedChar>& chars) {
   // Most text is already composed and has no combining marks.
   bool simple = true;
-  for (const DecodedChar& d : chars) simple = simple && d.code < 0x300;
+  for (const DecodedChar& d : chars) simple = simple && (d.code < 0x300 || is_inert(d.code));
   if (simple) return;
 
   std::vector<DecodedChar> out;
@@ -212,6 +217,7 @@ bool is_space(char32_t c) {
 
 char32_t fold_case(char32_t c) {
   if (c < 0x80) return c >= U'A' && c <= U'Z' ? c + (U'a' - U'A') : c;
+  if (is_inert(c)) return c;
   const CodePair* row = find_row(kCaseFolding, c);
   return row ? row->to : c;
 }
@@ -229,6 +235,9 @@ NormalizedText normalize(const std::string& text, bool width_folding) {
   if (width_folding)
     for (DecodedChar& d : chars) d.code = fold_width(d.code);
   normalize_nfc(chars);
+  out.text.reserve(chars.size());
+  out.begin.reserve(chars.size());
+  out.end.reserve(chars.size());
   for (const DecodedChar& d : chars) {
     if (is_space(d.code)) {
       pending_space = !out.text.empty();

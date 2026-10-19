@@ -181,9 +181,42 @@
       memory), and the file is about 20 MiB
 - [x] An exclusion reaches the wildcard a following slot starts with
       (`\X <slot><?>*?</slot>`, nested slots too)
+- [x] Cleanup pass over the whole project: one subset-construction step
+      (`Closure::step`), accepted-rule list and placeholder-character picker
+      shared by the lazy DFA, search, explain, exclusion compiling and lint;
+      one walk over the definitions rules reach; shared `starts_with`,
+      `ends_with`, `set_attribute`, grain and numeral tables; C API match
+      entry points and CLI error printing written once. Speed-ups with
+      identical output: rules without slots or wildcards skip the Pike VM,
+      whose log is an index arena instead of `shared_ptr`s (warm `match()` on
+      `nlu_script_bench` about 2x faster, slot-heavy `DATETIME` matching about
+      1.9x); normalization skips NFC and case-folding lookups for Hangul
+      syllables and CJK ideographs; search builds each match over its span
+      only; explain no longer allocates per rule per character; Python
+      converts byte offsets once per call
+- [x] Fixes from the code review: system entity attributes are read from
+      the normalized text the grammar matched (`３만` with `option fold-width`,
+      NFD `내일`); option lines are read in the same pass as the rest of the
+      script, so any space may follow `option`; edges say whether they
+      consume wildcard text (`Edge::wildcard`, save format version 2), so an
+      excluded wildcard no longer counts as pattern text in `specificity` or
+      in lint's wildcard-free copies; `resolve_datetime()` ignores values out
+      of range and clamps `now`, so caller input can't overflow
 
 ## Next
 
+- [ ] Structured diagnostics in the C API, so Python stops parsing
+      `CompileError::what()` with a regex
+- [ ] One script test runner: move `tools/script_tests.cpp` into the library
+      (and the C API) so Python's `run_tests` stops re-implementing it
+- [ ] One source for system entity vocabulary: the grammar in
+      `system_entities.cpp` and the value readers in `datetime.cpp` /
+      `numbers.cpp` list the same words separately
+- [ ] `search()` determinizes from scratch on every call; reuse the shared
+      lazy DFA (changes what `cache_stats()` reports)
+- [ ] Lazy DFA: compute new transitions outside the exclusive lock, and drop
+      back to the shared lock after one, so a cold or thrashing cache doesn't
+      serialize all matching
 - [ ] Publish wheels to PyPI (e.g. on a version tag)
 - [ ] If GitHub retires the Intel macOS runner (`macos-15-intel`), build the
       x86_64 wheel on the arm64 runner instead: cross-compile (pass
