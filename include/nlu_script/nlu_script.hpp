@@ -164,7 +164,8 @@ struct DateTimeRange {
 DateTimeRange resolve_datetime(const std::vector<std::pair<std::string, std::string>>& attributes,
                                const DateTimeValue& now);
 
-// The lazily built DFA that classifies inputs, from Script::cache_stats().
+// The lazily built DFA that classifies inputs and searches text, from
+// Script::cache_stats().
 struct CacheStats {
   std::size_t states;       // DFA states cached now
   std::size_t transitions;  // cached transitions between them
@@ -239,7 +240,8 @@ class Script {
 
   std::size_t rule_count() const;
 
-  // The state of the DFA cache (the calling thread's with per_thread).
+  // The state of the DFA cache (the calling thread's with per_thread), which
+  // match(), match_best() and search() all use.
   CacheStats cache_stats() const;
   // Replaces the DFA cache with an empty one with these options. Not safe
   // while other threads match with this script.

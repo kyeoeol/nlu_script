@@ -202,6 +202,22 @@
       excluded wildcard no longer counts as pattern text in `specificity` or
       in lint's wildcard-free copies; `resolve_datetime()` ignores values out
       of range and clamps `now`, so caller input can't overflow
+- [x] `search()` runs on the shared lazy DFA (`LazyDfa::run` from each
+      position) instead of determinizing from scratch on every call, so
+      `cache_stats()` now counts search traffic too. A warm search of a
+      sentence on `nlu_script_bench` went from 3.9 ms to 1.8 µs at 20,000
+      rules and from 50 ms to 4.6 µs at 100,000; output is unchanged (CLI
+      `--search`, plain, `--best` and `--explain` compared on 5,000 inputs)
+- [x] Lazy DFA computes new transitions without the lock, a doubling batch
+      at a time, takes the exclusive lock only to add them and goes back to
+      the shared lock; a thread holding a state that eviction renumbered
+      looks its set up again. The lock spins, then yields: libc++'s
+      `std::shared_mutex` hands over through a condition variable, so readers
+      still slept through each added state. A per-thread cache takes no
+      lock, and `Closure` reuses its scratch buffers. On 4 threads at 10,000
+      rules: a cache capped at 5,000 states went from 13.1 to 2.8 µs per
+      match, a cold cache from 0.89 to 0.72 µs, and while one thread matched
+      new inputs, three on cached ones went from 50 to 2.9 µs per match
 
 ## Next
 
@@ -212,11 +228,12 @@
 - [ ] One source for system entity vocabulary: the grammar in
       `system_entities.cpp` and the value readers in `datetime.cpp` /
       `numbers.cpp` list the same words separately
-- [ ] `search()` determinizes from scratch on every call; reuse the shared
-      lazy DFA (changes what `cache_stats()` reports)
-- [ ] Lazy DFA: compute new transitions outside the exclusive lock, and drop
-      back to the shared lock after one, so a cold or thrashing cache doesn't
-      serialize all matching
+- [ ] The DFA cache lock yields in a loop while it waits, so threads waiting
+      out a long eviction (a full 200,000-state cache) stay busy; block after
+      a while instead (C++20 `std::atomic::wait`, or a fallback mutex)
+- [ ] `loading_rejects_anything_but_a_saved_script` takes about 5 minutes
+      under ThreadSanitizer on macOS (it did before the lock change too),
+      which makes TSan runs of the whole suite slow
 - [ ] Publish wheels to PyPI (e.g. on a version tag)
 - [ ] If GitHub retires the Intel macOS runner (`macos-15-intel`), build the
       x86_64 wheel on the arm64 runner instead: cross-compile (pass

@@ -13,9 +13,10 @@
 #include <fstream>
 #include <map>
 #include <mutex>
-#include <shared_mutex>
 #include <set>
+#include <shared_mutex>  // std::shared_lock
 #include <sstream>
+#include <thread>
 #include <tuple>
 #include <unordered_map>
 
@@ -386,89 +387,192 @@ class ScriptParser {
 
 // --- phase 1: lazy DFA ------------------------------------------------------
 
-// Threads share one cache. Lookups of cached transitions run under a shared
-// lock; a thread that needs a new transition switches to the exclusive lock
-// for the rest of its input. When the cache reaches its limits it keeps the
-// states used since the last eviction, up to half of each limit, and drops
-// the rest, so states every input passes through survive.
+// Threads share one cache. Following cached transitions takes a shared lock.
+// A thread that needs new transitions computes them without the lock and
+// takes the exclusive lock only to add them, then goes back to the shared
+// lock. When the cache reaches its limits it keeps the states used since the
+// last eviction, up to half of each limit, and drops the rest, so states
+// every input passes through survive.
 class LazyDfa {
  public:
   LazyDfa(const Nfa& nfa, int start, const CacheOptions& options)
       : nfa_(nfa),
-        closure_(nfa),
         max_states_(std::max<std::size_t>(options.max_states, 2)),
-        max_bytes_(options.max_bytes) {
-    start_ = intern(closure_({start}, 0));
+        max_bytes_(options.max_bytes),
+        mutex_(!options.per_thread) {
+    auto closure = std::make_unique<Closure>(nfa);
+    start_ = intern(make_state((*closure)({start}, 0)));
+    closures_.push_back(std::move(closure));
+  }
+
+  // Runs the DFA over text[from, text.size()). Calls visit(k, accepts) at the
+  // start and after each character, where `accepts` lists the rules accepting
+  // text[from, k), ascending. Stops when visit returns false or no rule can
+  // match a longer text. visit mustn't use the DFA.
+  template <typename Visit>
+  void run(const std::u32string& text, std::size_t from, Visit visit) {
+    Borrowed closure(*this);
+    std::shared_lock<Lock> shared(mutex_);
+    std::unique_lock<Lock> exclusive(mutex_, std::defer_lock);
+    int d = start_;
+    touch(d);
+    if (!visit(from, states_[d].accepts)) return;
+    // Missing transitions are computed this many at a time, doubling while
+    // the state reached has no cached transition either: past one new
+    // state, the next is usually new too, and each switch of locks costs.
+    std::size_t batch = 1;
+    std::vector<NewState> chain;
+    std::vector<int> set;  // a copy of the current state's set, to use without the lock
+    for (std::size_t k = from; k < text.size() && !states_[d].set.empty();) {
+      auto it = states_[d].next.find(text[k]);
+      if (it != states_[d].next.end()) {
+        d = it->second;
+        if (exclusive.owns_lock()) {
+          d = to_shared(d, set, exclusive, shared);
+          batch = 1;
+        }
+        touch(d);
+        if (!visit(++k, states_[d].accepts)) return;
+        continue;
+      }
+      // Eviction renumbers states, so `d` stays valid only within `epoch`;
+      // the set is the state itself, whatever its number.
+      set = states_[d].set;
+      const unsigned epoch = epoch_;
+      if (exclusive.owns_lock()) {
+        exclusive.unlock();
+      } else {
+        shared.unlock();
+      }
+      const std::size_t first = k;
+      bool done = false;
+      chain.clear();
+      while (!done && chain.size() < batch) {
+        const std::vector<int>& last = chain.empty() ? set : chain.back().set;
+        chain.push_back(make_state(closure.get().step(last, text[k])));
+        ++k;
+        done = !visit(k, chain.back().accepts) || chain.back().set.empty() || k == text.size();
+      }
+      exclusive.lock();
+      if (epoch != epoch_) d = -1;
+      for (std::size_t i = 0; i < chain.size(); ++i) {
+        d = add(d, text[first + i], std::move(chain[i]));
+        touch(d);
+      }
+      if (done) return;
+      batch = std::min<std::size_t>(batch * 2, kMaxBatch);
+    }
   }
 
   // Returns the ids of the rules accepting the whole text, ascending.
   std::vector<int> accepted_rules(const std::u32string& text) {
-    int d;
-    std::size_t i = 0;
-    unsigned epoch;
-    {
-      std::shared_lock<std::shared_mutex> lock(mutex_);
-      d = start_;
-      touch(d);
-      for (; i < text.size(); ++i) {
-        auto it = states_[d].next.find(text[i]);
-        if (it == states_[d].next.end()) break;
-        d = it->second;
-        touch(d);
-        if (states_[d].set.empty()) return {};
-      }
-      if (i == text.size()) return states_[d].accepts;
-      epoch = epoch_;
-    }
-    std::lock_guard<std::shared_mutex> lock(mutex_);
-    if (epoch != epoch_) {  // states were evicted, so `d` is stale
-      d = start_;
-      i = 0;
-    }
-    for (; i < text.size(); ++i) {
-      char32_t c = text[i];
-      auto it = states_[d].next.find(c);
-      if (it != states_[d].next.end()) {
-        d = it->second;
-      } else {
-        std::vector<int> set = closure_.step(states_[d].set, c);
-        if (states_.size() >= max_states_ || bytes_ >= max_bytes_) {
-          evict();
-          d = intern(std::move(set));
-        } else {
-          int next = intern(std::move(set));
-          states_[d].next.emplace(c, next);
-          ++transitions_;
-          bytes_ += kTransitionBytes;
-          d = next;
-        }
-      }
-      touch(d);
-      if (states_[d].set.empty()) return {};
-    }
-    return states_[d].accepts;
+    std::vector<int> out;
+    run(text, 0, [&](std::size_t k, const std::vector<int>& accepts) {
+      if (k == text.size()) out = accepts;
+      return true;
+    });
+    return out;
   }
 
   CacheStats stats() {
-    std::shared_lock<std::shared_mutex> lock(mutex_);
+    std::shared_lock<Lock> lock(mutex_);
     return {states_.size(), transitions_, bytes_, evictions_};
   }
 
  private:
   static constexpr std::size_t kTransitionBytes = 32;  // an unordered_map node
+  static constexpr std::size_t kMaxBatch = 64;
 
-  struct DState {
-    std::vector<int> set;      // NFA states with consuming edges or accepting
+  struct NewState {
+    std::vector<int> set;  // NFA states with consuming edges or accepting, sorted
+    std::size_t hash;
     std::vector<int> accepts;  // accepted rules
+  };
+
+  struct DState : NewState {
     std::unordered_map<char32_t, int> next;
   };
 
+  // A Closure lent to one run() while it computes transitions, taken from the
+  // pool on first use. Each needs scratch space the size of the NFA, so the
+  // pool holds as many as threads have computed transitions at once.
+  class Borrowed {
+   public:
+    explicit Borrowed(LazyDfa& dfa) : dfa_(dfa) {}
+    ~Borrowed() {
+      if (!closure_) return;
+      std::lock_guard<std::mutex> lock(dfa_.closures_mutex_);
+      dfa_.closures_.push_back(std::move(closure_));
+    }
+    Closure& get() {
+      if (closure_) return *closure_;
+      {
+        std::lock_guard<std::mutex> lock(dfa_.closures_mutex_);
+        if (!dfa_.closures_.empty()) {
+          closure_ = std::move(dfa_.closures_.back());
+          dfa_.closures_.pop_back();
+        }
+      }
+      if (!closure_) closure_ = std::make_unique<Closure>(dfa_.nfa_);
+      return *closure_;
+    }
+
+   private:
+    LazyDfa& dfa_;
+    std::unique_ptr<Closure> closure_;
+  };
+
+  // A reader-writer lock that spins, then yields, while it waits. Exclusive
+  // sections are short; std::shared_mutex (with libc++) hands over through a
+  // condition variable, and readers slept through every state another thread
+  // added. Waiting writers keep new readers out. A per-thread cache, which
+  // only its thread uses, skips the lock.
+  class Lock {
+   public:
+    explicit Lock(bool used) : used_(used) {}
+    void lock() {
+      if (!used_) return;
+      writers_.fetch_add(1, std::memory_order_relaxed);
+      for (int tries = 0;; wait(tries)) {
+        int idle = 0;
+        if (state_.compare_exchange_weak(idle, -1, std::memory_order_acquire)) break;
+      }
+      writers_.fetch_sub(1, std::memory_order_relaxed);
+    }
+    void unlock() {
+      if (used_) state_.store(0, std::memory_order_release);
+    }
+    void lock_shared() {
+      if (!used_) return;
+      for (int tries = 0;; wait(tries)) {
+        if (writers_.load(std::memory_order_relaxed) > 0) continue;
+        int readers = state_.load(std::memory_order_relaxed);
+        if (readers >= 0 &&
+            state_.compare_exchange_weak(readers, readers + 1, std::memory_order_acquire))
+          return;
+      }
+    }
+    void unlock_shared() {
+      if (used_) state_.fetch_sub(1, std::memory_order_release);
+    }
+
+   private:
+    static void wait(int& tries) {
+      if (++tries > 64) std::this_thread::yield();
+    }
+
+    std::atomic<int> state_{0};    // readers holding the lock, or -1 for a writer
+    std::atomic<int> writers_{0};  // writers waiting for it
+    const bool used_;
+  };
+
   const Nfa& nfa_;
-  std::shared_mutex mutex_;
+  std::mutex closures_mutex_;
+  std::vector<std::unique_ptr<Closure>> closures_;  // guarded by closures_mutex_
   // Everything below is guarded by mutex_, except that readers holding the
   // shared lock update used_.
-  Closure closure_;
   std::size_t max_states_, max_bytes_;
+  Lock mutex_;
   int start_ = 0;
   unsigned epoch_ = 0;  // bumped by evict(), which renumbers states
   std::vector<DState> states_;
@@ -487,30 +591,77 @@ class LazyDfa {
     if (u.load(std::memory_order_relaxed) != round_) u.store(round_, std::memory_order_relaxed);
   }
 
-  static std::size_t hash(const std::vector<int>& set) {
+  // Everything about a state that needs no lock to compute.
+  NewState make_state(std::vector<int> set) const {
     std::size_t h = set.size();
     for (int s : set) h = h * 1000003u ^ static_cast<std::size_t>(s);
-    return h;
+    std::vector<int> accepts = nfa_.accepted_rules(set);
+    return {std::move(set), h, std::move(accepts)};
   }
 
   static std::size_t state_bytes(const DState& d) {
     return sizeof(DState) + (d.set.size() + d.accepts.size()) * sizeof(int) + 64;
   }
 
-  int intern(std::vector<int> set) {
-    const std::size_t h = hash(set);
-    auto range = index_.equal_range(h);
+  // The state with this set, or -1.
+  int find(const std::vector<int>& set, std::size_t hash) const {
+    auto range = index_.equal_range(hash);
     for (auto it = range.first; it != range.second; ++it)
       if (states_[it->second].set == set) return it->second;
-    DState d;
-    d.accepts = nfa_.accepted_rules(set);
-    d.set = std::move(set);
-    bytes_ += state_bytes(d);
-    int id = static_cast<int>(states_.size());
-    states_.push_back(std::move(d));
+    return -1;
+  }
+
+  int intern(NewState s) {
+    int id = find(s.set, s.hash);
+    if (id >= 0) return id;
+    id = static_cast<int>(states_.size());
+    index_.emplace(s.hash, id);
+    states_.emplace_back();
+    static_cast<NewState&>(states_.back()) = std::move(s);
+    bytes_ += state_bytes(states_.back());
     used_.emplace_back(round_);
-    index_.emplace(h, id);
     return id;
+  }
+
+  // Under the exclusive lock: returns the state `next`, which state `from`
+  // (-1 if it was evicted meanwhile) reaches on `c`, and caches the
+  // transition. A full cache evicts first.
+  int add(int from, char32_t c, NewState next) {
+    if (from >= 0) {
+      auto it = states_[from].next.find(c);
+      if (it != states_[from].next.end()) return it->second;  // another thread added it
+    }
+    if (states_.size() >= max_states_ || bytes_ >= max_bytes_) {
+      evict();
+      return intern(std::move(next));
+    }
+    const int to = intern(std::move(next));
+    if (from >= 0) {
+      states_[from].next.emplace(c, to);
+      ++transitions_;
+      bytes_ += kTransitionBytes;
+    }
+    return to;
+  }
+
+  // Trades the exclusive lock for the shared one; returns the number of
+  // state `d` then, which is interned again if it was evicted meanwhile.
+  // `set` is scratch space.
+  int to_shared(int d, std::vector<int>& set, std::unique_lock<Lock>& exclusive,
+                std::shared_lock<Lock>& shared) {
+    for (;;) {
+      set = states_[d].set;
+      const std::size_t hash = states_[d].hash;
+      const unsigned epoch = epoch_;
+      exclusive.unlock();
+      shared.lock();
+      if (epoch == epoch_) return d;
+      d = find(set, hash);
+      if (d >= 0) return d;
+      shared.unlock();
+      exclusive.lock();
+      d = add(-1, 0, {set, hash, nfa_.accepted_rules(set)});
+    }
   }
 
   // Keeps the start state and the states used in this round, up to half of
@@ -552,7 +703,7 @@ class LazyDfa {
     used_.clear();
     ++round_;
     for (int id = 0; id < static_cast<int>(states_.size()); ++id) {
-      index_.emplace(hash(states_[id].set), id);
+      index_.emplace(states_[id].hash, id);
       used_.emplace_back(0);
     }
     start_ = renumber[start_];
@@ -1307,57 +1458,32 @@ std::vector<Match> Script::Impl::search(const std::string& text) const {
            !(alnum(t[at - 1]) && alnum(t[at]));
   };
 
-  // Every rule at once, determinized as needed for this call; the shared
-  // lazy DFA only answers whole-input matches.
-  Closure closure(nfa);
-  std::map<std::vector<int>, int> index;
-  std::vector<std::vector<int>> sets, accepts;
-  std::map<std::pair<int, char32_t>, int> next;
-  auto intern = [&](std::vector<int> set) {
-    if (set.empty()) return -1;
-    auto it = index.find(set);
-    if (it != index.end()) return it->second;
-    int id = static_cast<int>(sets.size());
-    index.emplace(set, id);
-    accepts.push_back(nfa.accepted_rules(set));
-    sets.push_back(std::move(set));
-    return id;
-  };
-  auto step = [&](int d, char32_t c) {
-    auto it = next.find({d, c});
-    if (it != next.end()) return it->second;
-    int to = intern(closure.step(sets[d], c));
-    next.emplace(std::make_pair(d, c), to);
-    return to;
-  };
-  const int first = intern(closure({start}, 0));
-
+  LazyDfa& dfa = cache();
   std::vector<Match> out;
   std::vector<Event> events;
-  for (std::size_t i = 0; i < n && first >= 0;) {
+  std::vector<int> accepts;  // the rules accepting t[i, end)
+  for (std::size_t i = 0; i < n;) {
     if (t[i] == U' ' || !boundary(i)) {
       ++i;
       continue;
     }
     // The longest text from i that some rule matches, ending at a boundary.
     std::size_t end = i;
-    int accepting = -1;
-    int d = first;
-    for (std::size_t j = i; j < n && d >= 0; ++j) {
-      d = step(d, t[j]);
-      if (d >= 0 && !accepts[d].empty() && t[j] != U' ' && boundary(j + 1)) {
-        end = j + 1;
-        accepting = d;
+    dfa.run(t, i, [&](std::size_t k, const std::vector<int>& rules_here) {
+      if (k > i && !rules_here.empty() && t[k - 1] != U' ' && boundary(k)) {
+        end = k;
+        accepts = rules_here;
       }
-    }
-    if (accepting < 0) {
+      return true;
+    });
+    if (end == i) {
       ++i;
       continue;
     }
     const std::u32string span = t.substr(i, end - i);
     const int letters = static_cast<int>(span.size() - std::count(span.begin(), span.end(), U' '));
     std::set<std::string> seen;
-    for (int id : accepts[accepting]) {
+    for (int id : accepts) {
       const CompiledRule& r = rules[id];
       if (seen.count(r.label)) continue;
       int wildcard_chars = 0;
