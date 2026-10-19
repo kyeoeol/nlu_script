@@ -584,24 +584,29 @@ class LazyDfa {
         std::this_thread::yield();
         return;
       }
-      std::unique_lock<std::mutex> lock(sleep_mutex_);
+      std::unique_lock<std::mutex> lock(sleep_->mutex);
       sleepers_.fetch_add(1);
-      while (!ready()) asleep_.wait(lock);
+      while (!ready()) sleep_->woken.wait(lock);
       sleepers_.fetch_sub(1);
       tries = 0;
     }
 
     void wake() {
       if (sleepers_.load() == 0) return;
-      std::lock_guard<std::mutex> lock(sleep_mutex_);
-      asleep_.notify_all();
+      std::lock_guard<std::mutex> lock(sleep_->mutex);
+      sleep_->woken.notify_all();
     }
 
     std::atomic<int> state_{0};    // readers holding the lock, or -1 for a writer
     std::atomic<int> writers_{0};  // writers waiting for it
     std::atomic<int> sleepers_{0};
-    std::mutex sleep_mutex_;
-    std::condition_variable asleep_;
+    // Out of line: inside the lock they spread the cache's hot fields over
+    // more cache lines, and matching a cached input got about 4% slower.
+    struct Sleep {
+      std::mutex mutex;
+      std::condition_variable woken;
+    };
+    const std::unique_ptr<Sleep> sleep_ = std::make_unique<Sleep>();
     const bool used_;
   };
 

@@ -548,7 +548,9 @@ and the CLI prints each as `rules.nlu:3:5: message`.
 `Script::match` and `Script::search` are thread-safe, and concurrent calls
 run in parallel. A call that needs transitions the shared DFA cache lacks
 computes them without holding its lock, and waits only while a thread adds
-finished ones, so a cold or thrashing cache doesn't hold other calls up.
+finished ones, so a cold or thrashing cache doesn't hold other calls up. A
+waiting call spins briefly and then sleeps until the lock is free, so calls
+waiting out an eviction don't keep cores busy.
 
 The cache is bounded (`CacheOptions`: 200,000 states and 64 MiB by
 default). When it fills up, it keeps the states used since its last
