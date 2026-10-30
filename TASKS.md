@@ -253,8 +253,41 @@
       under TSan; the whole suite 0.7 s natively, 13 s under TSan). That
       found a crash: a corrupt script whose slot actions don't nest made
       matching pop an empty slot stack, which it now skips
+- [x] Data domain: customer support for credit card, debit card and payment
+      apps instead of banking. The demo, its tests, the C++ and Python tests,
+      the fuzz seed and the README use card and payment vocabulary (no
+      savings, deposits or exchange rates); the demo has 29 labels
+- [x] Persona data: 100 personas sampled from NVIDIA's
+      Nemotron-Personas-Korea (CC BY 4.0) by `tools/fetch_personas.py`, and
+      three inquiries per persona in their voice, in Korean and then in
+      English (`examples/personas/ko.test`, `en.test`; the first of each
+      persona written by GPT-6-Luna, the other two by Claude). The demo
+      matches each of the 600 with exactly one label, and `ctest` runs them.
+      Rules written from Claude's 200 got 89 of GPT-6-Luna's 100 Korean
+      sentences and 73 of the English ones before they saw them. The fuzz
+      corpus is seeded with the persona sentences too
+
 ## Next
 
+- [ ] English `DATETIME` lacks forms its Korean side has: `this month`,
+      `next month` and `last month` (Korean `이번 달`, `다음 달`, `지난달`
+      give `month_offset`), and a day of the month alone (`the 25th`, while
+      `25일` gives `day`). Found writing the English persona data
+- [ ] `MONEY` doesn't read `30k won` or `2.8 million won` (`2,800,000 won`
+      and `5 million won` work)
+- [ ] A system entity followed by a wildcard takes its shortest form:
+      `` `@{MONEY} <?>*? `` tags `50 dollar` in `50 dollars` and leaves the `s`
+      to the wildcard, and `` `@{DATETIME} <?>*? `` tags `in 2 hour`.
+      Without the wildcard it takes the whole word. The vocabulary lists
+      `dollar` before `dollars`, and in a group the first alternative that
+      lets the rule match wins (`<s>[ab|abc]</s> <?>*?` tags `ab` in `abcd`)
+- [ ] A slot that ends in an optional group keeps the space before it when
+      the group is skipped: `<s>a (b)</s> c` tags `<s>a </s>c` in `a c`. The
+      demo spells out both forms instead (`[visa] card|visa`)
+- [ ] Lint is too slow for the demo: with its 80 rules, mostly `<?>*? word
+      <?>*?` and many with system entities, each automaton state takes about
+      50 ms (1.4 ms with the system entities stubbed out), and 1,000 states
+      find no overlap yet. `ctest` lints a small script instead
 - [ ] Publish wheels to PyPI (e.g. on a version tag)
 - [ ] If GitHub retires the Intel macOS runner (`macos-15-intel`), build the
       x86_64 wheel on the arm64 runner instead: cross-compile (pass
@@ -264,7 +297,7 @@
 ## Open questions
 
 - [x] A wildcard before an optional particle swallows a wrong particle
-      (`<?>+?(을/를)` matches `청약통장를`). Decided: keep it. Keeping
+      (`<?>+?(을/를)` matches `멤버십를`). Decided: keep it. Keeping
       particle-like syllables out of a wildcard's last character would also
       reject words that end in them (`마을`, `가을`); a required particle
       (`<?>+?을/를`) already rejects the wrong one. The README explains this

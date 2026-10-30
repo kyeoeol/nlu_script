@@ -288,7 +288,7 @@ class Parser {
   }
 
   // A particle pair such as 을/를 ends the literal `lit`, which holds the text
-  // up to the '/' (e.g. 적금을). Returns the particle, after the rest of the
+  // up to the '/' (e.g. 구독을). Returns the particle, after the rest of the
   // literal if there is any, joined without a space.
   std::shared_ptr<Node> parse_particle(std::shared_ptr<Node> lit, std::size_t start,
                                        bool in_permute) {

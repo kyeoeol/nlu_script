@@ -1,0 +1,808 @@
+# Inquiries from 100 personas sampled from NVIDIA's Nemotron-Personas-Korea
+# (CC BY 4.0; see personas.jsonl, written by tools/fetch_personas.py), three
+# per persona, each followed by what examples/demo.nlu prints for it. The
+# first sentence of each persona was written by GPT-6-Luna, the other two by
+# Claude, in the persona's voice. These are the English versions of
+# the Korean ones in ko.test, in the same order.
+# Run them with:
+#   ./build/nlu_script_cli --test examples/demo.nlu examples/personas/en.test
+
+# Persona 1: man, 35, 강원 춘천시, 기업 고위 임원
+Please unlock the card I locked earlier so I can use it again
+    card:unfreeze:Please unlock the card I locked earlier so I can use it again
+Please convert the 2,800,000 won I paid at the department store last week into 6 month installments
+    bill:installment:Please convert the <amount><MONEY value="2800000" currency="KRW">2,800,000 won</MONEY></amount> I paid at the department store last week into <months><EN_NUMBER value="6">6</EN_NUMBER></months> month installments
+I'd like to reset my payment password
+    account:password:reset:I'd like to reset my payment password
+
+# Persona 2: man, 50, 강원 춘천시, 기업 고위 임원
+Can I switch last month's logistics charge to 3 monthly installments?
+    bill:installment:Can I switch last month's logistics charge to <months><EN_NUMBER value="3">3</EN_NUMBER></months> monthly installments?
+Could I check how many points I've earned?
+    reward:points:Could I check how many points I've earned?
+Please add 100,000 won to my Pay Money
+    wallet:charge:Please add <amount><MONEY value="100000" currency="KRW">100,000 won</MONEY></amount> to my Pay Money
+
+# Persona 3: woman, 49, 대전 중구, 통신장비 기사
+Please tell me where to go to delete my app account
+    account:withdraw:Please tell me where to go to delete my app account
+Did I meet last month's spending requirement for this month's perks?
+    reward:benefits:Did I meet last month's spending requirement for this month's perks?
+My card keeps getting declined at the gas station
+    payment:failed:My card keeps getting declined at the gas station
+
+# Persona 4: man, 32, 경상남 거제시, 무직
+I did not lose it but please temporarily suspend my card
+    card:freeze:I did not lose it but please temporarily suspend my card
+My phone number changed so please update it to 010-4827-1593
+    account:phone:My phone number changed so please update it to <TELNUM>010-4827-1593</TELNUM>
+How much is my card bill this month?
+    bill:amount:How much is my card bill this month?
+
+# Persona 5: woman, 40, 제주 제주시, 음식 서비스 종사원
+I would like to pay 200,000 won of this month's card bill early
+    bill:prepay:I would like to pay <amount><MONEY value="200000" currency="KRW">200,000 won</MONEY></amount> of this month's card bill early
+I want to talk to an agent not a chatbot
+    agent:connect:I want to talk to an agent not a chatbot
+Where do I delete my account in the app?
+    account:withdraw:Where do I delete my account in the app?
+
+# Persona 6: woman, 47, 인천 서구, 무직
+I returned an item I bought at the market yesterday so please cancel the payment
+    payment:refund:I returned an item I bought at the market yesterday so please cancel the payment
+The magnetic strip on my card is broken so I'd like a replacement card
+    card:reissue:The magnetic strip on my card is broken so I'd like a replacement card
+I'd like to raise my limit a bit because of my mom's hospital bills
+    card:limit:I'd like to raise my limit a bit because of my mom's hospital bills
+
+# Persona 7: woman, 71, 인천 중구, 간호조무사
+I would like to change my card payment date to the 25th every month
+    bill:due_date:I would like to change my card payment date to the 25th every month
+How do I add my debit card to the pay app my daughter installed?
+    wallet:link:How do I add my <card type="DEBIT">debit card</card> to the pay app my daughter installed?
+Please change what I paid at the pharmacy yesterday into 3 month installments
+    bill:installment:Please change what I paid at the pharmacy yesterday into <months><EN_NUMBER value="3">3</EN_NUMBER></months> month installments
+
+# Persona 8: woman, 51, 서울 강북구, 자동 조립라인 조작원
+I keep failing to log in to the app even though my password is right
+    account:login:I keep failing to log in to the app even though my password is right
+I want to pay this month's card bill early
+    bill:prepay:I want to pay this month's card bill early
+Please tell me how much is due next month
+    bill:amount:Please tell me how much is due next month
+
+# Persona 9: woman, 58, 경기 부천시 원미구, 크레인 운전원
+I would like to check my card transactions from this week
+    payment:history:I would like to check my card transactions from <DATETIME week_offset="0">this week</DATETIME>
+I'm at work so please call me at 7pm
+    agent:callback:I'm at work so please call me at <DATETIME hour="19" part_of_day="PM">7pm</DATETIME>
+I returned something I bought from home shopping but I still haven't gotten a refund
+    payment:refund:I returned something I bought from home shopping but I still haven't gotten a refund
+
+# Persona 10: woman, 32, 대전 서구, 관리 비서
+Please close the credit card I no longer use
+    card:cancel:Please close the <card type="CREDIT">credit card</card> I no longer use
+I ordered once on Baemin but got charged twice
+    payment:duplicate:I ordered once on <merchant>Baemin</merchant> but got charged twice
+When will the new card I applied for arrive?
+    card:delivery:When will the new card I applied for arrive?
+
+# Persona 11: woman, 22, 경기 구리시, 무직
+I canceled my Baemin order so when will the card refund arrive?
+    payment:refund:I canceled my Baemin order so when will the card refund arrive?
+Olive Young charged me twice
+    payment:duplicate:<merchant>Olive Young</merchant> charged me twice
+Can I switch the padded jacket I bought on Musinsa to installments?
+    bill:installment:Can I switch the padded jacket I bought on <merchant>Musinsa</merchant> to installments?
+
+# Persona 12: woman, 49, 세종 세종시, 무직
+My daughter says the money I sent yesterday has not arrived so please check
+    transfer:status:My daughter says the money I sent yesterday has not arrived so please check
+I think I lost my debit card at the supermarket
+    card:lost:I think I lost my <card type="DEBIT">debit card</card> at the supermarket
+I want to add another credit card to Pay for my kid's academy fees
+    wallet:link:I want to add another <card type="CREDIT">credit card</card> to Pay for my kid's academy fees
+
+# Persona 13: man, 40, 대전 서구, 국가행정 사무원
+Please raise my card limit to 3,000,000 won for household expenses
+    card:limit:Please raise my card limit to <amount><MONEY value="3000000" currency="KRW">3,000,000 won</MONEY></amount> for household expenses
+Please send 200,000 won to my father
+    transfer:send:Please send <amount><MONEY value="200000" currency="KRW">200,000 won</MONEY></amount> to my <recipient>father</recipient>
+How do I change my linked bank account to one at another bank?
+    wallet:link:How do I change my linked bank account to one at another bank?
+
+# Persona 14: woman, 20, 서울 성북구, 무직
+I want to close one check card I do not use so how do I do that?
+    card:cancel:I want to close one <card type="DEBIT">check card</card> I do not use so how do I do that?
+send 15,000 won to Jisu
+    transfer:send:send <amount><MONEY value="15000" currency="KRW">15,000 won</MONEY></amount> to <recipient>Jisu</recipient>
+How much is my bill this month?
+    bill:amount:How much is my bill this month?
+
+# Persona 15: man, 72, 서울 마포구, 무직
+Please unlock the card I had locked
+    card:unfreeze:Please unlock the card I had locked
+Why did the restaurant charge me twice for my meal?
+    payment:duplicate:Why did the restaurant charge me twice for my meal?
+I forgot my password so I need to make a new one
+    account:password:reset:I forgot my password so I need to make a new one
+
+# Persona 16: woman, 80, 대구 수성구, 무직
+I have something to discuss so please call me tomorrow at 2 pm
+    agent:callback:I have something to discuss so please call me <DATETIME day_offset="+1" hour="14" part_of_day="PM">tomorrow at 2 pm</DATETIME>
+They say my card won't go through at the market
+    payment:failed:They say my card won't go through at the market
+Please put a hold on my card for a while
+    card:freeze:Please put a hold on my card for a while
+
+# Persona 17: man, 53, 서울 마포구, 헬리콥터 조종사
+I do not use the Mastercard anymore so I would like to close it
+    card:cancel:I do not use the <card brand="MASTERCARD">Mastercard</card> anymore so I would like to close it
+I'd like to report a lost Visa credit card
+    card:lost:I'd like to report a lost <card brand="VISA" type="CREDIT">Visa credit card</card>
+I'll prepay 500,000 won of my card balance
+    bill:prepay:I'll prepay 500,000 won of my card balance
+
+# Persona 18: man, 23, 부산 북구, 식품 영업원
+Please temporarily suspend my check card
+    card:freeze:Please temporarily suspend my <card type="DEBIT">check card</card>
+Please show me my payment history for last month
+    payment:history:Please show me my payment history for last month
+Please unblock my suspended card
+    card:unfreeze:Please unblock my suspended card
+
+# Persona 19: man, 31, 서울 송파구, 국가행정 사무원
+My payment date is before payday so I would like to change it to the 25th
+    bill:due_date:My payment date is before payday so I would like to change it to the 25th
+I tried to pay at a bakery and it says declined
+    payment:failed:I tried to pay at a bakery and it says declined
+I want to pay off everything I spent this month right away
+    bill:prepay:I want to pay off everything I spent this month right away
+
+# Persona 20: woman, 40, 서울 동작구, 무직
+I want to delete my Pay app account completely
+    account:withdraw:I want to delete my Pay app account completely
+Please change my card payment date to the 25th
+    bill:due_date:Please change my card payment date to the 25th
+Please lift the suspension on my card ending in 3821
+    card:unfreeze:Please lift the suspension on my card ending in <last4>3821</last4>
+
+# Persona 21: man, 53, 전북 전주시 덕진구, 병무행정 사무원
+I would appreciate it if you could unlock my suspended card
+    card:unfreeze:I would appreciate it if you could unlock my suspended card
+My payday changed so I'd like to move my payment date to the 10th
+    bill:due_date:My payday changed so I'd like to move my payment date to the 10th
+Do I get a discount when I buy gas with this card?
+    reward:benefits:Do I get a discount when I buy gas with this card?
+
+# Persona 22: man, 73, 부산 부산진구, 무직
+How do I add 50,000 won to my Pay Money?
+    wallet:charge:How do I add <amount><MONEY value="50000" currency="KRW">50,000 won</MONEY></amount> to my Pay Money?
+My grandson says the pocket money I sent him never came through
+    transfer:status:My grandson says the pocket money I sent him never came through
+Change the TV I bought to 10 month installments
+    bill:installment:Change the TV I bought to <months><EN_NUMBER value="10">10</EN_NUMBER></months> month installments
+
+# Persona 23: man, 55, 서울 동작구, 무직
+Please call me at 6 pm today so I can talk after work
+    agent:callback:Please call me at <DATETIME hour="18" part_of_day="PM" day_offset="0">6 pm today</DATETIME> so I can talk after work
+I'd like to delete my account on this app
+    account:withdraw:I'd like to delete my account on this app
+Please tell me what my current card limit is
+    card:limit:Please tell me what my current card limit is
+
+# Persona 24: man, 40, 서울 강서구, 디자인 관련 관리자
+Please add 30,000 won to my Pay balance
+    wallet:charge:Please add <amount><MONEY value="30000" currency="KRW">30,000 won</MONEY></amount> to my Pay balance
+I'd like to check the amount on this month's statement
+    bill:amount:I'd like to check the amount on this month's statement
+My card expires next month so I'd like to request a reissue
+    card:reissue:My card expires next month so I'd like to request a reissue
+
+# Persona 25: man, 64, 전북 남원시, 무직
+I returned clothes I bought in Jeju but the card cancellation has not come through
+    payment:refund:I returned clothes I bought in Jeju but the card cancellation has not come through
+I forgot my payment password so what do I do now?
+    account:password:reset:I forgot my payment password so what do I do now?
+I want to talk to a real person so put an agent on please
+    agent:connect:I want to talk to a real person so put an agent on please
+
+# Persona 26: woman, 55, 인천 서구, 전화 상담원
+Please change last month's hospital charge to 6 monthly installments
+    bill:installment:Please change last month's hospital charge to <months><EN_NUMBER value="6">6</EN_NUMBER></months> monthly installments
+I'd like to add 50,000 won to my Pay Money
+    wallet:charge:I'd like to add <amount><MONEY value="50000" currency="KRW">50,000 won</MONEY></amount> to my Pay Money
+Where can I change my payment date?
+    bill:due_date:Where can I change my payment date?
+
+# Persona 27: man, 81, 경기 평택시, 그 외 기계 조작원
+I lost my check card in Pyeongtaek how do I report it?
+    card:lost:I lost my <card type="DEBIT">check card</card> in Pyeongtaek how do I report it?
+My card split in half so make me a new one
+    card:reissue:My card split in half so make me a new one
+My card got blocked so let me use it again
+    card:unfreeze:My card got blocked so let me use it again
+
+# Persona 28: woman, 51, 광주 남구, 건물 청소원
+I would like to split the grocery purchase I made after cleaning the school into installments
+    bill:installment:I would like to split the grocery purchase I made after cleaning the school into installments
+I got charged 120,000 won that I never spent
+    payment:fraud:I got charged <amount><MONEY value="120000" currency="KRW">120,000 won</MONEY></amount> that I never spent
+My phone number is now 010-3348-7720
+    account:phone:My phone number is now <TELNUM>010-3348-7720</TELNUM>
+
+# Persona 29: woman, 50, 경기 군포시, 무직
+Send 50,000 won to my friend through Pay
+    transfer:send:Send <amount><MONEY value="50000" currency="KRW">50,000 won</MONEY></amount> to my <recipient>friend</recipient> through Pay
+I want to cancel a credit card I don't use
+    card:cancel:I want to cancel a <card type="CREDIT">credit card</card> I don't use
+How much do I owe on my card this month?
+    bill:amount:How much do I owe on my card this month?
+
+# Persona 30: woman, 57, 울산 남구, 노점 및 이동 판매원
+Could you call me tomorrow at 9 am before I prepare for business?
+    agent:callback:Could you call me <DATETIME day_offset="+1" hour="9" part_of_day="AM">tomorrow at 9 am</DATETIME> before I prepare for business?
+Please register my debit card in Pay so I can use it at my stall
+    wallet:link:Please register my <card type="DEBIT">debit card</card> in Pay so I can use it at my stall
+Are there discounts if I use it at a traditional market?
+    reward:benefits:Are there discounts if I use it at a traditional market?
+
+# Persona 31: woman, 47, 서울 금천구, 수동 포장원
+Please convert the appliance I bought on Coupang into 3 monthly installments
+    bill:installment:Please convert the appliance I bought on <merchant>Coupang</merchant> into <months><EN_NUMBER value="3">3</EN_NUMBER></months> monthly installments
+I left my card in my locker at work so please lock it for now
+    card:freeze:I left my card in my locker at work so please lock it for now
+My card's chip won't read so I need a reissue
+    card:reissue:My card's chip won't read so I need a reissue
+
+# Persona 32: man, 44, 전북 익산시, 건물 청소원
+Please tell me how many points I have accumulated
+    reward:points:Please tell me how many points I have accumulated
+I got a text saying my card was sent but it still hasn't come
+    card:delivery:I got a text saying my card was sent but it still hasn't come
+Please block overseas payments
+    card:overseas:Please block overseas payments
+
+# Persona 33: woman, 63, 경기 성남시 분당구, 일반 비서
+I will pay 150,000 won of this month's card bill early
+    bill:prepay:I will pay <amount><MONEY value="150000" currency="KRW">150,000 won</MONEY></amount> of this month's card bill early
+Could you tell me how to delete my account?
+    account:withdraw:Could you tell me how to delete my account?
+I lost my whole card wallet on my way to work
+    card:lost:I lost my whole card wallet on my way to work
+
+# Persona 34: man, 51, 경기 수원시 영통구, 하역 및 적재 관련 단순 종사원
+I would like to see last month's company card transactions
+    payment:history:I would like to see last month's company card transactions
+Can I pay my card bill with points?
+    reward:points:Can I pay my card bill with points?
+Connect me to an agent please
+    agent:connect:Connect me to an agent please
+
+# Persona 35: woman, 28, 부산 금정구, 무직
+I enter the verification code but still cannot log in to the app
+    account:login:I enter the verification code but still cannot log in to the app
+How do I cancel my debit card?
+    card:cancel:How do I cancel my <card type="DEBIT">debit card</card>?
+I want to delete my app account
+    account:withdraw:I want to delete my app account
+
+# Persona 36: woman, 83, 대구 동구, 무직
+I cannot remember my payment PIN can I set it again?
+    account:password:reset:I cannot remember my payment PIN can I set it again?
+Please cancel the charge I made by mistake at the pharmacy
+    payment:refund:Please cancel the charge I made by mistake at the pharmacy
+I'd like to know if the money I sent my daughter got there
+    transfer:status:I'd like to know if the money I sent my daughter got there
+
+# Persona 37: woman, 71, 서울 관악구, 무직
+A convenience store charge I did not make has appeared please check it
+    payment:fraud:A convenience store charge I did not make has appeared please check it
+My Pay balance is low so I want to add 30,000 won
+    wallet:charge:My Pay balance is low so I want to add <amount><MONEY value="30000" currency="KRW">30,000 won</MONEY></amount>
+Please cancel the family card under my husband's name
+    card:cancel:Please cancel the <card type="FAMILY">family card</card> under my husband's name
+
+# Persona 38: man, 58, 경기 고양시 일산서구, 건물 경비원
+The chip barely reads because I have used it for a long time please replace the card
+    card:reissue:The chip barely reads because I have used it for a long time please replace the card
+I won't use this app anymore so please delete my account
+    account:withdraw:I won't use this app anymore so please delete my account
+Please send 300,000 won to my son
+    transfer:send:Please send <amount><MONEY value="300000" currency="KRW">300,000 won</MONEY></amount> to my <recipient>son</recipient>
+
+# Persona 39: man, 31, 경기 광명시, 승용차 및 승합차 운전원
+I want to send my mom 200,000 won for living expenses
+    transfer:send:I want to send my <recipient>mom</recipient> <amount><MONEY value="200000" currency="KRW">200,000 won</MONEY></amount> for living expenses
+Raise my limit to 5 million won please
+    card:limit:Raise my limit to <amount><MONEY value="5000000" currency="KRW">5 million won</MONEY></amount> please
+Please track my card delivery
+    card:delivery:Please track my card delivery
+
+# Persona 40: man, 74, 경상남 진주시, 시설 경비원
+I paid once at the market but the same amount was taken twice
+    payment:duplicate:I paid once at the market but the same amount was taken twice
+I want to change my payment date to the day my pension comes in
+    bill:due_date:I want to change my payment date to the day my pension comes in
+How do I use the points that have piled up on my card?
+    reward:points:How do I use the points that have piled up on my card?
+
+# Persona 41: woman, 55, 경기 하남시, 무직
+How much more spending do I need this month to get the E-Mart discount?
+    reward:benefits:How much more spending do I need this month to get the E-Mart discount?
+Please tell me how much my card bill came to this month
+    bill:amount:Please tell me how much my card bill came to this month
+My payment didn't go through at E-Mart
+    payment:failed:My payment didn't go through at <merchant>E-Mart</merchant>
+
+# Persona 42: woman, 65, 전라남 순천시, 패스트푸드 준비원
+There is an 80,000 won online shopping charge I do not recognize
+    payment:fraud:There is an <amount><MONEY value="80000" currency="KRW">80,000 won</MONEY></amount> online shopping charge I do not recognize
+Could I see what I spent on my card this week?
+    payment:history:Could I see what I spent on my card <DATETIME week_offset="0">this week</DATETIME>?
+I'm going on a trip to Japan so please let my card work abroad
+    card:overseas:I'm going on a trip to <country code="JP">Japan</country> so please let my card work abroad
+
+# Persona 43: woman, 54, 서울 동대문구, 무직
+My card was declined at the gas station is there a problem with it?
+    payment:failed:My card was declined at the gas station is there a problem with it?
+They say the money I sent yesterday never reached their account
+    transfer:status:They say the money I sent yesterday never reached their account
+I can't log in to the app
+    account:login:I can't log in to the app
+
+# Persona 44: man, 79, 경상북 구미시, 무직
+The money I sent my son has not arrived yet please check
+    transfer:status:The money I sent my son has not arrived yet please check
+Please cancel the payment for my grandkid's toy
+    payment:refund:Please cancel the payment for my grandkid's toy
+Please give me a call tomorrow at 10am
+    agent:callback:Please give me a call <DATETIME day_offset="+1" hour="10" part_of_day="AM">tomorrow at 10am</DATETIME>
+
+# Persona 45: woman, 54, 서울 금천구, 소규모 상점 경영자
+I am wondering how much my card bill is this month
+    bill:amount:I am wondering how much my card bill is this month
+Please change the fridge I bought for my shop to 12 month installments
+    bill:installment:Please change the fridge I bought for my shop to <months><EN_NUMBER value="12">12</EN_NUMBER></months> month installments
+Please freeze my card
+    card:freeze:Please freeze my card
+
+# Persona 46: woman, 44, 대구 달서구, 밀링기 조작원
+I forgot my Pay password how do I reset it?
+    account:password:reset:I forgot my Pay password how do I reset it?
+What supermarket discounts does this card have?
+    reward:benefits:What supermarket discounts does this card have?
+Please unlock the card I locked
+    card:unfreeze:Please unlock the card I locked
+
+# Persona 47: woman, 46, 경기 의왕시, 승용차 및 승합차 운전원
+Please temporarily block the card ending in 2816
+    card:freeze:Please temporarily block the card ending in <last4>2816</last4>
+There's a charge on my card that I didn't make
+    payment:fraud:There's a charge on my card that I didn't make
+Please check my reward points
+    reward:points:Please check my reward points
+
+# Persona 48: woman, 28, 강원 동해시, 무직
+I would like to link my check card to the Pay app
+    wallet:link:I would like to link my <card type="DEBIT">check card</card> to the Pay app
+Can I check this month's payment amount?
+    bill:amount:Can I check this month's payment amount?
+I want to change my phone number
+    account:phone:I want to change my phone number
+
+# Persona 49: man, 62, 경상북 문경시, 건물 경비원
+I think I lost my credit card and would like to report it right away
+    card:lost:I think I lost my <card type="CREDIT">credit card</card> and would like to report it right away
+I got a payment alert from a store I've never been to
+    payment:fraud:I got a payment alert from a store I've never been to
+Please reset my password
+    account:password:reset:Please reset my password
+
+# Persona 50: man, 28, 경기 오산시, 시설 경비원
+Please add 100,000 won to my Pay Money
+    wallet:charge:Please add <amount><MONEY value="100000" currency="KRW">100,000 won</MONEY></amount> to my Pay Money
+Has the money I sent still not gone through?
+    transfer:status:Has the money I sent still not gone through?
+Please open up my card for overseas direct purchases
+    card:overseas:Please open up my card for overseas direct purchases
+
+# Persona 51: woman, 78, 전라남 여수시, 무직
+I would like to raise my limit to 5,000,000 won for business travel expenses
+    card:limit:I would like to raise my limit to <amount><MONEY value="5000000" currency="KRW">5,000,000 won</MONEY></amount> for business travel expenses
+How do I send 100,000 won to my daughter?
+    transfer:send:How do I send <amount><MONEY value="100000" currency="KRW">100,000 won</MONEY></amount> to my <recipient>daughter</recipient>?
+I'm trying to get into the app but it won't let me in
+    account:login:I'm trying to get into the app but it won't let me in
+
+# Persona 52: man, 61, 전라남 해남군, 상·하수 배관공
+I am going to Japan next month please enable overseas payments
+    card:overseas:I am going to <country code="JP">Japan</country> next month please enable overseas payments
+They say the money I sent didn't arrive so check it please
+    transfer:status:They say the money I sent didn't arrive so check it please
+Unblock my suspended card
+    card:unfreeze:Unblock my suspended card
+
+# Persona 53: woman, 33, 경기 남양주시, 부동산 중개사
+I would like to know if last month's spending qualifies me for a fuel discount
+    reward:benefits:I would like to know if last month's spending qualifies me for a fuel discount
+I want to check my payment history for the last 3 months
+    payment:history:I want to check my payment history for the last 3 months
+My cell number changed so I want to update it
+    account:phone:My cell number changed so I want to update it
+
+# Persona 54: woman, 42, 서울 동작구, 무직
+Where can I see whether the transfer to my friend went through?
+    transfer:status:Where can I see whether the transfer to my friend went through?
+Please connect me to an agent
+    agent:connect:Please connect me to an agent
+Can I find out where my reissued card is right now?
+    card:delivery:Can I find out where my reissued card is right now?
+
+# Persona 55: woman, 49, 경기 용인시 기흥구, 무직
+Please tell me how to register the new credit card I received in the Pay app
+    wallet:link:Please tell me how to register the new <card type="CREDIT">credit card</card> I received in the Pay app
+Fingerprint authentication keeps failing so I can't log in
+    account:login:Fingerprint authentication keeps failing so I can't log in
+Please check my remaining limit
+    card:limit:Please check my remaining limit
+
+# Persona 56: man, 47, 서울 관악구, 건물 경비원
+Please unlock the card ending in 9031
+    card:unfreeze:Please unlock the card ending in <last4>9031</last4>
+I forgot my password
+    account:password:reset:I forgot my password
+I want to talk to a human agent
+    agent:connect:I want to talk to a human agent
+
+# Persona 57: woman, 61, 대전 대덕구, 전직 한식 조리사, 현재 구직중
+When will the replacement card I requested arrive?
+    card:delivery:When will the replacement card I requested arrive?
+I want to see where and how much I spent last week
+    payment:history:I want to see where and how much I spent <DATETIME week_offset="-1">last week</DATETIME>
+I think someone is using my card without permission
+    payment:fraud:I think someone is using my card without permission
+
+# Persona 58: man, 56, 전북 전주시 완산구, 품질 관리 사무원
+Please connect me to a support agent the automated guide did not solve it
+    agent:connect:Please connect me to a support agent the automated guide did not solve it
+I lost my card after going to the ballpark
+    card:lost:I lost my card after going to the ballpark
+Please change it to my new number 010-5129-0846
+    account:phone:Please change it to my new number <TELNUM>010-5129-0846</TELNUM>
+
+# Persona 59: man, 58, 강원 춘천시, 그 외 건축 마감 관련 기능 종사원
+I would like to check the daily spending limit on my check card
+    card:limit:I would like to check the daily spending limit on my check card
+It's been over ten days since I applied for my card and it still hasn't arrived
+    card:delivery:It's been over ten days since I applied for my card and it still hasn't arrived
+Please top up my Pay
+    wallet:charge:Please top up my Pay
+
+# Persona 60: woman, 55, 경기 김포시, 승용차 및 승합차 운전원
+Why does payment keep failing in the delivery app?
+    payment:failed:Why does payment keep failing in the delivery app?
+I got my password wrong five times so I need to set it again
+    account:password:reset:I got my password wrong five times so I need to set it again
+Please issue me a new card because mine is bent
+    card:reissue:Please issue me a new card because mine is bent
+
+# Persona 61: man, 84, 강원 강릉시, 무직
+Do I still have a movie discount benefit this month?
+    reward:benefits:Do I still have a movie discount benefit this month?
+Can I pay for the hearing aid I bought in installments?
+    bill:installment:Can I pay for the hearing aid I bought in installments?
+Please stop my card from being used abroad
+    card:overseas:Please stop my card from being used abroad
+
+# Persona 62: man, 35, 서울 마포구, 그 외 일반 영업원
+Please tell me what phone bill benefits I can get from last month's spending
+    reward:benefits:Please tell me what phone bill benefits I can get from last month's spending
+I switched carriers so please update my phone number
+    account:phone:I switched carriers so please update my phone number
+I have a business trip to the US next week so please allow overseas payments
+    card:overseas:I have a business trip to <country code="US">the US</country> next week so please allow overseas payments
+
+# Persona 63: man, 48, 부산 해운대구, 조사 전문가
+My check card is bent and I would like a new one issued
+    card:reissue:My check card is bent and I would like a new one issued
+I'd like to adjust my payment date to the 14th of every month
+    bill:due_date:I'd like to adjust my payment date to the 14th of every month
+A payment I didn't make was approved overseas
+    payment:fraud:A payment I didn't make was approved overseas
+
+# Persona 64: woman, 44, 경상북 영주시, 사무 보조원
+Please connect me with a live support agent
+    agent:connect:Please connect me with a live support agent
+Please temporarily suspend my card
+    card:freeze:Please temporarily suspend my card
+I'd like to cancel my Mastercard
+    card:cancel:I'd like to cancel my <card brand="MASTERCARD">Mastercard</card>
+
+# Persona 65: woman, 57, 경기 하남시, 무직
+The online shopping charge was billed twice at 45,000 won each
+    payment:duplicate:The online shopping charge was billed twice at 45,000 won each
+What should I do if I lost my card?
+    card:lost:What should I do if I lost my card?
+I want to pay my card bill early before the due date
+    bill:prepay:I want to pay my card bill early before the due date
+
+# Persona 66: man, 62, 경상북 포항시 북구, 무직
+My card would not work at the neighborhood restaurant could it be the terminal?
+    payment:failed:My card would not work at the neighborhood restaurant could it be the terminal?
+Pull up my card history for this month please
+    payment:history:Pull up my card history for this month please
+Check whether the money I sent my brother yesterday got through
+    transfer:status:Check whether the money I sent my brother yesterday got through
+
+# Persona 67: woman, 64, 인천 미추홀구, 무직
+Phone verification keeps failing so I cannot get into the app
+    account:login:Phone verification keeps failing so I cannot get into the app
+I'm curious how many points I've built up on my card
+    reward:points:I'm curious how many points I've built up on my card
+I want to lock my card so my grandson can't use it behind my back
+    card:freeze:I want to lock my card so my grandson can't use it behind my back
+
+# Persona 68: woman, 40, 대전 동구, 일반 비서
+I would like to pay off the remaining card balance right now
+    bill:prepay:I would like to pay off the remaining card balance right now
+Coupang charged me the same amount twice
+    payment:duplicate:<merchant>Coupang</merchant> charged me the same amount twice
+Please tell me my bill for this month
+    bill:amount:Please tell me my bill for this month
+
+# Persona 69: man, 67, 대전 서구, 시설 경비원
+Please send 30,000 won to my coworker Minsu
+    transfer:send:Please send <amount><MONEY value="30000" currency="KRW">30,000 won</MONEY></amount> to my <recipient>coworker Minsu</recipient>
+I got charged for money I didn't spend
+    payment:fraud:I got charged for money I didn't spend
+Can I change my payment date?
+    bill:due_date:Can I change my payment date?
+
+# Persona 70: man, 59, 인천 연수구, 수동 포장원
+I cannot log in with simple authentication please help
+    account:login:I cannot log in with simple authentication please help
+Please change my phone number to 010-2271-9054
+    account:phone:Please change my phone number to <TELNUM>010-2271-9054</TELNUM>
+I want to link my new debit card to the app
+    wallet:link:I want to link my new <card type="DEBIT">debit card</card> to the app
+
+# Persona 71: woman, 24, 부산 금정구, 무직
+My credit card is expiring and I would like to request a new one
+    card:reissue:My credit card is expiring and I would like to request a new one
+Can I raise my limit since it's too low?
+    card:limit:Can I raise my limit since it's too low?
+I want to pay for this month's spending right now
+    bill:prepay:I want to pay for this month's spending right now
+
+# Persona 72: man, 56, 전라남 화순군, 건물 경비원
+Please tell me how to reset my app payment PIN
+    account:password:reset:Please tell me how to reset my app payment PIN
+Call me the day after tomorrow at 2pm
+    agent:callback:Call me <DATETIME day_offset="+2" hour="14" part_of_day="PM">the day after tomorrow at 2pm</DATETIME>
+There are two charges I didn't make
+    payment:fraud:There are two charges I didn't make
+
+# Persona 73: woman, 33, 경기 동두천시, 건물 청소원
+My check card has not arrived yet can you track the delivery?
+    card:delivery:My check card has not arrived yet can you track the delivery?
+Change my payment date to the 15th please
+    bill:due_date:Change my payment date to the 15th please
+Can you call me around 9pm after I put the baby to bed?
+    agent:callback:Can you call me around <DATETIME hour="21" part_of_day="PM">9pm</DATETIME> after I put the baby to bed?
+
+# Persona 74: woman, 28, 서울 영등포구, 마케팅 전문가
+Add 50,000 won to my Pay balance
+    wallet:charge:Add <amount><MONEY value="50000" currency="KRW">50,000 won</MONEY></amount> to my Pay balance
+I keep getting an authentication error when I log in
+    account:login:I keep getting an authentication error when I log in
+Please call me at 12:30 during my lunch break
+    agent:callback:Please call me at <DATETIME hour="12" minute="30">12:30</DATETIME> during my lunch break
+
+# Persona 75: woman, 63, 강원 춘천시, 무직
+Please allow overseas payments so I can pay on a Vietnamese shopping site
+    card:overseas:Please allow overseas payments so I can pay on a Vietnamese shopping site
+Does this card give a discount at the vet too?
+    reward:benefits:Does this card give a discount at the vet too?
+I sent money but the person still hasn't received it
+    transfer:status:I sent money but the person still hasn't received it
+
+# Persona 76: woman, 94, 제주 서귀포시, 무직
+The same coffee charge appeared twice on my card please cancel one
+    payment:duplicate:The same coffee charge appeared twice on my card please cancel one
+They say I have points left so how do I use them?
+    reward:points:They say I have points left so how do I use them?
+I never bought anything like that but money went out
+    payment:fraud:I never bought anything like that but money went out
+
+# Persona 77: man, 56, 충청북 청주시 흥덕구, 이삿짐 운반원
+Please reissue my check card because its magnetic strip is worn out
+    card:reissue:Please reissue my check card because its magnetic strip is worn out
+Get rid of one of my cards please
+    card:cancel:Get rid of one of my cards please
+Please block payments abroad
+    card:overseas:Please block payments abroad
+
+# Persona 78: woman, 50, 경상남 사천시, 그 외 상점 판매원
+I am trying to pay at an online bookstore but it keeps getting declined
+    payment:failed:I am trying to pay at an online bookstore but it keeps getting declined
+I entered my ID and password right but I can't log in
+    account:login:I entered my ID and password right but I can't log in
+I'd like to see the card history for my shop
+    payment:history:I'd like to see the card history for my shop
+
+# Persona 79: woman, 53, 경상남 김해시, 회계 사무원
+Can I use my points toward my card bill?
+    reward:points:Can I use my points toward my card bill?
+Can I see how much spending I have left to hit this month's requirement?
+    reward:benefits:Can I see how much spending I have left to hit this month's requirement?
+I'd like to speak with an agent
+    agent:connect:I'd like to speak with an agent
+
+# Persona 80: man, 49, 경기 남양주시, 경·소형 화물차 운전원
+Please check my current points balance
+    reward:points:Please check my current points balance
+Can I see only what I spent on gas?
+    payment:history:Can I see only what I spent on gas?
+Put an agent on please
+    agent:connect:Put an agent on please
+
+# Persona 81: man, 73, 서울 강서구, 무직
+The convenience store payment was recorded twice please cancel one
+    payment:duplicate:The convenience store payment was recorded twice please cancel one
+Send 50,000 won to my granddaughter
+    transfer:send:Send <amount><MONEY value="50000" currency="KRW">50,000 won</MONEY></amount> to my <recipient>granddaughter</recipient>
+Refund the shoes I bought yesterday
+    payment:refund:Refund the shoes I bought yesterday
+
+# Persona 82: man, 63, 서울 관악구, 무직
+I would like to withdraw my membership from this Pay app
+    account:withdraw:I would like to withdraw my membership from this Pay app
+I want to cancel what I paid for and get my money back
+    payment:refund:I want to cancel what I paid for and get my money back
+How do I change my password to a new one?
+    account:password:reset:How do I change my password to a new one?
+
+# Persona 83: man, 34, 부산 사상구, 사무 보조원
+How much is the expected card bill for next month?
+    bill:amount:How much is the expected card bill for next month?
+I can't log in
+    account:login:I can't log in
+Please call me at 6pm today
+    agent:callback:Please call me at <DATETIME hour="18" part_of_day="PM" day_offset="0">6pm today</DATETIME>
+
+# Persona 84: man, 56, 울산 동구, 가스 생산기 조작원
+Please allow overseas payments because my payment at a US online store is blocked
+    card:overseas:Please allow overseas payments because my payment at a US online store is blocked
+Lift the suspension on my card
+    card:unfreeze:Lift the suspension on my card
+I lost my card while working at the factory
+    card:lost:I lost my card while working at the factory
+
+# Persona 85: woman, 38, 서울 노원구, 육군 부사관
+I would like to change the phone number on my account to 010-4821-7365
+    account:phone:I would like to change the phone number on my account to <TELNUM>010-4821-7365</TELNUM>
+I'm requesting a refund for an online shopping mall payment
+    payment:refund:I'm requesting a refund for an online shopping mall payment
+The same payment was approved twice
+    payment:duplicate:The same payment was approved twice
+
+# Persona 86: woman, 80, 서울 강서구, 무직
+I returned a bag at the department store please check the card cancellation
+    payment:refund:I returned a bag at the department store please check the card cancellation
+I left my card at home so just in case please suspend it
+    card:freeze:I left my card at home so just in case please suspend it
+Put my card in my phone so I can pay with it
+    wallet:link:Put my card in my phone so I can pay with it
+
+# Persona 87: woman, 55, 경기 파주시, 무직
+I forgot my password how do I create a new one?
+    account:password:reset:I forgot my password how do I create a new one?
+Could you unblock payments on overseas websites?
+    card:overseas:Could you unblock payments on overseas websites?
+Can I prepay next month's bill now?
+    bill:prepay:Can I prepay next month's bill now?
+
+# Persona 88: woman, 49, 경기 용인시 수지구, 그 외 상점 판매원
+There is a 27,000 won delivery charge for an order I did not place
+    payment:fraud:There is a <amount><MONEY value="27000" currency="KRW">27,000 won</MONEY></amount> delivery charge for an order I did not place
+Please send 250,000 won to my daughter for her academy fees
+    transfer:send:Please send <amount><MONEY value="250000" currency="KRW">250,000 won</MONEY></amount> to my <recipient>daughter</recipient> for her academy fees
+Can I convert last month's payment to installments?
+    bill:installment:Can I convert last month's payment to installments?
+
+# Persona 89: woman, 33, 서울 서대문구, 전문 간호사
+Please show me where I used my card this month
+    payment:history:Please show me where I used my card this month
+Please temporarily suspend my card since I won't use it for a while
+    card:freeze:Please temporarily suspend my card since I won't use it for a while
+I got a payment error at GS25
+    payment:failed:I got a payment error at <merchant>GS25</merchant>
+
+# Persona 90: man, 23, 대구 동구, 무직
+I want to change the bank account linked to my Pay app to another bank
+    wallet:link:I want to change the bank account linked to my Pay app to another bank
+I want to delete my account
+    account:withdraw:I want to delete my account
+Can I get my card reissued with a different design?
+    card:reissue:Can I get my card reissued with a different design?
+
+# Persona 91: woman, 80, 서울 서대문구, 그 외 자동차 운전원
+My phone number changed please update the number on my account to 010-6274-1903
+    account:phone:My phone number changed please update the number on my account to <TELNUM>010-6274-1903</TELNUM>
+I want to register my new credit card in the app
+    wallet:link:I want to register my new <card type="CREDIT">credit card</card> in the app
+My card didn't go through in the taxi
+    payment:failed:My card didn't go through in the taxi
+
+# Persona 92: man, 24, 전북 김제시, 자재 관리 사무원
+Please change the contact number on my account to 010-9351-2840
+    account:phone:Please change the contact number on my account to <TELNUM>010-9351-2840</TELNUM>
+I got double charged at Hanaro Mart
+    payment:duplicate:I got double charged at Hanaro Mart
+Connect me to a staff member please
+    agent:connect:Connect me to a staff member please
+
+# Persona 93: man, 71, 충청남 당진시, 용융 도금기 조작원
+Please tell me where my new card is in the delivery process
+    card:delivery:Please tell me where my new card is in the delivery process
+I dropped my debit card somewhere and now it's gone
+    card:lost:I dropped my <card type="DEBIT">debit card</card> somewhere and now it's gone
+Please call me tomorrow morning
+    agent:callback:Please call me <DATETIME day_offset="+1" part_of_day="MORNING">tomorrow morning</DATETIME>
+
+# Persona 94: man, 64, 울산 울주군, 생산관리 사무원
+I lost my wallet and my credit card is missing too please report it
+    card:lost:I lost my wallet and my <card type="CREDIT">credit card</card> is missing too please report it
+Is a temporary limit increase possible?
+    card:limit:Is a temporary limit increase possible?
+I'd like to know the shipping status of my card
+    card:delivery:I'd like to know the shipping status of my card
+
+# Persona 95: man, 30, 부산 수영구, 범용 소프트웨어 프로그래머
+This is complicated so I would like to speak directly with a support representative
+    agent:connect:This is complicated so I would like to speak directly with a support representative
+When is my card getting delivered?
+    card:delivery:When is my card getting delivered?
+Why does my app card payment keep failing?
+    payment:failed:Why does my app card payment keep failing?
+
+# Persona 96: man, 52, 서울 강북구, 매장 계산원
+Please check what my current card limit is
+    card:limit:Please check what my current card limit is
+Please add 20,000 won to my Pay Money
+    wallet:charge:Please add <amount><MONEY value="20000" currency="KRW">20,000 won</MONEY></amount> to my Pay Money
+I lost my credit card
+    card:lost:I lost my <card type="CREDIT">credit card</card>
+
+# Persona 97: woman, 76, 부산 동구, 무직
+Can I use my accumulated points for this payment?
+    reward:points:Can I use my accumulated points for this payment?
+I'm not going to use my card anymore so cancel it
+    card:cancel:I'm not going to use my card anymore so cancel it
+I sent the home shopping item back so when do I get my money back?
+    payment:refund:I sent the home shopping item back so when do I get my money back?
+
+# Persona 98: woman, 57, 서울 마포구, 그 외 피부 및 체형 관리 종사원
+Please tell me the total for this month's card bill
+    bill:amount:Please tell me the total for this month's card bill
+Please delete my membership
+    account:withdraw:Please delete my membership
+Send 40,000 won to my friend Minjeong
+    transfer:send:Send <amount><MONEY value="40000" currency="KRW">40,000 won</MONEY></amount> to my <recipient>friend Minjeong</recipient>
+
+# Persona 99: man, 46, 충청남 천안시 서북구, 그 외 건설·전기 및 생산 관련 관리자
+I would appreciate it if you changed my payment date to the 18th every month
+    bill:due_date:I would appreciate it if you changed my payment date to the 18th every month
+I'd like to send 500,000 won of pocket money to my mother
+    transfer:send:I'd like to send <amount><MONEY value="500000" currency="KRW">500,000 won</MONEY></amount> of pocket money to my <recipient>mother</recipient>
+I need to raise my card limit to 10 million won for business trip expenses
+    card:limit:I need to raise my card limit to <amount><MONEY value="10000000" currency="KRW">10 million won</MONEY></amount> for business trip expenses
+
+# Persona 100: man, 76, 경기 안산시 상록구, 건물 청소원
+I would like to pay 300,000 won of this month's card bill early
+    bill:prepay:I would like to pay <amount><MONEY value="300000" currency="KRW">300,000 won</MONEY></amount> of this month's card bill early
+How do I put money into Pay?
+    wallet:charge:How do I put money into Pay?
+Cancel the card I don't even use since I keep paying the annual fee for it
+    card:cancel:Cancel the card I don't even use since I keep paying the annual fee for it

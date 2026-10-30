@@ -78,37 +78,37 @@ TEST(lint_ignores_disjoint_labels_and_rules_of_one_label) {
 
 TEST(lint_respects_exclusions) {
   nlu::Script s = nlu::Script::compile(
-      "@product: 적금, 예금\n"
-      "account:close:product\n"
-      "    @{product} 해지\n"
-      "account:close\n"
-      "    \\[<?>*? 적금 <?>*?|<?>*? 예금 <?>*?] <?>+? 해지\n"
-      "account:close:any\n"
+      "@card: 신용카드, 체크카드\n"
+      "card:cancel:type\n"
+      "    @{card} 해지\n"
+      "card:cancel\n"
+      "    \\[<?>*? 신용카드 <?>*?|<?>*? 체크카드 <?>*?] <?>+? 해지\n"
+      "card:cancel:any\n"
       "    <?>+? 해지\n");
   nlu::LintReport report = s.lint();
   std::vector<std::string> pairs;
   for (const nlu::Overlap& o : report.overlaps) pairs.push_back(o.label + " & " + o.other_label);
-  CHECK_EQ(pairs, (std::vector<std::string>{"account:close:product & account:close:any",
-                                            "account:close & account:close:any"}));
+  CHECK_EQ(pairs, (std::vector<std::string>{"card:cancel:type & card:cancel:any",
+                                            "card:cancel & card:cancel:any"}));
 }
 
 TEST(lint_reports_definitions_no_rule_uses) {
   nlu::Script s = nlu::Script::compile(
-      "@currency: 달러, 엔화\n"
+      "@reward: 포인트, 마일리지\n"
       "@var.digit: [0|1|2]\n"
       "@var.code: @var.{digit}@var.{digit}\n"
       "@var.unused_digit: [7|8]\n"
-      "@bank: [국민|신한] @var.{unused_digit}\n"
-      "exchange:rate\n"
-      "    @{currency} 환율\n"
+      "@issuer: [국민|신한] @var.{unused_digit}\n"
+      "reward:points\n"
+      "    @{reward} 잔액\n"
       "card:freeze\n"
       "    끝자리 @var.{code} 카드 정지\n");
   nlu::LintReport report = s.lint();
   std::vector<std::string> unused;
   for (const nlu::UnusedDefinition& d : report.unused)
     unused.push_back(d.name + "@" + std::to_string(d.line));
-  // @var.unused_digit is only used by @bank, which no rule uses.
-  CHECK_EQ(unused, (std::vector<std::string>{"@var.unused_digit@4", "@bank@5"}));
+  // @var.unused_digit is only used by @issuer, which no rule uses.
+  CHECK_EQ(unused, (std::vector<std::string>{"@var.unused_digit@4", "@issuer@5"}));
 }
 
 TEST(lint_reports_an_incomplete_search) {
@@ -120,9 +120,9 @@ TEST(lint_reports_an_incomplete_search) {
 TEST(lint_follows_particle_pairs) {
   nlu::Script s = nlu::Script::compile(
       "close:proper\n"
-      "    적금을/를 해지\n"
+      "    구독을/를 해지\n"
       "close:typo\n"
-      "    적금를 해지\n");
+      "    구독를 해지\n");
   CHECK(s.lint().overlaps.empty());
 
   s = nlu::Script::compile(
@@ -213,16 +213,16 @@ TEST(lint_finds_rules_that_earlier_rules_of_their_label_hide) {
 
 TEST(lint_tells_which_overlaps_match_best_resolves) {
   nlu::Script s = nlu::Script::compile(
-      "@product: 적금, 예금\n"
-      "account:close:product\n"
-      "    @{product}(을/를) 해지\n"
-      "account:close\n"
+      "@card: 신용카드, 체크카드\n"
+      "card:cancel:type\n"
+      "    @{card}(을/를) 해지\n"
+      "card:cancel\n"
       "    <?>+?(을/를) 해지\n");
   nlu::LintReport report = s.lint();
   CHECK_EQ(report.overlaps.size(), 1u);
   // An entity beats a wildcard on every sentence both match.
   if (report.overlaps.size() == 1)
-    CHECK_EQ(report.overlaps[0].best_label, std::string("account:close:product"));
+    CHECK_EQ(report.overlaps[0].best_label, std::string("card:cancel:type"));
   CHECK_EQ(report.findings().size(), 1u);
   CHECK(report.findings(true).empty());
 

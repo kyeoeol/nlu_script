@@ -7,11 +7,11 @@ import unittest
 import nlu_script
 
 SCRIPT = """
-@통화: [달러|dollar]{code=USD}, [엔화|yen]{code=JPY}
+@리워드: [포인트|points]{type=POINTS}, [마일리지|miles]{type=MILES}
 
-exchange:rate
-    @{통화} 환율 (알려줘)
-    @{통화} exchange rate
+reward:points
+    @{리워드} 잔액 (알려줘)
+    @{리워드} balance
 
 card:lost
     report a lost <card>[credit{type=CREDIT}|debit{type=DEBIT}] card</card>
@@ -38,7 +38,7 @@ class ScriptTest(unittest.TestCase):
         self.assertEqual(matches[0].tagged, "<card type=\"DEBIT\">체크카드</card> 분실 신고")
 
     def test_match_reports_the_line_of_the_rule_that_matched(self):
-        self.assertEqual(self.script.match("yen exchange rate")[0].line, 6)
+        self.assertEqual(self.script.match("miles balance")[0].line, 6)
         self.assertEqual(self.script.match("신용카드 분실 신고")[0].line, 10)
 
     def test_match_best_keeps_the_most_specific_labels(self):
@@ -64,16 +64,16 @@ class ScriptTest(unittest.TestCase):
                 f.write("# cases\n"
                         "Report a lost debit card\n"
                         "    card:lost:Report a lost <card type=\"DEBIT\">debit card</card>\n"
-                        "엔화 환율\n"
-                        "    card:lost:엔화 환율\n"
+                        "마일리지 잔액\n"
+                        "    card:lost:마일리지 잔액\n"
                         "thank you\n"
                         "    -\n")
             report = self.script.run_tests(path)
             self.assertEqual((report.passed, report.failed), (2, 1))
             failure = report.failures[0]
-            self.assertEqual((failure.line, failure.input), (4, "엔화 환율"))
-            self.assertEqual(failure.expected, ["card:lost:엔화 환율"])
-            self.assertEqual(failure.actual, ["exchange:rate:<통화 code=\"JPY\">엔화</통화> 환율"])
+            self.assertEqual((failure.line, failure.input), (4, "마일리지 잔액"))
+            self.assertEqual(failure.expected, ["card:lost:마일리지 잔액"])
+            self.assertEqual(failure.actual, ["reward:points:<리워드 type=\"MILES\">마일리지</리워드> 잔액"])
             # The rule behind each actual line, as `nlu_script_cli --test` shows it.
             self.assertEqual(failure.rules, [("", 5)])
         finally:
@@ -113,10 +113,10 @@ class ScriptTest(unittest.TestCase):
                          (datetime.date(2026, 10, 22), datetime.date(2026, 10, 23)))
 
     def test_search_finds_rules_in_free_text(self):
-        text = "그럼 엔화 환율 알려주시고 신용카드 분실 신고도 할게요"
+        text = "그럼 마일리지 잔액 알려주시고 신용카드 분실 신고도 할게요"
         found = self.script.search(text)
         self.assertEqual([(m.label, text[m.begin:m.end]) for m in found],
-                         [("exchange:rate", "엔화 환율"), ("card:lost", "신용카드 분실 신고")])
+                         [("reward:points", "마일리지 잔액"), ("card:lost", "신용카드 분실 신고")])
 
     def test_save_and_load(self):
         data = self.script.save()
@@ -131,12 +131,12 @@ class ScriptTest(unittest.TestCase):
         self.assertEqual(self.script.match("thank you"), [])
 
     def test_slot_offsets_are_character_offsets(self):
-        for text, currency in [("엔화 환율 알려줘", "엔화"), ("yen exchange rate", "yen")]:
+        for text, reward in [("마일리지 잔액 알려줘", "마일리지"), ("miles balance", "miles")]:
             slot = self.script.match(text)[0].slots[0]
-            self.assertEqual(slot.name, "통화")
-            self.assertEqual(slot.text, currency)
-            self.assertEqual(text[slot.begin:slot.end], currency)
-            self.assertEqual(slot.attributes, {"code": "JPY"})
+            self.assertEqual(slot.name, "리워드")
+            self.assertEqual(slot.text, reward)
+            self.assertEqual(text[slot.begin:slot.end], reward)
+            self.assertEqual(slot.attributes, {"type": "MILES"})
 
     def test_decomposed_hangul_input_matches(self):
         text = unicodedata.normalize("NFD", "체크카드 분실 신고")
@@ -190,8 +190,8 @@ class CompileTest(unittest.TestCase):
             with os.fdopen(handle, "wb") as f:
                 f.write(SCRIPT.encode("utf-8"))
             with nlu_script.Script.from_file(path) as script:
-                matches = script.match("달러 환율")
-                self.assertEqual([m.label for m in matches], ["exchange:rate"])
+                matches = script.match("포인트 잔액")
+                self.assertEqual([m.label for m in matches], ["reward:points"])
                 self.assertEqual(matches[0].file, path)
         finally:
             os.remove(path)

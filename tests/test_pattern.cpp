@@ -34,8 +34,8 @@ TEST(no_space_in_pattern_forbids_space_in_input) {
 }
 
 TEST(required_group_matches_every_combination) {
-  nlu::Script ko = rule("[송금|이체|결제] [취소해줘|취소해주세요|취소하고 싶어요]");
-  for (const char* verb : {"송금", "이체", "결제"})
+  nlu::Script ko = rule("[송금|충전|결제] [취소해줘|취소해주세요|취소하고 싶어요]");
+  for (const char* verb : {"송금", "충전", "결제"})
     for (const char* ending : {"취소해줘", "취소해주세요", "취소하고 싶어요"})
       CHECK(matches(ko, std::string(verb) + ending));
   CHECK(!matches(ko, "송금"));
@@ -61,11 +61,11 @@ TEST(optional_group_may_be_omitted) {
 }
 
 TEST(groups_nest) {
-  nlu::Script ko = rule("[카드 (좀)|계좌] [정지(해줘)|해지(해줘)]");
+  nlu::Script ko = rule("[카드 (좀)|계정] [정지(해줘)|해지(해줘)]");
   CHECK(matches(ko, "카드 좀 정지해줘"));
   CHECK(matches(ko, "카드 해지"));
-  CHECK(matches(ko, "계좌 정지해줘"));
-  CHECK(!matches(ko, "계좌 좀 정지해줘"));
+  CHECK(matches(ko, "계정 정지해줘"));
+  CHECK(!matches(ko, "계정 좀 정지해줘"));
 
   nlu::Script en = rule("[freeze|unfreeze] [(my) card|my account]");
   CHECK(matches(en, "freeze my card"));
@@ -92,20 +92,20 @@ TEST(double_colon_joins_tokens_without_space) {
   CHECK(!matches(ko, "환불 해줘"));
   CHECK(!matches(ko, "환불 해주세요"));
 
-  nlu::Script en = rule("[account|card]::(s)");
-  CHECK(matches(en, "account"));
+  nlu::Script en = rule("[payment|card]::(s)");
+  CHECK(matches(en, "payment"));
   CHECK(matches(en, "cards"));
   CHECK(!matches(en, "card s"));
 }
 
 TEST(double_colon_keeps_particle_attached) {
-  // 계좌가 압류됐어요 (account seized) vs. 계좌 가압류됐어요 (account provisionally seized).
-  nlu::Script loose = rule("[계좌|카드]가 압류됐어요");
-  CHECK(matches(loose, "계좌가 압류됐어요"));
-  CHECK(matches(loose, "계좌 가압류됐어요"));
-  nlu::Script strict = rule("[계좌|카드]::가 압류됐어요");
-  CHECK(matches(strict, "계좌가 압류됐어요"));
-  CHECK(!matches(strict, "계좌 가압류됐어요"));
+  // 결제가 승인됐어요 (payment approved) vs. 결제 가승인됐어요 (payment pre-authorized).
+  nlu::Script loose = rule("[결제|카드]가 승인됐어요");
+  CHECK(matches(loose, "결제가 승인됐어요"));
+  CHECK(matches(loose, "결제 가승인됐어요"));
+  nlu::Script strict = rule("[결제|카드]::가 승인됐어요");
+  CHECK(matches(strict, "결제가 승인됐어요"));
+  CHECK(!matches(strict, "결제 가승인됐어요"));
 
   // The noun "login" vs. the verb phrase "log in".
   nlu::Script loose_en = rule("[log|sign]in page is down");
@@ -249,54 +249,54 @@ TEST(plus_wildcard_needs_at_least_one_character) {
 }
 
 TEST(exclusion_rejects_wildcard_text_equal_to_excluded_tokens) {
-  nlu::Script ko = rule("\\[적금|예금] <?>+? 해지");
-  CHECK(matches(ko, "청약통장 해지"));
-  CHECK(matches(ko, "청약통장이랑 적금 해지"));
-  CHECK(matches(ko, "적금이랑 청약통장 해지"));
-  CHECK(!matches(ko, "적금 해지"));
-  CHECK(!matches(ko, "예금 해지"));
+  nlu::Script ko = rule("\\[멤버십|구독] <?>+? 해지");
+  CHECK(matches(ko, "가족카드 해지"));
+  CHECK(matches(ko, "가족카드랑 멤버십 해지"));
+  CHECK(matches(ko, "멤버십이랑 가족카드 해지"));
+  CHECK(!matches(ko, "멤버십 해지"));
+  CHECK(!matches(ko, "구독 해지"));
 
-  nlu::Script en = rule("close my \\[savings|checking] <?>+? account");
-  CHECK(matches(en, "close my brokerage account"));
-  CHECK(matches(en, "close my joint savings account"));
-  CHECK(matches(en, "close my savings and brokerage account"));
-  CHECK(!matches(en, "close my savings account"));
-  CHECK(!matches(en, "close my Checking account"));
+  nlu::Script en = rule("cancel my \\[membership|gift] <?>+? card");
+  CHECK(matches(en, "cancel my credit card"));
+  CHECK(matches(en, "cancel my gold membership card"));
+  CHECK(matches(en, "cancel my membership and credit card"));
+  CHECK(!matches(en, "cancel my membership card"));
+  CHECK(!matches(en, "cancel my Gift card"));
 }
 
 TEST(exclusion_with_wildcards_inside) {
-  nlu::Script ko = rule("\\[<?>*? 적금|<?>*? 예금] <?>+? 해지");
-  CHECK(matches(ko, "청약통장 해지"));
-  CHECK(!matches(ko, "적금 해지"));
-  CHECK(!matches(ko, "청약통장이랑 적금 해지"));
-  // The exclusion must match the whole wildcard text, which here does not end with 적금.
-  CHECK(matches(ko, "적금이랑 청약통장 해지"));
+  nlu::Script ko = rule("\\[<?>*? 멤버십|<?>*? 구독] <?>+? 해지");
+  CHECK(matches(ko, "가족카드 해지"));
+  CHECK(!matches(ko, "멤버십 해지"));
+  CHECK(!matches(ko, "가족카드랑 멤버십 해지"));
+  // The exclusion must match the whole wildcard text, which here does not end with 멤버십.
+  CHECK(matches(ko, "멤버십이랑 가족카드 해지"));
 
-  nlu::Script en = rule("close my \\[<?>*? savings|<?>*? checking] <?>+? account");
-  CHECK(matches(en, "close my brokerage account"));
-  CHECK(!matches(en, "close my savings account"));
-  CHECK(!matches(en, "close my joint savings account"));
-  CHECK(matches(en, "close my savings and brokerage account"));
+  nlu::Script en = rule("cancel my \\[<?>*? membership|<?>*? gift] <?>+? card");
+  CHECK(matches(en, "cancel my credit card"));
+  CHECK(!matches(en, "cancel my membership card"));
+  CHECK(!matches(en, "cancel my gold membership card"));
+  CHECK(matches(en, "cancel my membership and credit card"));
 }
 
 TEST(exclusion_surrounded_by_wildcards_rejects_text_containing_it) {
-  nlu::Script ko = rule("\\[<?>*? 적금 <?>*?|<?>*? 예금 <?>*?] <?>+? 해지");
-  CHECK(matches(ko, "청약통장 해지"));
-  CHECK(!matches(ko, "청약통장이랑 적금 해지"));
-  CHECK(!matches(ko, "적금이랑 청약통장 해지"));
-  CHECK(!matches(ko, "정기예금 상품 해지"));
+  nlu::Script ko = rule("\\[<?>*? 멤버십 <?>*?|<?>*? 구독 <?>*?] <?>+? 해지");
+  CHECK(matches(ko, "가족카드 해지"));
+  CHECK(!matches(ko, "가족카드랑 멤버십 해지"));
+  CHECK(!matches(ko, "멤버십이랑 가족카드 해지"));
+  CHECK(!matches(ko, "정기구독 서비스 해지"));
 
-  nlu::Script en = rule("close my \\[<?>*? savings <?>*?|<?>*? checking <?>*?] <?>+? account");
-  CHECK(matches(en, "close my brokerage account"));
-  CHECK(!matches(en, "close my joint savings account"));
-  CHECK(!matches(en, "close my savings and brokerage account"));
-  CHECK(!matches(en, "close my high yield checking account"));
+  nlu::Script en = rule("cancel my \\[<?>*? membership <?>*?|<?>*? gift <?>*?] <?>+? card");
+  CHECK(matches(en, "cancel my credit card"));
+  CHECK(!matches(en, "cancel my gold membership card"));
+  CHECK(!matches(en, "cancel my membership and credit card"));
+  CHECK(!matches(en, "cancel my digital gift card"));
 }
 
 TEST(exclusion_must_precede_a_wildcard) {
-  CHECK_THROWS(nlu::CompileError, rule("[\\적금|\\예금] <?>+? 해지"));
-  CHECK_THROWS(nlu::CompileError, rule("<?>+? [\\적금|\\예금] 해지"));
-  CHECK_THROWS(nlu::CompileError, rule("close my [\\savings|\\checking] <?>+? account"));
+  CHECK_THROWS(nlu::CompileError, rule("[\\멤버십|\\구독] <?>+? 해지"));
+  CHECK_THROWS(nlu::CompileError, rule("<?>+? [\\멤버십|\\구독] 해지"));
+  CHECK_THROWS(nlu::CompileError, rule("cancel my [\\membership|\\gift] <?>+? card"));
 }
 
 TEST(domain_entity_expands_to_its_values) {
@@ -406,19 +406,19 @@ TEST(decomposed_hangul_matches_composed_hangul) {
 }
 
 TEST(particle_pair_follows_the_final_consonant) {
-  nlu::Script s = rule("[적금|예금|카드|계좌]을/를 해지");
-  CHECK(matches(s, "적금을 해지"));
+  nlu::Script s = rule("[구독|멤버십|카드|자동결제]을/를 해지");
+  CHECK(matches(s, "구독을 해지"));
   CHECK(matches(s, "카드를 해지"));
-  CHECK(matches(s, "계좌를해지"));
-  CHECK(!matches(s, "적금를 해지"));
+  CHECK(matches(s, "자동결제를해지"));
+  CHECK(!matches(s, "구독를 해지"));
   CHECK(!matches(s, "카드을 해지"));
-  CHECK(!matches(s, "적금 을 해지"));  // a particle stays on its word
-  CHECK(!matches(s, "적금 해지"));
+  CHECK(!matches(s, "구독 을 해지"));  // a particle stays on its word
+  CHECK(!matches(s, "구독 해지"));
 }
 
 TEST(particle_pair_may_be_written_in_either_order) {
-  nlu::Script s = rule("[적금|카드]는/은 어떻게 해지해요");
-  CHECK(matches(s, "적금은 어떻게 해지해요"));
+  nlu::Script s = rule("[구독|카드]는/은 어떻게 해지해요");
+  CHECK(matches(s, "구독은 어떻게 해지해요"));
   CHECK(matches(s, "카드는 어떻게 해지해요"));
   CHECK(!matches(s, "카드은 어떻게 해지해요"));
 }
@@ -437,13 +437,13 @@ TEST(particle_pairs_with_ro_treat_final_rieul_like_a_vowel) {
 
 TEST(particle_pair_follows_wildcards_and_entities) {
   nlu::Script s = rule("<?>+?을/를 해지해주세요");
-  CHECK(matches(s, "청약통장을 해지해주세요"));
-  CHECK(matches(s, "정기예금 상품을 해지해주세요"));
-  CHECK(!matches(s, "청약통장를 해지해주세요"));
-  s = rule("@{product}이/가 만기됐어요", "@product: [적금|정기예금|청약]\n");
-  CHECK(matches(s, "적금이 만기됐어요"));
-  CHECK(matches(s, "청약이 만기됐어요"));
-  CHECK(!matches(s, "정기예금가 만기됐어요"));
+  CHECK(matches(s, "멤버십을 해지해주세요"));
+  CHECK(matches(s, "후불교통 기능을 해지해주세요"));
+  CHECK(!matches(s, "멤버십를 해지해주세요"));
+  s = rule("@{bill}이/가 연체됐어요", "@bill: [카드값|이용대금|할부금]\n");
+  CHECK(matches(s, "카드값이 연체됐어요"));
+  CHECK(matches(s, "할부금이 연체됐어요"));
+  CHECK(!matches(s, "이용대금가 연체됐어요"));
 }
 
 TEST(particle_pair_after_other_characters_accepts_either_form) {
@@ -455,11 +455,11 @@ TEST(particle_pair_after_other_characters_accepts_either_form) {
 }
 
 TEST(optional_particle_pair) {
-  nlu::Script s = rule("[적금|카드](을/를) 해지");
-  CHECK(matches(s, "적금 해지"));
-  CHECK(matches(s, "적금을 해지"));
+  nlu::Script s = rule("[구독|카드](을/를) 해지");
+  CHECK(matches(s, "구독 해지"));
+  CHECK(matches(s, "구독을 해지"));
   CHECK(matches(s, "카드를 해지"));
-  CHECK(!matches(s, "적금를 해지"));
+  CHECK(!matches(s, "구독를 해지"));
 }
 
 TEST(unknown_or_misplaced_particle_pairs_are_errors) {
@@ -472,9 +472,9 @@ TEST(particle_pairs_work_inside_exclusions) {
   // The wildcard text may be anything but a word with its right particle.
   nlu::Script s = rule("\\[<?>+?을/를] <?>+? 해지");
   CHECK(!matches(s, "카드를 해지"));
-  CHECK(!matches(s, "적금을 해지"));
+  CHECK(!matches(s, "구독을 해지"));
   CHECK(matches(s, "카드을 해지"));
-  CHECK(matches(s, "적금를 해지"));
+  CHECK(matches(s, "구독를 해지"));
   CHECK(matches(s, "OTP 해지"));
   CHECK(!matches(s, "OTP를 해지"));  // either form follows a non-Hangul character
 }
