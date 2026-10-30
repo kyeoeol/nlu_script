@@ -212,15 +212,17 @@ NodePtr ordinal() {
 }
 
 // An amount with its currency: 3만 원, 50달러, $12.50, €10, fifty dollars,
-// 20 bucks, USD 50, 50 GBP.
+// 20 bucks, USD 50, 50 GBP. Amounts in digits may take a scale: 30k won,
+// $2.8 million.
 NodePtr money() {
   NodePtr decimal =
       glued({arabic_number(), optional(glued({literal(U"."), digits(1, 2)}))});
+  NodePtr amount = choice({spaced({decimal, literals(kAmountScales)}), decimal});
   NodePtr codes = literals(kCurrencyCodes);
   return choice({spaced({choice({korean_number(), decimal}), literals(kCurrencyWordsKo)}),
-                 spaced({literals(kCurrencySymbols), decimal}),
-                 spaced({choice({decimal, english_number()}), literals(kCurrencyWordsEn)}),
-                 spaced({codes, decimal}), spaced({decimal, codes})});
+                 spaced({literals(kCurrencySymbols), amount}),
+                 spaced({choice({amount, english_number()}), literals(kCurrencyWordsEn)}),
+                 spaced({codes, amount}), spaced({amount, codes})});
 }
 
 // Phone numbers: Korean (010-9876-5432, 031-765-4321, 01098765432),

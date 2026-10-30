@@ -271,11 +271,12 @@
       month alone, `the 25th` (`day`, like `25일`). The demo's English
       `bill:due_date` rules now capture the date as the Korean one does, so
       ten English persona inquiries tag a `DATETIME` they didn't before
+- [x] `MONEY` reads amounts in digits with a scale (`30k won`,
+      `2.8 million won`, `$1.5k`, `USD 30k`: `k`, `thousand`, `million`,
+      `billion`), with the whole value (`30000`, `2800000`)
 
 ## Next
 
-- [ ] `MONEY` doesn't read `30k won` or `2.8 million won` (`2,800,000 won`
-      and `5 million won` work)
 - [ ] A system entity followed by a wildcard takes its shortest form:
       `` `@{MONEY} <?>*? `` tags `50 dollar` in `50 dollars` and leaves the `s`
       to the wildcard, and `` `@{DATETIME} <?>*? `` tags `in 2 hour`.

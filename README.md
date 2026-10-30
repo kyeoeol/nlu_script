@@ -448,7 +448,7 @@ System entities:
 | `KO_NUMBER` | numbers in digits and Korean numerals (`3만 5천`, `삼만오천`), native ones (`스물셋`) | `value` |
 | `EN_NUMBER` | numbers in English words or digits (`twenty-one`, `two hundred and five`, `3 million`) | `value` |
 | `ORDINAL` | `첫 번째`, `두번째`, `3번째`, `셋째`, `first`, `twelfth`, `twenty-first`, `21st` | `value` |
-| `MONEY` | `3만 원`, `5,000원`, `50달러`, `$12.50`, `€10`, `fifty dollars`, `20 bucks`, `USD 50` | `value`, `currency` (`KRW`, `USD`, `EUR`, `JPY`, `GBP`, `CNY`) |
+| `MONEY` | `3만 원`, `5,000원`, `50달러`, `$12.50`, `€10`, `fifty dollars`, `20 bucks`, `USD 50`, `30k won`, `$2.8 million` | `value`, `currency` (`KRW`, `USD`, `EUR`, `JPY`, `GBP`, `CNY`) |
 | `DATETIME` | dates, times, ranges and durations | described below |
 
 They work the same in Korean and English sentences (``change my phone
