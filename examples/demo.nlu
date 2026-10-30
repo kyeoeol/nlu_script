@@ -1,88 +1,204 @@
-# nlu_script demo: customer-support inquiries for a banking or payment app.
+# nlu_script demo: customer-support inquiries for credit card, debit card and
+# payment apps, in Korean and English.
 # Try it with:
 #   ./build/nlu_script_cli examples/demo.nlu
-# and type sentences in Korean or English, one per line. Its test cases are in
-# demo.test:
+# and type sentences, one per line. Its test cases are in demo.test, and the
+# inquiries of 100 personas are in personas/ko.test and personas/en.test:
 #   ./build/nlu_script_cli --test examples/demo.nlu examples/demo.test
+#
+# People phrase the same request in many ways, so most rules look for the
+# words that decide a label anywhere in the sentence (<?>*? around them)
+# rather than spelling out whole sentences. Where two labels share words, an
+# exclusion keeps one of them out: card:freeze skips sentences that unfreeze
+# a card, payment:failed skips refunds, and so on. Every test sentence
+# matches exactly one label.
+option ignore-trailing-punctuation
 
-# Domain entities: each value may carry attributes for the auto-created slot.
-# One entity can list the Korean and English words for the same value.
-@currency:
-    [달러|dollar|USD]{code=USD}
-    [엔화|yen|JPY]{code=JPY}
-    [유로|euro|EUR]{code=EUR}
+# A card, with its brand and type when the sentence names them. Attributes go
+# to the <card> slot around them.
+@var.brand_ko: [비자{brand=VISA}|마스터{brand=MASTERCARD}]
+@var.type_ko: [신용{type=CREDIT}|체크{type=DEBIT}|가족{type=FAMILY}|앱{type=APP}]
+@var.brand_en: [visa{brand=VISA}|mastercard{brand=MASTERCARD}]
+@var.type_en: [credit{type=CREDIT}|debit{type=DEBIT}|check{type=DEBIT}|family{type=FAMILY}|app{type=APP}]
+@var.card: <card>[(@var.{brand_ko}) @var.{type_ko} 카드|@var.{brand_ko} 카드|(@var.{brand_en}) @var.{type_en} card|@var.{brand_en} card|@var.{brand_en}]</card>
+# Any mention of a card; only a named one becomes a slot.
+@var.anycard: [@var.{card}|카드|card]
 
-@product:
-    [적금|정기적금|자유적금|savings]{value=savings}
-    [예금|정기예금|deposit|fixed deposit|term deposit]{value=deposit}
-
-# Regex variable: inlined where referenced, no slot.
 @var.digit: [0|1|2|3|4|5|6|7|8|9]
+@var.last4: <last4>@var.{digit}@var.{digit}@var.{digit}@var.{digit}</last4>
+
+# Domain entities: each value is captured as a slot named after the entity,
+# and one value can list its Korean and English names.
+@merchant:
+    [스타벅스|starbucks]
+    [쿠팡|coupang]
+    [이마트|e"-"mart|emart]
+    [배달의민족|배민|baemin]
+    [올리브영|olive young]
+    [무신사|musinsa]
+    [GS25]
+    [하나로마트|hanaro mart]
+
+@country:
+    [일본|japan]{code=JP}
+    [미국|the us|the states|america]{code=US}
+    [베트남|vietnam]{code=VN}
+
+# Cards
 
 card:lost
-    report a lost <card>([visa{brand=VISA}|mastercard{brand=MASTERCARD}]) [credit{type=CREDIT}|debit{type=DEBIT}] card</card>
-    I lost my <card>[credit{type=CREDIT}|debit{type=DEBIT}] card</card>
-    <card>([비자{brand=VISA}|마스터{brand=MASTERCARD}]) [신용{type=CREDIT}|체크{type=DEBIT}]카드</card>(을/를) [분실했어요|잃어버렸어요]
+    (<?>*? @var.{anycard}) <?>*? [분실|잃어버|흘렸|잃었] \[<?>*? [아닌|아니] <?>*?] <?>*?
+    <?>*? [lost|dropped|missing|stolen] (<?>*? @var.{anycard}) <?>*?
 
+# A request to lift a freeze names the freeze too (정지 해제, unlock), so
+# card:freeze excludes the words that lift one.
 card:freeze
-    [freeze|lock] my card (ending in <last4>@var.{digit}@var.{digit}@var.{digit}@var.{digit}</last4>)
-    (끝자리 <last4>@var.{digit}@var.{digit}@var.{digit}@var.{digit}</last4>) 카드 [정지|잠금] (해주세요|해줘)
+    <?>*? 카드 <?>*? [끝자리|4자리] @var.{last4} <?>*? [정지|잠가|잠그|잠금|잠궈|막아] \[<?>*? [해제|풀] <?>*?] <?>*?
+    (<?>*? 끝자리 @var.{last4}) \[<?>*? [해외|외국] <?>*?] <?>*? @var.{anycard} <?>*? [정지|잠가|잠그|잠금|잠궈|막아] \[<?>*? [해제|풀] <?>*?] <?>*?
+    (<?>*? [please|to|you|temporarily|so|and]) [freeze|lock|suspend|block|put a hold on] <?>*? @var.{anycard} (<?>*? ending in @var.{last4}) <?>*?
+    <?>*? @var.{anycard} <?>*? [freeze|lock|suspend|block] [it|them] <?>*?
 
-# These labels capture free text (a recipient, a merchant, an account name),
-# so each also matches some sentence written for another of them, such as
-# "send 5 won to 결제 환불해줘". That is accepted here; use match_best() to
-# prefer the rule that matched more of the sentence literally.
-# lint: allow-overlap transfer:send payment:refund account:close
+card:unfreeze
+    (<?>*? 끝자리 @var.{last4}) <?>*? [정지|잠가|잠근|잠금|막혔|막힌] <?>*? [해제|풀|다시] <?>*?
+    <?>*? [unfreeze|unlock|unblock|lift the suspension on|lift the block on|reactivate] <?>*? @var.{anycard} (<?>*? ending in @var.{last4}) <?>*?
+    <?>*? @var.{anycard} <?>*? [blocked|locked|suspended|frozen] <?>*? [again|unblock|unlock] <?>*?
 
-transfer:send
-    send <amount><?>+?</amount> [dollars{amount.currency=USD}|won{amount.currency=KRW}] to <recipient><?>+?</recipient>
-    <recipient><?>+?</recipient>::[한테|에게] <amount>`@{KO_NUMBER}</amount> [달러{amount.currency=USD}|원{amount.currency=KRW}] [보내줘|송금해줘]
+# Asking where a reissued card is belongs to card:delivery.
+card:reissue
+    (<?>*? @var.{anycard}) <?>*? 재발급 \[<?>*? [배송|발송|도착|어디|언제|왔] <?>*?] <?>*?
+    <?>*? 카드 <?>*? 새로 <?>*? [발급|만들|신청] <?>*?
+    <?>*? 새 카드 <?>*? [발급|만들|바꿔|신청] <?>*?
+    \[<?>*? [where|when] <?>*?] <?>*? [reissue|replacement card|replace the card|replace my card|make me a new one|issue me a new card|new one issued|request a new one] \[<?>*? [arrive|deliver|shipping] <?>*?] <?>*?
 
-transfer:status
-    [송금|이체](이/가) [안 들어갔어요|됐나요]
-    [did my transfer go|has my transfer gone] through
+card:delivery
+    <?>*? 카드 <?>*? [배송|발송|도착|안 왔|어디쯤|언제 와|언제 오] <?>*?
+    <?>*? card \[<?>*? [refund|cancel] <?>*?] <?>*? [arrive|arrived|delivery|delivered|shipping|hasn't come|is right now] <?>*?
+    <?>*? [shipping|delivery] <?>*? card <?>*?
+
+card:limit
+    <?>*? 한도 (<?>*? <amount>`@{MONEY}</amount>) <?>*?
+    <?>*? limit (<?>*? <amount>`@{MONEY}</amount>) <?>*?
+
+card:overseas
+    (<?>*? @{country}) <?>*? [해외|외국] <?>*? [막아|차단|허용|열어|풀어|쓸 수 있|써지|되게|막혀] <?>*?
+    (<?>*? @{country}) <?>*? [block|allow|open|unblock|stop|let|enable] <?>*? [overseas|abroad] <?>*?
+
+card:cancel
+    <?>*? @var.{anycard} <?>*? [해지|없애|없앨] <?>*?
+    <?>*? [cancel|get rid of|close] [my|the|a|one|one of my] <?>*? @var.{anycard} <?>*?
+    <?>*? @var.{anycard} <?>*? [cancel|close] it <?>*?
+
+# Bills
+
+bill:amount
+    (<?>*? `@{DATETIME}) <?>*? [카드값|카드 값|청구|명세서|금액|대금] <?>*? [얼마|알려|확인|조회|보여] <?>*?
+    <?>*? [how much|check|tell me|show me] <?>*? [bill|due|owe|statement|payment amount] \[<?>*? [benefit|benefits|discount|discounts|perks|points] <?>*?] <?>*?
+
+bill:due_date
+    <?>*? 결제일 (<?>*? `@{DATETIME}) <?>*? [변경|바꾸|바꿀|바꿔|옮기|옮길|조정] <?>*?
+    <?>*? [change|move|adjust] <?>*? payment date <?>*?
+    <?>*? payment date <?>*? [change|move] <?>*?
+
+bill:installment
+    (<?>*? @{merchant}) (<?>*? <amount>`@{MONEY}</amount>) (<?>*? <months>`@{KO_NUMBER}</months> 개월) <?>*? 할부 <?>*?
+    (<?>*? <amount>`@{MONEY}</amount>) (<?>*? @{merchant}) (<?>*? <months>`@{EN_NUMBER}</months> month) <?>*? installments <?>*?
+
+bill:prepay
+    (<?>*? <amount>`@{MONEY}</amount>) <?>*? [선결제|즉시결제|즉시 결제|미리 내|미리 결제|미리 갚|바로 결제|먼저 갚|먼저 결제] <?>*?
+    (<?>*? <amount>`@{MONEY}</amount>) <?>*? [prepay|pay off|early] <?>*?
+    <?>*? pay for <?>*? [right now|now] <?>*?
+
+# Rewards
+
+reward:points
+    <?>*? [포인트|적립금|마일리지] <?>*?
+    <?>*? points <?>*?
+
+reward:benefits
+    <?>*? [실적|할인|혜택|캐시백] <?>*?
+    <?>*? [discount|discounts|benefit|benefits|perks|spending requirement|requirement] <?>*?
+
+# Payments. A charge made twice is payment:duplicate even when the sentence
+# asks to cancel one, and a refund that hasn't come through is not a failed
+# payment.
 
 payment:refund
-    환불::[해줘|해주세요|받고 싶어요]
-    <merchant><?>+?</merchant> 결제 환불::[해줘|해주세요]
-    I want a refund
-    refund my payment (at <merchant><?>+?</merchant>)
+    (<?>*? @{merchant}) \[<?>*? [두 번|두번|2번|이중|중복] <?>*?] <?>*? [환불|취소|돌려받|돌려주|돌려 주|반품] <?>*?
+    <?>*? [refund|returned|cancellation|cancel the charge|cancel the payment|cancel what|money back] <?>*?
 
-payment:installment
-    `@{NUMBER} 개월 할부로 [바꿔주세요|변경해주세요]
-    split (it) into `@{NUMBER} (monthly) payments
+payment:failed
+    (<?>*? @{merchant}) \[<?>*? [환불|취소|반품] <?>*?] <?>*? [결제|카드|승인] \[<?>*? [환불|취소] <?>*?] <?>*? [거절|안 된|안 됐|안 돼|안 되|오류|실패|안 긁|에러] \[<?>*? 발급 <?>*?] <?>*?
+    <?>*? [pay|card] <?>*? [declined|go through|error|failing|would not work|wouldn't work|didn't work] (<?>*? @{merchant}) <?>*?
 
-exchange:rate
-    (오늘) @{currency} 환율 (알려줘|얼마예요)
-    (what is the|today's) @{currency} exchange rate
+payment:duplicate
+    (<?>*? @{merchant}) <?>*? [두 번|두번|2번|이중|중복] <?>*?
+    (<?>*? @{merchant}) <?>*? [twice|double charged|charged double] <?>*?
 
-# Savings and deposits have their own label; the general rule skips any
-# account name that mentions them.
-account:close:product
-    @{product}(을/를) 해지 (하고 싶어요|해주세요)
-    close my @{product} account
+payment:fraud
+    <?>*? [쓰지도 않은|안 쓴|안 한|하지 않은|쓴 적이 없|산 적이 없|한 적이 없|도용|부정 사용|부정사용|모르는 데서] (<?>*? <amount>`@{MONEY}</amount>) <?>*?
+    <?>*? 모르는 <?>*? [결제|돈|금액] (<?>*? <amount>`@{MONEY}</amount>) <?>*?
+    (<?>*? <amount>`@{MONEY}</amount>) <?>*? [never spent|didn't make|did not make|didn't spend|never been to|without permission|never bought|do not recognize|don't recognize|did not place|didn't place] <?>*?
 
-account:close
-    <account>\[<?>*? @{product} <?>*?] <?>+?</account>(을/를) 해지 (하고 싶어요|해주세요)
-    close my <account>\[<?>*? @{product} <?>*?] <?>+?</account> account
+payment:history
+    (<?>*? `@{DATETIME}) <?>*? [내역|어디서 얼마|이용 내역] <?>*?
+    <?>*? [history|transactions|what i spent|how much i spent|where i used] (<?>*? `@{DATETIME}) <?>*?
 
-account:phone
-    휴대폰 번호 `@{TELNUM}(으로/로) [변경해주세요|바꿔주세요]
-    change my phone number to `@{TELNUM}
+# The payment app's balance and transfers
+
+wallet:charge
+    (<?>*? <amount>`@{MONEY}</amount>) <?>*? [충전|돈 넣] <?>*?
+    <?>*? [페이|잔액] <?>*? <amount>`@{MONEY}</amount> <?>*? [넣|채워] <?>*?
+    <?>*? [add|put] (<?>*? <amount>`@{MONEY}</amount>) <?>*? [pay money|into pay|my pay] <?>*?
+    <?>*? pay balance <?>*? [add|top up] (<?>*? <amount>`@{MONEY}</amount>) <?>*?
+    <?>*? top up <?>*?
+
+wallet:link
+    <?>*? @var.{anycard} <?>*? [등록|추가|연결|넣어] <?>*?
+    <?>*? 계좌 <?>*? [등록|추가|연결|변경|바꾸|바꿔] <?>*?
+    <?>*? [add|register|link|put] <?>*? @var.{anycard} <?>*? [app|pay|phone] <?>*?
+    <?>*? bank account <?>*?
+
+# The Korean verb forms tell a request (보내 주세요, 송금해 주세요) from a
+# report about money already sent (보낸 돈이, 송금했는데).
+transfer:send
+    (`@{DATETIME}) (우리) <recipient><?>+?</recipient>::[한테|에게|께] (<?>*? <amount>`@{MONEY}</amount>) <?>*? [보내 주|보내줘|보내 줘|보내드리|보내 드리|보내줄|보내고|보내려|송금해|송금하|송금할|부쳐|이체해] <?>*?
+    <?>*? send <amount>`@{MONEY}</amount> <?>*? to (my) <recipient><?>+?</recipient> ([for|through|via] <?>+?)
+    <?>*? send (my) <recipient><?>+?</recipient> <amount>`@{MONEY}</amount> ([for|through|via] <?>+?)
+
+transfer:status
+    (`@{DATETIME}) (<recipient><?>+?</recipient>::[한테|에게|께]) <?>*? [보낸|보냈|송금한|송금했|송금이|이체한] <?>*? [안 들어|안 갔|잘 갔|들어갔|입금|못 받|안 받|받았|도착|완료] <?>*?
+    <?>*? [money i sent|i sent money] <?>*? [never|didn't|not|got there|got through|go through|hasn't] <?>*?
+    <?>*? transfer <?>*? [went through|gone through|arrived] <?>*?
+
+# The app account
 
 account:login
-    [로그인|접속](이/가) 안 [돼요|됩니다]
-    I can't [log in|sign in]
+    <?>*? [로그인|접속|들어가|인증] <?>*? [안 |못 |실패|오류|에러] <?>*?
+    <?>*? [log in|get into the app|authentication] <?>*?
 
 account:password:reset
-    ~[비밀번호, 재설정]~ (하고 싶어요|해주세요)
-    ~[reset, password]~
-    (I) forgot my [password|PIN]
+    <?>*? [비밀번호|비번|패스워드|핀번호] <?>*? [잊|까먹|재설정|초기화|새로|다시 설정|바꾸|바꿀|변경|틀려|틀렸|기억이 안|생각 안] <?>*?
+    <?>*? [forgot|reset|change|cannot remember|can't remember] <?>*? [password|payment pin|my pin] <?>*?
+    <?>*? [password|payment pin|my pin] <?>*? [wrong|set it again|reset] <?>*?
+
+account:phone
+    <?>*? 번호 <?>*? `@{TELNUM} <?>*?
+    <?>*? [휴대폰|핸드폰|폰|전화|연락처] 번호 <?>*? [변경|바꿔|바꾸|바뀌|바꼈|수정|이동] <?>*?
+    <?>*? [number|update it to] <?>*? `@{TELNUM} <?>*?
+    <?>*? [phone|cell] number <?>*?
+
+account:withdraw
+    <?>*? [탈퇴|계정 삭제|계정을 삭제|계정 지우] <?>*?
+    <?>*? 계정 <?>*? [삭제|없애|지우] <?>*?
+    <?>*? [delete|withdraw] my <?>*? [account|membership] <?>*?
+
+# Agents
 
 agent:connect
-    [상담원|상담사] 연결 (해주세요|해줘)
-    [talk|speak] to [an agent|a human|a person]
+    <?>*? [상담원|상담사|사람|직원] <?>*? [연결|통화|바꿔|얘기|이야기|대화] <?>*?
+    <?>*? [talk|speak|connect me|put] <?>*? [agent|person|human|staff member|representative] <?>*?
 
 agent:callback
-    `@{DATETIME}::(에) [전화|연락] (해)주세요
-    call me back (at) `@{DATETIME}
+    <?>*? `@{DATETIME}::[쯤|에|쯤에] <?>*? [전화|연락] <?>*?
+    <?>*? `@{DATETIME} [전화|연락] <?>*?
+    <?>*? [call me|give me a call] <?>*? `@{DATETIME} <?>*?

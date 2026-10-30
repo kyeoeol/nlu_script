@@ -15,8 +15,8 @@ Regex script for Natural Language Understanding.
 ```
 agent:connect:talk to an agent
 agent:connect:상담원 연결해주세요
-transfer:send:Send <amount currency="USD">50</amount> dollars to <recipient>Alex</recipient>
-transfer:send:<recipient>엄마</recipient>한테 <amount currency="KRW">3만</amount> 원 보내줘
+transfer:send:Send <amount><MONEY value="50000" currency="KRW">50,000 won</MONEY></amount> to <recipient>Alex</recipient>
+transfer:send:<recipient>엄마</recipient>한테 <amount><MONEY value="30000" currency="KRW">3만 원</MONEY></amount> 보내줘
 ```
 
 ## Build
@@ -49,8 +49,8 @@ cmake --build build-fuzz --target fuzz_script fuzz_match
 Apple clang has no libFuzzer; `fuzz/standalone.cpp` is a small mutation
 driver to link with a fuzz target instead (see its header comment).
 
-Try the demo script, which handles customer-support inquiries for a banking
-or payment app:
+Try the demo script, which handles customer-support inquiries for credit
+card, debit card and payment apps:
 
 ```sh
 printf '%s\n' "I lost my debit card" "마스터 체크카드를 분실했어요" \
@@ -62,6 +62,18 @@ printf '%s\n' "I lost my debit card" "마스터 체크카드를 분실했어요"
 Input with no matching label prints `-`. With `--best`, only the most
 specific labels are printed (see [Matching](#matching)); `--test --best` runs
 test files the same way.
+
+Besides its own test cases (`examples/demo.test`), the demo is tested on 600
+inquiries from 100 personas in `examples/personas/`: synthetic Korean people
+sampled from NVIDIA's
+[Nemotron-Personas-Korea](https://huggingface.co/datasets/nvidia/Nemotron-Personas-Korea)
+by `tools/fetch_personas.py`, each with three inquiries written in their
+voice, in Korean (`ko.test`) and then in English (`en.test`). People word the
+same request in many ways, so most demo rules look for the words that decide
+a label anywhere in the sentence (`<?>*? 분실 <?>*?`), with exclusions where
+two labels share words; each test sentence matches exactly one label. Rules
+like these suit `match()`. `--search` and `--explain` (below) are more useful
+with rules that don't start and end with a wildcard.
 
 ## Testing scripts
 
@@ -79,7 +91,7 @@ thank you
 
 ```sh
 ./build/nlu_script_cli --test examples/demo.nlu examples/demo.test
-# 32 passed, 0 failed
+# 52 passed, 0 failed
 ```
 
 When an input matches several labels, list one line per label in script
@@ -108,11 +120,19 @@ rules)` with the `(file, line)` of the rule behind each actual line.
 `--search` (and `Script::search`, `nlu_script_search`, Python
 `Script.search`) finds rules inside longer text, without `<?>*?` around
 them. It scans left to right, takes the longest text any rule matches at
-each position, reports it, and goes on after it:
+each position, reports it, and goes on after it. With these rules in
+`rules.nlu`:
+
+```
+agent:callback
+    `@{DATETIME}::(에) 전화 주세요
+agent:connect
+    상담원 연결 (해주세요)
+```
 
 ```sh
 echo "고객님 내일 오후 3시에 전화주세요 그리고 상담원 연결해주세요" \
-  | ./build/nlu_script_cli --search examples/demo.nlu
+  | ./build/nlu_script_cli --search rules.nlu
 # agent:callback:<DATETIME day_offset="+1" part_of_day="PM" hour="15">내일 오후 3시</DATETIME>에 전화주세요
 # agent:connect:상담원 연결해주세요
 ```
@@ -129,13 +149,18 @@ building any automaton states.
 ## Explaining a miss
 
 When a sentence should match but doesn't, `--explain` shows the rules that
-got furthest into it, what they matched, and what they could have taken next:
+got furthest into it, what they matched, and what they could have taken next.
+With this rule in `rules.nlu`:
+
+```
+card:lost
+    <card>[신용{type=CREDIT}|체크{type=DEBIT}]카드</card>(을/를) [분실했어요|잃어버렸어요]
+```
 
 ```sh
-echo "체크카드를 잃어버렸어" | ./build/nlu_script_cli --explain examples/demo.nlu
+echo "체크카드를 잃어버렸어" | ./build/nlu_script_cli --explain rules.nlu
 # -
-#   card:lost (examples/demo.nlu:25) matched "체크카드를 잃어버렸어", then expected 요
-#   ...
+#   card:lost (rules.nlu:2) matched "체크카드를 잃어버렸어", then expected 요
 ```
 
 In code, `Script::explain(text, limit)` returns `nlu::Explanation`s (label,
@@ -161,13 +186,15 @@ shortest input that both match (normalized, so in lowercase), with `x`
 standing in for any text a wildcard accepts. Read each one and decide whether
 a label needs an exclusion, or whether `match_best()` should pick between
 them. The search explores the automaton of all rules, up to 100,000 states.
-If it stops there, the output says that more overlaps may exist.
+If it stops there, the output says that more overlaps may exist. It slows
+down on many rules that are mostly wildcards, more so with system entities:
+on the demo, each state takes tens of milliseconds.
 
 Some overlaps are intended, and wildcards produce many. Mark them with a
 comment anywhere in the script:
 
 ```
-# lint: allow-overlap transfer:send payment:refund account:close
+# lint: allow-overlap transfer:send payment:refund card:cancel
 # lint: allow-overlap report:any *
 ```
 
@@ -182,11 +209,11 @@ other always needs one (an entity rule against a catch-all, say). The
 overlap's `best_label` names the winner. `--verbose` also lists allowed and
 resolved overlaps.
 
-The exit status is 1 when there are findings, so `--lint` can run in CI; the
-demo script is linted that way in `ctest`. In code, `Script::lint()` returns
-an `nlu::LintReport`, and `LintReport::findings(best)` the lines `--lint`
-prints. The C API has `nlu_script_lint` and Python `Script.lint(best=False)`,
-both returning those findings.
+The exit status is 1 when there are findings, so `--lint` can run in CI.
+In code, `Script::lint()` returns an `nlu::LintReport`, and
+`LintReport::findings(best)` the lines `--lint` prints. The C API has
+`nlu_script_lint` and Python `Script.lint(best=False)`, both returning those
+findings.
 
 ## Script files
 
@@ -196,7 +223,7 @@ entity and variable definitions. Lines starting with `#` are comments.
 ```
 # Domain entity: auto-captured as a slot named after the entity.
 # One value can list its Korean and English words.
-@currency: [달러|dollar]{code=USD}, [엔화|yen]{code=JPY}
+@reward: [포인트|points]{type=POINTS}, [마일리지|miles]{type=MILES}
 
 # Values may also go on indented lines.
 @card:
@@ -206,9 +233,9 @@ entity and variable definitions. Lines starting with `#` are comments.
 # Regex variable: inlined where referenced; no slot.
 @var.digit: [0|1|2|3|4|5|6|7|8|9]
 
-exchange:rate
-    (오늘) @{currency} 환율 (알려줘|얼마예요)
-    (what is the) @{currency} exchange rate
+reward:points
+    (내) @{reward} 잔액 (알려줘|얼마예요)
+    (what is my) @{reward} balance
 
 card:reissue
     끝자리 @var.{digit}@var.{digit}@var.{digit}@var.{digit} @{card} 재발급 (해주세요)
@@ -283,9 +310,9 @@ report:any     I <?>+?                          -> specificity 1
 input "I lost my debit card": match() -> card:lost, report:any; match_best() -> card:lost
 ```
 
-This often replaces an exclusion. `@{product}(을/를) 해지` beats
-`<?>+?(을/를) 해지` for `적금을 해지` without the general rule having to
-exclude product names.
+This often replaces an exclusion. `@{card}(을/를) 해지` beats
+`<?>+?(을/를) 해지` for `체크카드를 해지` without the general rule having to
+exclude card names.
 
 ## Pattern language
 
@@ -310,13 +337,13 @@ login                -> login (not log in)
 환불[해줘|해주세요]   -> 환불해줘, 환불 해줘, 환불해주세요, 환불 해주세요
 환불::[해줘|해주세요] -> 환불해줘, 환불해주세요
 sign[in|up]          -> signin, sign in, signup, sign up
-[account|card]::(s)  -> account, accounts, card, cards (not card s)
+[payment|card]::(s)  -> payment, payments, card, cards (not card s)
 ```
 
-`::` keeps a particle on its word: `[계좌|카드]::가 압류됐어요` matches
-`계좌가 압류됐어요` (seized) but not `계좌 가압류됐어요` (provisionally
-seized), and `[log|sign]::in page is down` matches `login page is down` but
-not `log in page is down`.
+`::` keeps a particle on its word: `[결제|카드]::가 승인됐어요` matches
+`결제가 승인됐어요` (approved) but not `결제 가승인됐어요` (pre-authorized),
+and `[log|sign]::in page is down` matches `login page is down` but not
+`log in page is down`.
 
 `::` must touch both tokens: `환불 ::[해줘]` is an error.
 
@@ -329,9 +356,9 @@ always stays on its word, with no space before it, and can be optional:
 `(을/를)`.
 
 ```
-[적금|카드]을/를 해지     -> 적금을 해지, 카드를 해지 (not 적금를, 카드을, 적금 을)
-<?>+?이/가 만기됐어요     -> 청약이 만기됐어요, 정기예금이 만기됐어요
-@{product}(을/를) 해지    -> 적금 해지, 적금을 해지 (not 적금를 해지)
+[구독|카드]을/를 해지     -> 구독을 해지, 카드를 해지 (not 구독를, 카드을, 구독 을)
+<?>+?이/가 연체됐어요     -> 카드값이 연체됐어요, 할부금이 연체됐어요
+@{card}(을/를) 해지       -> 체크카드 해지, 체크카드를 해지 (not 체크카드을 해지)
 [서울|부산]으로/로 송금    -> 서울로 송금, 부산으로 송금 (a final ㄹ takes 로)
 ```
 
@@ -342,7 +369,7 @@ because the right one depends on how it is read. Particle pairs also work
 inside exclusions (`\[<?>+?을/를] <?>+?` rejects `카드를` but not `카드을`).
 
 A wildcard before an optional particle may take a wrong particle as part of
-its text: `<?>+?(을/를) 해지` matches `청약통장를 해지` with `청약통장를` as the
+its text: `<?>+?(을/를) 해지` matches `멤버십를 해지` with `멤버십를` as the
 wildcard. That is deliberate. Keeping particle-like syllables out of a
 wildcard's end would also reject words that end in them, such as `마을` or
 `가을`; write the particle as required (`<?>+?을/를`) where a wrong one should
@@ -379,20 +406,20 @@ instead of exhausting memory.
 | `\X <?>*?` | the wildcard, unless its text is exactly matched by `X` |
 
 ```
-\[적금|예금] <?>+? 해지
-  -> 청약통장 해지, 청약통장이랑 적금 해지, 적금이랑 청약통장 해지 (match)
-  -> 적금 해지 (no match)
-\[<?>*? 적금|<?>*? 예금] <?>+? 해지
-  -> 청약통장이랑 적금 해지 (no match)
-  -> 적금이랑 청약통장 해지 (match: the text does not end with 적금)
-\[<?>*? 적금 <?>*?|<?>*? 예금 <?>*?] <?>+? 해지
-  -> 청약통장이랑 적금 해지, 적금이랑 청약통장 해지, 정기예금 상품 해지 (no match)
+\[멤버십|구독] <?>+? 해지
+  -> 가족카드 해지, 가족카드랑 멤버십 해지, 멤버십이랑 가족카드 해지 (match)
+  -> 멤버십 해지 (no match)
+\[<?>*? 멤버십|<?>*? 구독] <?>+? 해지
+  -> 가족카드랑 멤버십 해지 (no match)
+  -> 멤버십이랑 가족카드 해지 (match: the text does not end with 멤버십)
+\[<?>*? 멤버십 <?>*?|<?>*? 구독 <?>*?] <?>+? 해지
+  -> 가족카드랑 멤버십 해지, 멤버십이랑 가족카드 해지, 정기구독 서비스 해지 (no match)
 
-close my \[savings|checking] <?>+? account
-  -> close my brokerage account, close my joint savings account (match)
-  -> close my savings account (no match)
-close my \[<?>*? savings <?>*?|<?>*? checking <?>*?] <?>+? account
-  -> close my joint savings account, close my savings and brokerage account (no match)
+cancel my \[membership|gift] <?>+? card
+  -> cancel my credit card, cancel my gold membership card (match)
+  -> cancel my membership card (no match)
+cancel my \[<?>*? membership <?>*?|<?>*? gift <?>*?] <?>+? card
+  -> cancel my gold membership card, cancel my membership and credit card (no match)
 ```
 
 The exclusion is tested against the wildcard's **whole** text. To exclude
@@ -400,7 +427,7 @@ text that merely contains a token, surround the token with `<?>*?`.
 
 An exclusion must come right before a wildcard, or before a slot whose
 text starts with one, which then captures the wildcard
-(`\[적금|예금] <account><?>+?</account>을/를 해지`). Several exclusions may
+(`\[멤버십|구독] <card><?>+?</card>을/를 해지`). Several exclusions may
 precede one wildcard (`\X \Y <?>*?`). Wildcard text never starts or ends with
 a space.
 
@@ -635,9 +662,9 @@ import nlu_script
 script = nlu_script.Script.from_file("rules.nlu")   # or nlu_script.Script(source)
 for m in script.match("엄마한테 3만 원 보내줘"):
     print(m.label, m.tagged, m.line, m.specificity)
-best = script.match_best("엄마한테 3만 원 보내줘")    # only the most specific labels
     for slot in m.slots:
         print(slot.name, slot.text, slot.begin, slot.end, slot.attributes)
+best = script.match_best("엄마한테 3만 원 보내줘")    # only the most specific labels
 ```
 
 Slot offsets in Python are character offsets. To use a library you built
@@ -668,7 +695,12 @@ and from the talk
 [in this video](https://youtu.be/cPpUrH2Y3aw?list=PLsFtzQAC8dDfk-KmvmagozbYtQ2Fmpmpi&t=745).
 This is an independent implementation. The examples and tests use this
 project's own Korean and English data, modeled on customer-support inquiries
-to banking and payment apps.
+to credit card, debit card and payment apps. The personas behind the demo's
+persona inquiries come from
+[Nemotron-Personas-Korea](https://huggingface.co/datasets/nvidia/Nemotron-Personas-Korea)
+by NVIDIA, licensed under
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/);
+`examples/personas/personas.jsonl` keeps ten of each sampled row's fields.
 
 ## License
 

@@ -176,16 +176,16 @@ TEST(qualified_attribute_targets_named_slot_anywhere_in_rule) {
 
 TEST(entity_values_can_carry_attributes) {
   nlu::Script s = nlu::Script::compile(
-      "@currency: [dollar|달러]{code=USD}, [yen|엔화]{code=JPY}\n"
-      "exchange:rate\n"
-      "    @{currency} 환율 (알려줘)\n"
-      "    @{currency} exchange rate\n");
-  for (const auto& text_code : {std::make_pair("엔화 환율 알려줘", "JPY"),
-                                std::make_pair("dollar exchange rate", "USD")}) {
-    std::vector<nlu::Match> found = s.match(text_code.first);
+      "@reward: [points|포인트]{type=POINTS}, [miles|마일리지]{type=MILES}\n"
+      "reward:points\n"
+      "    @{reward} 잔액 (알려줘)\n"
+      "    @{reward} balance\n");
+  for (const auto& text_type : {std::make_pair("마일리지 잔액 알려줘", "MILES"),
+                                std::make_pair("points balance", "POINTS")}) {
+    std::vector<nlu::Match> found = s.match(text_type.first);
     CHECK_EQ(found.size(), 1u);
-    CHECK_EQ(found[0].slots[0].name, std::string("currency"));
-    CHECK_EQ(attribute(found[0].slots[0], "code"), std::string(text_code.second));
+    CHECK_EQ(found[0].slots[0].name, std::string("reward"));
+    CHECK_EQ(attribute(found[0].slots[0], "type"), std::string(text_type.second));
   }
 }
 
@@ -333,16 +333,16 @@ TEST(specificity_counts_characters_matched_by_pattern_text) {
   nlu::Script s = nlu::Script::compile(
       "card:any\n"
       "    I lost my <?>+?\n"
-      "exchange:rate\n"
-      "    @{currency} 환율 `@{NUMBER}\n"
-      "@currency: 달러, 엔화\n");
+      "card:reissue\n"
+      "    @{card} 끝자리 `@{NUMBER}\n"
+      "@card: 신용카드, 체크카드\n");
   auto specificity = [&](const std::string& text) {
     std::vector<nlu::Match> found = s.match(text);
     return found.size() == 1 ? found[0].specificity : -1;
   };
   // Spaces don't count; wildcard text doesn't either.
   CHECK_EQ(specificity("I lost my debit card"), 7);
-  CHECK_EQ(specificity("달러 환율 1300"), 8);
+  CHECK_EQ(specificity("체크카드 끝자리 1234"), 11);
 }
 
 TEST(excluded_wildcard_text_is_not_pattern_text) {
@@ -406,17 +406,17 @@ TEST(match_best_uses_the_most_specific_rule_of_a_label) {
 
 TEST(match_best_prefers_entities_to_wildcards) {
   nlu::Script s = nlu::Script::compile(
-      "@product: 적금, 예금\n"
-      "account:close:product\n"
-      "    @{product}(을/를) 해지\n"
-      "account:close\n"
-      "    <account><?>+?</account>(을/를) 해지\n");
-  std::vector<nlu::Match> best = s.match_best("적금을 해지");
+      "@card: 신용카드, 체크카드\n"
+      "card:cancel:type\n"
+      "    @{card}(을/를) 해지\n"
+      "card:cancel\n"
+      "    <card><?>+?</card>(을/를) 해지\n");
+  std::vector<nlu::Match> best = s.match_best("체크카드를 해지");
   CHECK_EQ(best.size(), 1u);
-  if (best.size() == 1) CHECK_EQ(best[0].label, std::string("account:close:product"));
-  best = s.match_best("청약통장을 해지");
+  if (best.size() == 1) CHECK_EQ(best[0].label, std::string("card:cancel:type"));
+  best = s.match_best("가족카드를 해지");
   CHECK_EQ(best.size(), 1u);
-  if (best.size() == 1) CHECK_EQ(best[0].label, std::string("account:close"));
+  if (best.size() == 1) CHECK_EQ(best[0].label, std::string("card:cancel"));
 }
 
 TEST(korean_number_entity_normalizes_its_value) {
@@ -792,15 +792,15 @@ TEST(loading_rejects_anything_but_a_saved_script) {
 
 TEST(exclusion_reaches_the_wildcard_starting_a_slot) {
   nlu::Script s = nlu::Script::compile(
-      "account:close\n"
-      "    \\[적금|예금] <account><?>+?</account>을/를 해지\n"
-      "    close my \\[savings] <account><name><?>+?</name> plan</account>\n");
-  CHECK_EQ(tagged(s, "청약통장을 해지"),
-           std::string("account:close:<account>청약통장</account>을 해지"));
-  CHECK(labels(s, "적금을 해지").empty());
-  CHECK_EQ(tagged(s, "close my pension plan"),
-           std::string("account:close:close my <account><name>pension</name> plan</account>"));
-  CHECK(labels(s, "close my savings plan").empty());
+      "card:cancel\n"
+      "    \\[멤버십|구독] <card><?>+?</card>을/를 해지\n"
+      "    cancel my \\[membership] <card><name><?>+?</name> card</card>\n");
+  CHECK_EQ(tagged(s, "가족카드를 해지"),
+           std::string("card:cancel:<card>가족카드</card>를 해지"));
+  CHECK(labels(s, "멤버십을 해지").empty());
+  CHECK_EQ(tagged(s, "cancel my credit card"),
+           std::string("card:cancel:cancel my <card><name>credit</name> card</card>"));
+  CHECK(labels(s, "cancel my membership card").empty());
   // The slot has to start with a wildcard for the exclusion to reach.
   CHECK_THROWS(nlu::CompileError, nlu::Script::compile("t\n    \\[x] <slot>y <?>*?</slot>\n"));
 }

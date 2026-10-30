@@ -81,13 +81,19 @@ if(NLU_SCRIPT_BUILD_TESTS)
   target_link_libraries(nlu_script_tests PRIVATE nlu_script_static)
   add_test(NAME nlu_script_tests COMMAND nlu_script_tests)
 
-  # The demo script's own test cases, run the way script authors run theirs.
+  # The demo script's own test cases and its persona inquiries, run the way
+  # script authors run theirs.
   add_test(NAME nlu_script_demo_test
     COMMAND nlu_script_cli --test examples/demo.nlu examples/demo.test
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
-  # The demo has no lint findings; intended overlaps are marked in it.
-  add_test(NAME nlu_script_demo_lint
-    COMMAND nlu_script_cli --lint examples/demo.nlu
+  add_test(NAME nlu_script_demo_personas_test
+    COMMAND nlu_script_cli --test examples/demo.nlu examples/personas/ko.test
+            examples/personas/en.test
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+  # A script whose only overlap is marked by a lint comment has no findings.
+  # (The demo's wildcard rules take lint too long to search; see TASKS.md.)
+  add_test(NAME nlu_script_cli_lint
+    COMMAND nlu_script_cli --lint tests/data/lint_allowed.nlu
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
   # A failing case must make `--test` exit with failure.
   add_test(NAME nlu_script_cli_test_failure

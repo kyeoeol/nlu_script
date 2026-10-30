@@ -1,0 +1,14 @@
+# Its two free-text labels both match some inputs (the shortest lint finds is
+# "send $ 0 to 결제 환불해줘"); the lint comment allows that, so
+# `nlu_script_cli --lint` reports no findings.
+# lint: allow-overlap transfer:send payment:refund
+
+card:lost
+    <card>[신용{type=CREDIT}|체크{type=DEBIT}]카드</card>(을/를) 분실했어요
+    I lost my <card>[credit{type=CREDIT}|debit{type=DEBIT}] card</card>
+
+transfer:send
+    send `@{MONEY} to <recipient><?>+?</recipient>
+
+payment:refund
+    <merchant><?>+?</merchant> 결제 환불::[해줘|해주세요]

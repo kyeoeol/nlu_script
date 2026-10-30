@@ -37,7 +37,7 @@ jobs:
 
   # Fuzzes the script compiler, the matcher and loading saved scripts for a
   # minute each, with AddressSanitizer and UndefinedBehaviorSanitizer. The
-  # demo script, the sentences in its test file and the saved demo seed the
+  # demo script, the sentences in its test files and the saved demo seed the
   # corpora. Crashing inputs are uploaded.
   fuzz:
     name: fuzz
@@ -57,7 +57,8 @@ jobs:
         run: |
           mkdir -p corpus/script corpus/match corpus/load crashes
           cp examples/demo.nlu corpus/script/
-          awk 'NF && !/^#/ && !/^ /' examples/demo.test | split -l 1 - corpus/match/line-
+          awk 'NF && !/^#/ && !/^ /' examples/demo.test examples/personas/*.test \
+            | split -l 1 -a 3 - corpus/match/line-
           ./build-fuzz/nlu_script_cli --save examples/demo.nlu corpus/load/demo.nlub
       - name: Fuzz the matcher
         run: >

@@ -1,0 +1,808 @@
+# Inquiries from 100 personas sampled from NVIDIA's Nemotron-Personas-Korea
+# (CC BY 4.0; see personas.jsonl, written by tools/fetch_personas.py), three
+# per persona, each followed by what examples/demo.nlu prints for it. The
+# first sentence of each persona was written by GPT-6-Luna, the other two by
+# Claude, in the persona's voice. en.test has the same inquiries in
+# English, in the same order.
+# Run them with:
+#   ./build/nlu_script_cli --test examples/demo.nlu examples/personas/ko.test
+
+# Persona 1: man, 35, 강원 춘천시, 기업 고위 임원
+아까 잠근 카드 다시 쓸 수 있게 풀어주세요
+    card:unfreeze:아까 잠근 카드 다시 쓸 수 있게 풀어주세요
+지난주 백화점에서 결제한 280만 원 6개월 할부로 전환 부탁드립니다
+    bill:installment:지난주 백화점에서 결제한 <amount><MONEY value="2800000" currency="KRW">280만 원</MONEY></amount> <months><KO_NUMBER value="6">6</KO_NUMBER></months>개월 할부로 전환 부탁드립니다
+결제 비밀번호를 재설정하고 싶습니다
+    account:password:reset:결제 비밀번호를 재설정하고 싶습니다
+
+# Persona 2: man, 50, 강원 춘천시, 기업 고위 임원
+지난달 물류비 결제한 걸 3개월 할부로 돌릴 수 있나요?
+    bill:installment:지난달 물류비 결제한 걸 <months><KO_NUMBER value="3">3</KO_NUMBER></months>개월 할부로 돌릴 수 있나요?
+적립된 포인트가 얼마나 되는지 확인 가능할까요?
+    reward:points:적립된 포인트가 얼마나 되는지 확인 가능할까요?
+페이머니 10만 원 충전해 주세요
+    wallet:charge:페이머니 <amount><MONEY value="100000" currency="KRW">10만 원</MONEY></amount> 충전해 주세요
+
+# Persona 3: woman, 49, 대전 중구, 통신장비 기사
+앱 회원 탈퇴하려면 어디서 해야 하는지 알려주세요
+    account:withdraw:앱 회원 탈퇴하려면 어디서 해야 하는지 알려주세요
+이번 달 전월 실적 채웠는지 궁금해요
+    reward:benefits:이번 달 전월 실적 채웠는지 궁금해요
+주유소에서 카드 결제가 자꾸 거절돼요
+    payment:failed:주유소에서 카드 결제가 자꾸 거절돼요
+
+# Persona 4: man, 32, 경상남 거제시, 무직
+분실한 건 아닌데 카드 잠시 정지해 주세요
+    card:freeze:분실한 건 아닌데 카드 잠시 정지해 주세요
+폰 번호 바꼈는데 010-4827-1593으로 변경해 주이소
+    account:phone:폰 번호 바꼈는데 <TELNUM>010-4827-1593</TELNUM>으로 변경해 주이소
+이번 달 카드값 얼마 나왔어요?
+    bill:amount:<DATETIME month_offset="0">이번 달</DATETIME> 카드값 얼마 나왔어요?
+
+# Persona 5: woman, 40, 제주 제주시, 음식 서비스 종사원
+이번 달 카드값 중 20만 원 먼저 결제할게요
+    bill:prepay:이번 달 카드값 중 <amount><MONEY value="200000" currency="KRW">20만 원</MONEY></amount> 먼저 결제할게요
+챗봇 말고 상담원이랑 통화하고 싶어요
+    agent:connect:챗봇 말고 상담원이랑 통화하고 싶어요
+앱 회원 탈퇴는 어디서 하나요?
+    account:withdraw:앱 회원 탈퇴는 어디서 하나요?
+
+# Persona 6: woman, 47, 인천 서구, 무직
+어제 마트에서 산 물건 반품했는데 결제 취소 부탁해요
+    payment:refund:어제 마트에서 산 물건 반품했는데 결제 취소 부탁해요
+카드 마그네틱이 망가져서 재발급 받고 싶어요
+    card:reissue:카드 마그네틱이 망가져서 재발급 받고 싶어요
+엄마 병원비 때문에 한도를 좀 올리고 싶은데요
+    card:limit:엄마 병원비 때문에 한도를 좀 올리고 싶은데요
+
+# Persona 7: woman, 71, 인천 중구, 간호조무사
+카드 결제일을 매달 25일로 바꾸고 싶은데요
+    bill:due_date:카드 결제일을 매달 <DATETIME day="25">25일</DATETIME>로 바꾸고 싶은데요
+딸이 깔아준 페이 앱에 제 체크카드를 등록하려는데 어떻게 해요?
+    wallet:link:딸이 깔아준 페이 앱에 제 <card type="DEBIT">체크카드</card>를 등록하려는데 어떻게 해요?
+어제 약국에서 긁은 거 3개월 할부로 바꿔 주세요
+    bill:installment:어제 약국에서 긁은 거 <months><KO_NUMBER value="3">3</KO_NUMBER></months>개월 할부로 바꿔 주세요
+
+# Persona 8: woman, 51, 서울 강북구, 자동 조립라인 조작원
+앱 로그인이 계속 안 되는데 비밀번호는 맞아요
+    account:login:앱 로그인이 계속 안 되는데 비밀번호는 맞아요
+이번 달 카드값 미리 선결제하고 싶어요
+    bill:prepay:이번 달 카드값 미리 선결제하고 싶어요
+다음 달 결제 예정 금액 좀 알려주세요
+    bill:amount:<DATETIME month_offset="+1">다음 달</DATETIME> 결제 예정 금액 좀 알려주세요
+
+# Persona 9: woman, 58, 경기 부천시 원미구, 크레인 운전원
+이번 주 카드 사용 내역을 확인하고 싶어요
+    payment:history:<DATETIME week_offset="0">이번 주</DATETIME> 카드 사용 내역을 확인하고 싶어요
+일하는 중이라 저녁 7시에 전화 주세요
+    agent:callback:일하는 중이라 <DATETIME part_of_day="EVENING" hour="19">저녁 7시</DATETIME>에 전화 주세요
+홈쇼핑에서 산 거 반품했는데 환불이 아직 안 됐어요
+    payment:refund:홈쇼핑에서 산 거 반품했는데 환불이 아직 안 됐어요
+
+# Persona 10: woman, 32, 대전 서구, 관리 비서
+쓰지 않는 신용카드 해지해 주세요
+    card:cancel:쓰지 않는 <card type="CREDIT">신용카드</card> 해지해 주세요
+배달의민족에서 한 번 주문했는데 두 번 결제됐어요
+    payment:duplicate:<merchant>배달의민족</merchant>에서 한 번 주문했는데 두 번 결제됐어요
+새로 신청한 카드 언제쯤 도착하나요?
+    card:delivery:새로 신청한 카드 언제쯤 도착하나요?
+
+# Persona 11: woman, 22, 경기 구리시, 무직
+배달의민족 주문 취소했는데 카드 환불은 언제 되나요?
+    payment:refund:<merchant>배달의민족</merchant> 주문 취소했는데 카드 환불은 언제 되나요?
+올리브영 결제가 두 번 찍혔어요ㅠ
+    payment:duplicate:<merchant>올리브영</merchant> 결제가 두 번 찍혔어요ㅠ
+무신사에서 산 패딩 할부로 돌릴 수 있어요?
+    bill:installment:<merchant>무신사</merchant>에서 산 패딩 할부로 돌릴 수 있어요?
+
+# Persona 12: woman, 49, 세종 세종시, 무직
+어제 딸한테 보낸 돈이 아직 안 들어갔다는데 확인해 주세요
+    transfer:status:<DATETIME day_offset="-1">어제</DATETIME> <recipient>딸</recipient>한테 보낸 돈이 아직 안 들어갔다는데 확인해 주세요
+마트에서 체크카드를 잃어버린 것 같아요
+    card:lost:마트에서 <card type="DEBIT">체크카드</card>를 잃어버린 것 같아요
+아이 학원비 내려고 페이에 신용카드 하나 더 추가하고 싶어요
+    wallet:link:아이 학원비 내려고 페이에 <card type="CREDIT">신용카드</card> 하나 더 추가하고 싶어요
+
+# Persona 13: man, 40, 대전 서구, 국가행정 사무원
+가족 생활비 때문에 카드 한도를 300만 원으로 올려주세요
+    card:limit:가족 생활비 때문에 카드 한도를 <amount><MONEY value="3000000" currency="KRW">300만 원</MONEY></amount>으로 올려주세요
+아버지께 20만 원 송금해 주세요
+    transfer:send:<recipient>아버지</recipient>께 <amount><MONEY value="200000" currency="KRW">20만 원</MONEY></amount> 송금해 주세요
+결제 계좌를 다른 은행 계좌로 변경하려면 어떻게 해야 합니까?
+    wallet:link:결제 계좌를 다른 은행 계좌로 변경하려면 어떻게 해야 합니까?
+
+# Persona 14: woman, 20, 서울 성북구, 무직
+체크카드 하나 정리하려는데 해지 방법 알려줘
+    card:cancel:<card type="DEBIT">체크카드</card> 하나 정리하려는데 해지 방법 알려줘
+지수한테 만 오천 원 보내줘
+    transfer:send:<recipient>지수</recipient>한테 <amount><MONEY value="15000" currency="KRW">만 오천 원</MONEY></amount> 보내줘
+이번 달 청구 금액 얼마예요?
+    bill:amount:<DATETIME month_offset="0">이번 달</DATETIME> 청구 금액 얼마예요?
+
+# Persona 15: man, 72, 서울 마포구, 무직
+잠가 둔 카드 다시 사용할 수 있게 해주세요
+    card:unfreeze:잠가 둔 카드 다시 사용할 수 있게 해주세요
+식당에서 밥값이 두 번 빠져나갔는데 이거 어떻게 된 거요?
+    payment:duplicate:식당에서 밥값이 두 번 빠져나갔는데 이거 어떻게 된 거요?
+비밀번호를 까먹어서 새로 만들어야겠는데요
+    account:password:reset:비밀번호를 까먹어서 새로 만들어야겠는데요
+
+# Persona 16: woman, 80, 대구 수성구, 무직
+상담할 게 있는데 내일 오후 2시에 전화 부탁드립니다
+    agent:callback:상담할 게 있는데 <DATETIME day_offset="+1" part_of_day="PM" hour="14">내일 오후 2시</DATETIME>에 전화 부탁드립니다
+시장에서 카드를 내밀었는데 결제가 안 된다 카네요
+    payment:failed:시장에서 카드를 내밀었는데 결제가 안 된다 카네요
+카드 좀 잠시 정지시켜 주이소
+    card:freeze:카드 좀 잠시 정지시켜 주이소
+
+# Persona 17: man, 53, 서울 마포구, 헬리콥터 조종사
+마스터카드 이제 안 써서 해지하려고요
+    card:cancel:<card brand="MASTERCARD">마스터카드</card> 이제 안 써서 해지하려고요
+비자 신용카드 분실 신고하려고 합니다
+    card:lost:<card brand="VISA" type="CREDIT">비자 신용카드</card> 분실 신고하려고 합니다
+카드 이용 금액 중 50만 원 선결제하겠습니다
+    bill:prepay:카드 이용 금액 중 <amount><MONEY value="500000" currency="KRW">50만 원</MONEY></amount> 선결제하겠습니다
+
+# Persona 18: man, 23, 부산 북구, 식품 영업원
+체크카드 잠깐 정지해 주세요
+    card:freeze:<card type="DEBIT">체크카드</card> 잠깐 정지해 주세요
+지난달 결제 내역 좀 보여주세요
+    payment:history:<DATETIME month_offset="-1">지난달</DATETIME> 결제 내역 좀 보여주세요
+정지된 카드 다시 풀어주세요
+    card:unfreeze:정지된 카드 다시 풀어주세요
+
+# Persona 19: man, 31, 서울 송파구, 국가행정 사무원
+결제일이 월급날보다 빨라서 25일로 변경하고 싶습니다
+    bill:due_date:결제일이 월급날보다 빨라서 <DATETIME day="25">25일</DATETIME>로 변경하고 싶습니다
+빵집에서 결제했는데 승인 거절이라고 뜨네요
+    payment:failed:빵집에서 결제했는데 승인 거절이라고 뜨네요
+즉시결제로 이번 달 사용액 전부 갚고 싶습니다
+    bill:prepay:즉시결제로 이번 달 사용액 전부 갚고 싶습니다
+
+# Persona 20: woman, 40, 서울 동작구, 무직
+페이 앱 계정을 아예 없애고 싶어요
+    account:withdraw:페이 앱 계정을 아예 없애고 싶어요
+카드 결제일을 25일로 변경해 주세요
+    bill:due_date:카드 결제일을 <DATETIME day="25">25일</DATETIME>로 변경해 주세요
+끝자리 3821 카드 정지 해제 부탁드려요
+    card:unfreeze:끝자리 <last4>3821</last4> 카드 정지 해제 부탁드려요
+
+# Persona 21: man, 53, 전북 전주시 덕진구, 병무행정 사무원
+정지해 둔 카드 다시 풀어주시면 좋겠습니다
+    card:unfreeze:정지해 둔 카드 다시 풀어주시면 좋겠습니다
+월급날이 바뀌어서 결제일을 10일로 옮기고 싶은데요
+    bill:due_date:월급날이 바뀌어서 결제일을 <DATETIME day="10">10일</DATETIME>로 옮기고 싶은데요
+이 카드로 주유하면 할인되나요?
+    reward:benefits:이 카드로 주유하면 할인되나요?
+
+# Persona 22: man, 73, 부산 부산진구, 무직
+페이머니 5만 원 충전하려는데 어떻게 해요?
+    wallet:charge:페이머니 <amount><MONEY value="50000" currency="KRW">5만 원</MONEY></amount> 충전하려는데 어떻게 해요?
+손주한테 보낸 용돈이 안 들어갔다 카는데 우째 된 기고
+    transfer:status:<recipient>손주</recipient>한테 보낸 용돈이 안 들어갔다 카는데 우째 된 기고
+티비 산 거 10개월 할부로 바꿔 주소
+    bill:installment:티비 산 거 <months><KO_NUMBER value="10">10</KO_NUMBER></months>개월 할부로 바꿔 주소
+
+# Persona 23: man, 55, 서울 동작구, 무직
+퇴근하고 통화할 수 있게 오늘 저녁 6시에 연락 주세요
+    agent:callback:퇴근하고 통화할 수 있게 <DATETIME day_offset="0" part_of_day="EVENING" hour="18">오늘 저녁 6시</DATETIME>에 연락 주세요
+이 앱 회원 탈퇴하겠습니다
+    account:withdraw:이 앱 회원 탈퇴하겠습니다
+현재 제 카드 한도가 얼마인지 알려 주십시오
+    card:limit:현재 제 카드 한도가 얼마인지 알려 주십시오
+
+# Persona 24: man, 40, 서울 강서구, 디자인 관련 관리자
+페이 잔액에 30,000원 넣어주세요
+    wallet:charge:페이 잔액에 <amount><MONEY value="30000" currency="KRW">30,000원</MONEY></amount> 넣어주세요
+이번 달 명세서 금액 확인하고 싶어요
+    bill:amount:<DATETIME month_offset="0">이번 달</DATETIME> 명세서 금액 확인하고 싶어요
+카드 유효기간이 다음 달까지라 재발급 신청하려고요
+    card:reissue:카드 유효기간이 다음 달까지라 재발급 신청하려고요
+
+# Persona 25: man, 64, 전북 남원시, 무직
+제주에서 산 옷을 환불했는데 카드 취소가 아직 안 됐어요
+    payment:refund:제주에서 산 옷을 환불했는데 카드 취소가 아직 안 됐어요
+결제 비밀번호를 잊어부렀는디 어떻게 해야 돼요?
+    account:password:reset:결제 비밀번호를 잊어부렀는디 어떻게 해야 돼요?
+사람하고 직접 얘기하고 싶은데 상담원 좀 바꿔 주시오
+    agent:connect:사람하고 직접 얘기하고 싶은데 상담원 좀 바꿔 주시오
+
+# Persona 26: woman, 55, 인천 서구, 전화 상담원
+지난달 병원비 결제한 걸 6개월 할부로 바꿔 주세요
+    bill:installment:지난달 병원비 결제한 걸 <months><KO_NUMBER value="6">6</KO_NUMBER></months>개월 할부로 바꿔 주세요
+페이머니에 5만 원 충전하려고 하는데요
+    wallet:charge:페이머니에 <amount><MONEY value="50000" currency="KRW">5만 원</MONEY></amount> 충전하려고 하는데요
+결제일 변경은 어디서 할 수 있나요?
+    bill:due_date:결제일 변경은 어디서 할 수 있나요?
+
+# Persona 27: man, 81, 경기 평택시, 그 외 기계 조작원
+평택에서 체크카드를 잃어버렸는데 어떻게 신고하나요?
+    card:lost:평택에서 <card type="DEBIT">체크카드</card>를 잃어버렸는데 어떻게 신고하나요?
+카드가 반으로 쪼개져서 새로 하나 만들어 주시오
+    card:reissue:카드가 반으로 쪼개져서 새로 하나 만들어 주시오
+카드가 막혔는데 다시 쓰게 해 주시오
+    card:unfreeze:카드가 막혔는데 다시 쓰게 해 주시오
+
+# Persona 28: woman, 51, 광주 남구, 건물 청소원
+학교 청소 끝나고 쓴 장보기 금액 할부로 바꾸고 싶어요
+    bill:installment:학교 청소 끝나고 쓴 장보기 금액 할부로 바꾸고 싶어요
+내가 쓰지도 않은 12만 원이 결제됐당께요
+    payment:fraud:내가 쓰지도 않은 <amount><MONEY value="120000" currency="KRW">12만 원</MONEY></amount>이 결제됐당께요
+휴대폰 번호가 바뀌었어요 010-3348-7720이요
+    account:phone:휴대폰 번호가 바뀌었어요 <TELNUM>010-3348-7720</TELNUM>이요
+
+# Persona 29: woman, 50, 경기 군포시, 무직
+친구한테 페이로 5만 원 보내줘
+    transfer:send:<recipient>친구</recipient>한테 페이로 <amount><MONEY value="50000" currency="KRW">5만 원</MONEY></amount> 보내줘
+안 쓰는 신용카드 하나 해지하고 싶어요
+    card:cancel:안 쓰는 <card type="CREDIT">신용카드</card> 하나 해지하고 싶어요
+이번 달에 갚아야 할 카드 대금이 얼마예요?
+    bill:amount:<DATETIME month_offset="0">이번 달</DATETIME>에 갚아야 할 카드 대금이 얼마예요?
+
+# Persona 30: woman, 57, 울산 남구, 노점 및 이동 판매원
+내일 장사 준비 전에 오전 9시에 전화 상담 가능할까요?
+    agent:callback:내일 장사 준비 전에 <DATETIME part_of_day="AM" hour="9">오전 9시</DATETIME>에 전화 상담 가능할까요?
+장사할 때 쓰게 페이에 체크카드 등록해 주이소
+    wallet:link:장사할 때 쓰게 페이에 <card type="DEBIT">체크카드</card> 등록해 주이소
+전통시장에서 쓰면 할인 혜택 있는교?
+    reward:benefits:전통시장에서 쓰면 할인 혜택 있는교?
+
+# Persona 31: woman, 47, 서울 금천구, 수동 포장원
+지난번 쿠팡에서 산 가전 3개월 할부로 전환해주세요
+    bill:installment:지난번 <merchant>쿠팡</merchant>에서 산 가전 <months><KO_NUMBER value="3">3</KO_NUMBER></months>개월 할부로 전환해주세요
+카드를 회사 사물함에 두고 와서 일단 잠가 주세요
+    card:freeze:카드를 회사 사물함에 두고 와서 일단 잠가 주세요
+카드 칩이 인식이 안 돼서 재발급 받아야겠어요
+    card:reissue:카드 칩이 인식이 안 돼서 재발급 받아야겠어요
+
+# Persona 32: man, 44, 전북 익산시, 건물 청소원
+제 포인트 얼마나 쌓였는지 알려주세요
+    reward:points:제 포인트 얼마나 쌓였는지 알려주세요
+카드 보냈다는 문자는 왔는디 아직 안 왔어요
+    card:delivery:카드 보냈다는 문자는 왔는디 아직 안 왔어요
+해외 결제 막아 주세요
+    card:overseas:해외 결제 막아 주세요
+
+# Persona 33: woman, 63, 경기 성남시 분당구, 일반 비서
+이번 달 카드 대금 15만 원 선결제하겠습니다
+    bill:prepay:이번 달 카드 대금 <amount><MONEY value="150000" currency="KRW">15만 원</MONEY></amount> 선결제하겠습니다
+회원 탈퇴 절차를 알려주시겠어요?
+    account:withdraw:회원 탈퇴 절차를 알려주시겠어요?
+출근길에 카드 지갑을 통째로 분실했어요
+    card:lost:출근길에 카드 지갑을 통째로 분실했어요
+
+# Persona 34: man, 51, 경기 수원시 영통구, 하역 및 적재 관련 단순 종사원
+지난달 회사 카드 사용 내역을 보고 싶어요
+    payment:history:<DATETIME month_offset="-1">지난달</DATETIME> 회사 카드 사용 내역을 보고 싶어요
+포인트로 카드값 낼 수 있나요?
+    reward:points:포인트로 카드값 낼 수 있나요?
+상담사 연결해 주세요
+    agent:connect:상담사 연결해 주세요
+
+# Persona 35: woman, 28, 부산 금정구, 무직
+앱 인증번호를 넣어도 로그인이 안 돼요
+    account:login:앱 인증번호를 넣어도 로그인이 안 돼요
+체크카드 해지하려면 어떻게 해야 돼요?
+    card:cancel:<card type="DEBIT">체크카드</card> 해지하려면 어떻게 해야 돼요?
+앱 탈퇴하고 싶어요
+    account:withdraw:앱 탈퇴하고 싶어요
+
+# Persona 36: woman, 83, 대구 동구, 무직
+결제 비밀번호가 생각 안 나는데 다시 설정할 수 있나요?
+    account:password:reset:결제 비밀번호가 생각 안 나는데 다시 설정할 수 있나요?
+약국에서 잘못 긁은 거 취소해 주세요
+    payment:refund:약국에서 잘못 긁은 거 취소해 주세요
+딸한테 보낸 돈이 잘 갔는지 알고 싶어요
+    transfer:status:<recipient>딸</recipient>한테 보낸 돈이 잘 갔는지 알고 싶어요
+
+# Persona 37: woman, 71, 서울 관악구, 무직
+제가 안 쓴 편의점 결제가 찍혔어요 확인해주세요
+    payment:fraud:제가 안 쓴 편의점 결제가 찍혔어요 확인해주세요
+페이 잔액이 부족해서 3만 원 충전하고 싶어요
+    wallet:charge:페이 잔액이 부족해서 <amount><MONEY value="30000" currency="KRW">3만 원</MONEY></amount> 충전하고 싶어요
+남편 이름으로 된 가족카드는 해지해 주세요
+    card:cancel:남편 이름으로 된 <card type="FAMILY">가족카드</card>는 해지해 주세요
+
+# Persona 38: man, 58, 경기 고양시 일산서구, 건물 경비원
+오래 써서 칩이 잘 안 읽히는데 새 카드로 바꿔주세요
+    card:reissue:오래 써서 칩이 잘 안 읽히는데 새 카드로 바꿔주세요
+이 앱은 안 쓸 거라 탈퇴 처리해 주세요
+    account:withdraw:이 앱은 안 쓸 거라 탈퇴 처리해 주세요
+아들한테 30만 원 좀 보내 주세요
+    transfer:send:<recipient>아들</recipient>한테 <amount><MONEY value="300000" currency="KRW">30만 원</MONEY></amount> 좀 보내 주세요
+
+# Persona 39: man, 31, 경기 광명시, 승용차 및 승합차 운전원
+엄마한테 생활비 20만 원 보내려고요
+    transfer:send:<recipient>엄마</recipient>한테 생활비 <amount><MONEY value="200000" currency="KRW">20만 원</MONEY></amount> 보내려고요
+한도 500만 원으로 올려주세요
+    card:limit:한도 <amount><MONEY value="5000000" currency="KRW">500만 원</MONEY></amount>으로 올려주세요
+카드 배송 조회 좀 해주세요
+    card:delivery:카드 배송 조회 좀 해주세요
+
+# Persona 40: man, 74, 경상남 진주시, 시설 경비원
+마트에서 한 번 결제했는데 같은 금액이 두 번 빠졌어요
+    payment:duplicate:마트에서 한 번 결제했는데 같은 금액이 두 번 빠졌어요
+연금 나오는 날로 결제일을 바꿀라 카는데예
+    bill:due_date:연금 나오는 날로 결제일을 바꿀라 카는데예
+카드 포인트 쌓인 거 우째 쓰는교
+    reward:points:카드 포인트 쌓인 거 우째 쓰는교
+
+# Persona 41: woman, 55, 경기 하남시, 무직
+이번 달 이마트 할인 받으려면 실적이 얼마나 남았나요?
+    reward:benefits:이번 달 이마트 할인 받으려면 실적이 얼마나 남았나요?
+이번 달 카드 청구서가 얼마 나왔는지 알려주세요
+    bill:amount:<DATETIME month_offset="0">이번 달</DATETIME> 카드 청구서가 얼마 나왔는지 알려주세요
+이마트에서 결제가 안 됐어요
+    payment:failed:<merchant>이마트</merchant>에서 결제가 안 됐어요
+
+# Persona 42: woman, 65, 전라남 순천시, 패스트푸드 준비원
+모르는 온라인 쇼핑 결제가 8만 원 나왔어요
+    payment:fraud:모르는 온라인 쇼핑 결제가 <amount><MONEY value="80000" currency="KRW">8만 원</MONEY></amount> 나왔어요
+이번 주에 쓴 카드 내역 좀 볼 수 있을까요?
+    payment:history:<DATETIME week_offset="0">이번 주</DATETIME>에 쓴 카드 내역 좀 볼 수 있을까요?
+일본 여행 가는데 해외에서도 카드 쓸 수 있게 해주세요
+    card:overseas:<country code="JP">일본</country> 여행 가는데 해외에서도 카드 쓸 수 있게 해주세요
+
+# Persona 43: woman, 54, 서울 동대문구, 무직
+주유소에서 결제가 거절됐는데 카드 문제인가요?
+    payment:failed:주유소에서 결제가 거절됐는데 카드 문제인가요?
+어제 보낸 송금이 상대방 계좌에 입금이 안 됐다고 하네요
+    transfer:status:<DATETIME day_offset="-1">어제</DATETIME> 보낸 송금이 상대방 계좌에 입금이 안 됐다고 하네요
+앱에 로그인이 안 됩니다
+    account:login:앱에 로그인이 안 됩니다
+
+# Persona 44: man, 79, 경상북 구미시, 무직
+아들한테 보낸 돈이 아직 도착하지 않았는데 확인 부탁해요
+    transfer:status:<recipient>아들</recipient>한테 보낸 돈이 아직 도착하지 않았는데 확인 부탁해요
+손주 장난감 산 거 결제 취소해 주이소
+    payment:refund:손주 장난감 산 거 결제 취소해 주이소
+내일 오전 10시에 전화 좀 주이소
+    agent:callback:<DATETIME day_offset="+1" part_of_day="AM" hour="10">내일 오전 10시</DATETIME>에 전화 좀 주이소
+
+# Persona 45: woman, 54, 서울 금천구, 소규모 상점 경영자
+이번 달 카드 청구액이 얼마인지 궁금합니다
+    bill:amount:<DATETIME month_offset="0">이번 달</DATETIME> 카드 청구액이 얼마인지 궁금합니다
+가게 냉장고 산 거 12개월 할부로 변경해주세요
+    bill:installment:가게 냉장고 산 거 <months><KO_NUMBER value="12">12</KO_NUMBER></months>개월 할부로 변경해주세요
+카드 정지 좀 해주세요
+    card:freeze:카드 정지 좀 해주세요
+
+# Persona 46: woman, 44, 대구 달서구, 밀링기 조작원
+페이 비밀번호 잊어버렸어 초기화 어디서 해?
+    account:password:reset:페이 비밀번호 잊어버렸어 초기화 어디서 해?
+이 카드 마트 할인 혜택이 뭐가 있어예?
+    reward:benefits:이 카드 마트 할인 혜택이 뭐가 있어예?
+잠가둔 카드 잠금 해제해 주세요
+    card:unfreeze:잠가둔 카드 잠금 해제해 주세요
+
+# Persona 47: woman, 46, 경기 의왕시, 승용차 및 승합차 운전원
+카드 4자리 2816번 잠시 막아 주세요
+    card:freeze:카드 4자리 <last4>2816</last4>번 잠시 막아 주세요
+제가 결제 안 한 건이 찍혀 있어요
+    payment:fraud:제가 결제 안 한 건이 찍혀 있어요
+적립금 조회해 주세요
+    reward:points:적립금 조회해 주세요
+
+# Persona 48: woman, 28, 강원 동해시, 무직
+페이 앱에 제 체크카드를 연결하고 싶어요
+    wallet:link:페이 앱에 제 <card type="DEBIT">체크카드</card>를 연결하고 싶어요
+이번 달 결제 금액 확인할 수 있을까요?
+    bill:amount:<DATETIME month_offset="0">이번 달</DATETIME> 결제 금액 확인할 수 있을까요?
+전화번호 변경하고 싶어요
+    account:phone:전화번호 변경하고 싶어요
+
+# Persona 49: man, 62, 경상북 문경시, 건물 경비원
+신용카드를 잃어버린 것 같아요 바로 신고할게요
+    card:lost:<card type="CREDIT">신용카드</card>를 잃어버린 것 같아요 바로 신고할게요
+모르는 데서 결제 문자가 왔는데 나는 쓴 적이 없어요
+    payment:fraud:모르는 데서 결제 문자가 왔는데 나는 쓴 적이 없어요
+비밀번호 초기화 해 주세요
+    account:password:reset:비밀번호 초기화 해 주세요
+
+# Persona 50: man, 28, 경기 오산시, 시설 경비원
+페이머니에 10만 원 충전해 주세요
+    wallet:charge:페이머니에 <amount><MONEY value="100000" currency="KRW">10만 원</MONEY></amount> 충전해 주세요
+송금한 거 아직 안 갔나요?
+    transfer:status:송금한 거 아직 안 갔나요?
+해외 직구 결제 되게 열어주세요
+    card:overseas:해외 직구 결제 되게 열어주세요
+
+# Persona 51: woman, 78, 전라남 여수시, 무직
+출장 경비 때문에 한도를 500만 원까지 높이고 싶습니다
+    card:limit:출장 경비 때문에 한도를 <amount><MONEY value="5000000" currency="KRW">500만 원</MONEY></amount>까지 높이고 싶습니다
+우리 딸한테 10만 원 보내줄라는디 어찌해야 쓰까
+    transfer:send:우리 <recipient>딸</recipient>한테 <amount><MONEY value="100000" currency="KRW">10만 원</MONEY></amount> 보내줄라는디 어찌해야 쓰까
+앱에 들어가려는데 안 들어가져요
+    account:login:앱에 들어가려는데 안 들어가져요
+
+# Persona 52: man, 61, 전라남 해남군, 상·하수 배관공
+다음 달 일본 여행 가는데 해외 결제 열어 주세요
+    card:overseas:다음 달 <country code="JP">일본</country> 여행 가는데 해외 결제 열어 주세요
+보낸 돈이 안 들어갔다는디 확인 좀 해주쇼
+    transfer:status:보낸 돈이 안 들어갔다는디 확인 좀 해주쇼
+카드 정지된 거 풀어주쇼
+    card:unfreeze:카드 정지된 거 풀어주쇼
+
+# Persona 53: woman, 33, 경기 남양주시, 부동산 중개사
+지난달 실적이면 주유 할인 받을 수 있는지 알고 싶어요
+    reward:benefits:지난달 실적이면 주유 할인 받을 수 있는지 알고 싶어요
+최근 3개월 결제 내역 확인하고 싶어요
+    payment:history:최근 3개월 결제 내역 확인하고 싶어요
+핸드폰 번호 바뀌어서 수정하려고요
+    account:phone:핸드폰 번호 바뀌어서 수정하려고요
+
+# Persona 54: woman, 42, 서울 동작구, 무직
+친구에게 보낸 송금이 완료됐는지 어디서 봐요?
+    transfer:status:<recipient>친구</recipient>에게 보낸 송금이 완료됐는지 어디서 봐요?
+상담원 연결 부탁드립니다
+    agent:connect:상담원 연결 부탁드립니다
+재발급 카드가 지금 어디쯤 오고 있는지 알 수 있나요?
+    card:delivery:재발급 카드가 지금 어디쯤 오고 있는지 알 수 있나요?
+
+# Persona 55: woman, 49, 경기 용인시 기흥구, 무직
+페이 앱에 새로 받은 신용카드 등록하는 법 좀 알려주세요
+    wallet:link:페이 앱에 새로 받은 <card type="CREDIT">신용카드</card> 등록하는 법 좀 알려주세요
+지문 인증이 계속 실패해서 로그인을 못 해요
+    account:login:지문 인증이 계속 실패해서 로그인을 못 해요
+남은 한도 확인해 주세요
+    card:limit:남은 한도 확인해 주세요
+
+# Persona 56: man, 47, 서울 관악구, 건물 경비원
+끝자리 9031 카드 잠금 해제 부탁해요
+    card:unfreeze:끝자리 <last4>9031</last4> 카드 잠금 해제 부탁해요
+비번 잊어버렸어요
+    account:password:reset:비번 잊어버렸어요
+사람 상담원이랑 얘기하고 싶어요
+    agent:connect:사람 상담원이랑 얘기하고 싶어요
+
+# Persona 57: woman, 61, 대전 대덕구, 전직 한식 조리사, 현재 구직중
+재발급 신청한 카드 언제 도착하나요?
+    card:delivery:재발급 신청한 카드 언제 도착하나요?
+지난주에 어디서 얼마 썼는지 보고 싶어요
+    payment:history:<DATETIME week_offset="-1">지난주</DATETIME>에 어디서 얼마 썼는지 보고 싶어요
+제 카드가 도용된 것 같아요
+    payment:fraud:제 카드가 도용된 것 같아요
+
+# Persona 58: man, 56, 전북 전주시 완산구, 품질 관리 사무원
+상담원 연결 좀 부탁드립니다 자동 안내로는 해결이 안 되네요
+    agent:connect:상담원 연결 좀 부탁드립니다 자동 안내로는 해결이 안 되네요
+야구장 갔다가 카드를 잃어버렸어요
+    card:lost:야구장 갔다가 카드를 잃어버렸어요
+새 번호 010-5129-0846으로 바꿔 주세요
+    account:phone:새 번호 <TELNUM>010-5129-0846</TELNUM>으로 바꿔 주세요
+
+# Persona 59: man, 58, 강원 춘천시, 그 외 건축 마감 관련 기능 종사원
+체크카드 하루 사용 한도 확인하고 싶어요
+    card:limit:체크카드 하루 사용 한도 확인하고 싶어요
+카드 신청한 지 열흘이 넘었는데 아직 안 왔네요
+    card:delivery:카드 신청한 지 열흘이 넘었는데 아직 안 왔네요
+페이 충전 좀 해 주세요
+    wallet:charge:페이 충전 좀 해 주세요
+
+# Persona 60: woman, 55, 경기 김포시, 승용차 및 승합차 운전원
+배달 앱에서 결제가 계속 실패하는데 이유가 뭘까요?
+    payment:failed:배달 앱에서 결제가 계속 실패하는데 이유가 뭘까요?
+비밀번호를 다섯 번 틀려서 다시 설정해야 돼요
+    account:password:reset:비밀번호를 다섯 번 틀려서 다시 설정해야 돼요
+휘어진 카드 새로 발급해 주세요
+    card:reissue:휘어진 카드 새로 발급해 주세요
+
+# Persona 61: man, 84, 강원 강릉시, 무직
+이번 달 영화 할인 혜택 남아 있나요?
+    reward:benefits:이번 달 영화 할인 혜택 남아 있나요?
+보청기 산 거를 할부로 나눠서 낼 수 있겠소?
+    bill:installment:보청기 산 거를 할부로 나눠서 낼 수 있겠소?
+외국에서 카드가 써지는 거 막아 주시오
+    card:overseas:외국에서 카드가 써지는 거 막아 주시오
+
+# Persona 62: man, 35, 서울 마포구, 그 외 일반 영업원
+지난달 실적으로 받을 수 있는 통신비 혜택 알려주세요
+    reward:benefits:지난달 실적으로 받을 수 있는 통신비 혜택 알려주세요
+번호 이동했는데 휴대폰 번호 변경해 주세요
+    account:phone:번호 이동했는데 휴대폰 번호 변경해 주세요
+다음 주 미국 출장이라 해외결제 허용해 주세요
+    card:overseas:다음 주 <country code="US">미국</country> 출장이라 해외결제 허용해 주세요
+
+# Persona 63: man, 48, 부산 해운대구, 조사 전문가
+체크카드가 휘어서 새 카드 발급받고 싶어요
+    card:reissue:체크카드가 휘어서 새 카드 발급받고 싶어요
+결제일을 매월 14일로 조정하고 싶습니다
+    bill:due_date:결제일을 매월 <DATETIME day="14">14일</DATETIME>로 조정하고 싶습니다
+해외에서 제가 하지 않은 결제가 승인됐습니다
+    payment:fraud:해외에서 제가 하지 않은 결제가 승인됐습니다
+
+# Persona 64: woman, 44, 경상북 영주시, 사무 보조원
+사람 상담원하고 통화할 수 있게 연결해 주세요
+    agent:connect:사람 상담원하고 통화할 수 있게 연결해 주세요
+카드 일시정지 해주세요
+    card:freeze:카드 일시정지 해주세요
+마스터카드 해지 신청할게요
+    card:cancel:<card brand="MASTERCARD">마스터카드</card> 해지 신청할게요
+
+# Persona 65: woman, 57, 경기 하남시, 무직
+온라인 쇼핑 결제가 45,000원씩 두 번 청구됐어요
+    payment:duplicate:온라인 쇼핑 결제가 45,000원씩 두 번 청구됐어요
+카드를 잃어버렸는데 어떻게 해야 하나요?
+    card:lost:카드를 잃어버렸는데 어떻게 해야 하나요?
+카드값을 결제일 전에 미리 내고 싶어요
+    bill:prepay:카드값을 결제일 전에 미리 내고 싶어요
+
+# Persona 66: man, 62, 경상북 포항시 북구, 무직
+동네 식당에서 카드 결제가 안 됐는데 단말기 문제일까요?
+    payment:failed:동네 식당에서 카드 결제가 안 됐는데 단말기 문제일까요?
+이번 달에 카드 쓴 거 내역 좀 뽑아 주이소
+    payment:history:<DATETIME month_offset="0">이번 달</DATETIME>에 카드 쓴 거 내역 좀 뽑아 주이소
+어제 동생한테 보낸 돈 잘 들어갔는지 봐 주이소
+    transfer:status:<DATETIME day_offset="-1">어제</DATETIME> <recipient>동생</recipient>한테 보낸 돈 잘 들어갔는지 봐 주이소
+
+# Persona 67: woman, 64, 인천 미추홀구, 무직
+휴대폰 인증이 자꾸 실패해서 앱에 못 들어가요
+    account:login:휴대폰 인증이 자꾸 실패해서 앱에 못 들어가요
+카드 포인트가 얼마나 쌓였는지 궁금해요
+    reward:points:카드 포인트가 얼마나 쌓였는지 궁금해요
+손주가 내 카드를 몰래 쓸까 봐 잠가 두고 싶어요
+    card:freeze:손주가 내 카드를 몰래 쓸까 봐 잠가 두고 싶어요
+
+# Persona 68: woman, 40, 대전 동구, 일반 비서
+카드값 남은 것 지금 바로 결제하고 싶어요
+    bill:prepay:카드값 남은 것 지금 바로 결제하고 싶어요
+쿠팡에서 같은 금액이 두 번 결제됐어요
+    payment:duplicate:<merchant>쿠팡</merchant>에서 같은 금액이 두 번 결제됐어요
+이번 달 청구 금액 알려주세요
+    bill:amount:<DATETIME month_offset="0">이번 달</DATETIME> 청구 금액 알려주세요
+
+# Persona 69: man, 67, 대전 서구, 시설 경비원
+동료 민수에게 3만 원 보내 주세요
+    transfer:send:<recipient>동료 민수</recipient>에게 <amount><MONEY value="30000" currency="KRW">3만 원</MONEY></amount> 보내 주세요
+내가 안 쓴 돈이 결제됐어유
+    payment:fraud:내가 안 쓴 돈이 결제됐어유
+결제일 좀 바꿀 수 있나요?
+    bill:due_date:결제일 좀 바꿀 수 있나요?
+
+# Persona 70: man, 59, 인천 연수구, 수동 포장원
+간편 인증으로 로그인이 안 되는데 도와줘
+    account:login:간편 인증으로 로그인이 안 되는데 도와줘
+휴대폰 번호 010-2271-9054로 변경해 주세요
+    account:phone:휴대폰 번호 <TELNUM>010-2271-9054</TELNUM>로 변경해 주세요
+새로 만든 체크카드를 앱에 연결하려고 합니다
+    wallet:link:새로 만든 <card type="DEBIT">체크카드</card>를 앱에 연결하려고 합니다
+
+# Persona 71: woman, 24, 부산 금정구, 무직
+유효기간이 다 된 신용카드 새로 신청하려고요
+    card:reissue:유효기간이 다 된 신용카드 새로 신청하려고요
+한도가 너무 낮은데 올릴 수 있어요?
+    card:limit:한도가 너무 낮은데 올릴 수 있어요?
+이번 달 쓴 거 지금 바로 결제할래요
+    bill:prepay:이번 달 쓴 거 지금 바로 결제할래요
+
+# Persona 72: man, 56, 전라남 화순군, 건물 경비원
+앱 결제 비밀번호 재설정하는 방법 알려주세요
+    account:password:reset:앱 결제 비밀번호 재설정하는 방법 알려주세요
+모레 오후 2시에 연락 주시오
+    agent:callback:<DATETIME day_offset="+2" part_of_day="PM" hour="14">모레 오후 2시</DATETIME>에 연락 주시오
+내가 안 쓴 결제가 두 건이나 있소
+    payment:fraud:내가 안 쓴 결제가 두 건이나 있소
+
+# Persona 73: woman, 33, 경기 동두천시, 건물 청소원
+신청한 체크카드가 아직 안 왔는데 배송 조회되나요?
+    card:delivery:신청한 체크카드가 아직 안 왔는데 배송 조회되나요?
+결제일 15일로 바꿔주세요
+    bill:due_date:결제일 <DATETIME day="15">15일</DATETIME>로 바꿔주세요
+애기 재우고 밤 9시쯤 전화 주실 수 있나요?
+    agent:callback:애기 재우고 <DATETIME part_of_day="NIGHT" hour="21">밤 9시</DATETIME>쯤 전화 주실 수 있나요?
+
+# Persona 74: woman, 28, 서울 영등포구, 마케팅 전문가
+페이 잔액 50,000원 충전해줘
+    wallet:charge:페이 잔액 <amount><MONEY value="50000" currency="KRW">50,000원</MONEY></amount> 충전해줘
+로그인하면 계속 인증 오류 떠요
+    account:login:로그인하면 계속 인증 오류 떠요
+점심시간 12시 반에 전화 부탁드려요
+    agent:callback:점심시간 <DATETIME hour="12" minute="30">12시 반</DATETIME>에 전화 부탁드려요
+
+# Persona 75: woman, 63, 강원 춘천시, 무직
+베트남 쇼핑몰 결제할 수 있게 해외 사용 허용해 주세요
+    card:overseas:<country code="VN">베트남</country> 쇼핑몰 결제할 수 있게 해외 사용 허용해 주세요
+동물병원 결제도 할인되는 카드인가요?
+    reward:benefits:동물병원 결제도 할인되는 카드인가요?
+송금했는데 받는 사람이 아직 못 받았대요
+    transfer:status:송금했는데 받는 사람이 아직 못 받았대요
+
+# Persona 76: woman, 94, 제주 서귀포시, 무직
+같은 커피값이 카드에 두 번 찍혔어요 취소해주세요
+    payment:duplicate:같은 커피값이 카드에 두 번 찍혔어요 취소해주세요
+포인트가 남았다는디 그거 어떻게 쓰나
+    reward:points:포인트가 남았다는디 그거 어떻게 쓰나
+나는 그런 거 산 적이 없는디 돈이 나갔어
+    payment:fraud:나는 그런 거 산 적이 없는디 돈이 나갔어
+
+# Persona 77: man, 56, 충청북 청주시 흥덕구, 이삿짐 운반원
+마그네틱이 닳은 체크카드 재발급 부탁해요
+    card:reissue:마그네틱이 닳은 <card type="DEBIT">체크카드</card> 재발급 부탁해요
+카드 하나 없애 주세요
+    card:cancel:카드 하나 없애 주세요
+해외 결제 차단해 주세요
+    card:overseas:해외 결제 차단해 주세요
+
+# Persona 78: woman, 50, 경상남 사천시, 그 외 상점 판매원
+온라인 서점에서 결제하려는데 계속 거절돼요
+    payment:failed:온라인 서점에서 결제하려는데 계속 거절돼요
+아이디 비번 맞게 넣었는데 로그인이 안 돼요
+    account:login:아이디 비번 맞게 넣었는데 로그인이 안 돼요
+가게에서 쓴 카드 내역 좀 볼라고요
+    payment:history:가게에서 쓴 카드 내역 좀 볼라고요
+
+# Persona 79: woman, 53, 경상남 김해시, 회계 사무원
+포인트를 카드 대금에 쓸 수 있나요?
+    reward:points:포인트를 카드 대금에 쓸 수 있나요?
+이번 달 실적이 얼마나 남았는지 알 수 있나요?
+    reward:benefits:이번 달 실적이 얼마나 남았는지 알 수 있나요?
+상담원과 통화하고 싶습니다
+    agent:connect:상담원과 통화하고 싶습니다
+
+# Persona 80: man, 49, 경기 남양주시, 경·소형 화물차 운전원
+지금 가진 포인트 잔액 확인 부탁해요
+    reward:points:지금 가진 포인트 잔액 확인 부탁해요
+주유비로 쓴 내역만 따로 볼 수 있나요?
+    payment:history:주유비로 쓴 내역만 따로 볼 수 있나요?
+상담원 바꿔줘요
+    agent:connect:상담원 바꿔줘요
+
+# Persona 81: man, 73, 서울 강서구, 무직
+편의점 결제가 2번 잡혔는데 하나만 취소해 주세요
+    payment:duplicate:편의점 결제가 2번 잡혔는데 하나만 취소해 주세요
+손녀한테 5만 원 부쳐 줘요
+    transfer:send:<recipient>손녀</recipient>한테 <amount><MONEY value="50000" currency="KRW">5만 원</MONEY></amount> 부쳐 줘요
+어제 산 신발 환불해 주시오
+    payment:refund:어제 산 신발 환불해 주시오
+
+# Persona 82: man, 63, 서울 관악구, 무직
+이 페이 앱 회원에서 탈퇴하고 싶습니다
+    account:withdraw:이 페이 앱 회원에서 탈퇴하고 싶습니다
+결제한 거 취소하고 돈 돌려받고 싶어요
+    payment:refund:결제한 거 취소하고 돈 돌려받고 싶어요
+비밀번호를 새로 바꾸고 싶은데 어떻게 하나요?
+    account:password:reset:비밀번호를 새로 바꾸고 싶은데 어떻게 하나요?
+
+# Persona 83: man, 34, 부산 사상구, 사무 보조원
+다음 달 카드 청구 예정 금액이 얼마예요?
+    bill:amount:<DATETIME month_offset="+1">다음 달</DATETIME> 카드 청구 예정 금액이 얼마예요?
+로그인이 안 되네예
+    account:login:로그인이 안 되네예
+오늘 저녁 6시에 전화 좀 주이소
+    agent:callback:<DATETIME day_offset="0" part_of_day="EVENING" hour="18">오늘 저녁 6시</DATETIME>에 전화 좀 주이소
+
+# Persona 84: man, 56, 울산 동구, 가스 생산기 조작원
+미국 온라인몰 결제 막혀 있는데 해외 결제 허용해 주세요
+    card:overseas:<country code="US">미국</country> 온라인몰 결제 막혀 있는데 해외 결제 허용해 주세요
+카드 정지 풀어 주이소
+    card:unfreeze:카드 정지 풀어 주이소
+공장에서 작업하다 카드를 잃어버렸습니다
+    card:lost:공장에서 작업하다 카드를 잃어버렸습니다
+
+# Persona 85: woman, 38, 서울 노원구, 육군 부사관
+가입한 전화번호를 010-4821-7365로 바꾸고 싶어요
+    account:phone:가입한 전화번호를 <TELNUM>010-4821-7365</TELNUM>로 바꾸고 싶어요
+온라인 쇼핑몰 결제 건 환불 요청합니다
+    payment:refund:온라인 쇼핑몰 결제 건 환불 요청합니다
+같은 결제가 중복으로 승인됐습니다
+    payment:duplicate:같은 결제가 중복으로 승인됐습니다
+
+# Persona 86: woman, 80, 서울 강서구, 무직
+백화점에서 산 가방 환불했는데 카드 취소 확인해 주세요
+    payment:refund:백화점에서 산 가방 환불했는데 카드 취소 확인해 주세요
+카드를 집에 두고 나왔는데 혹시 몰라서 정지해 줘요
+    card:freeze:카드를 집에 두고 나왔는데 혹시 몰라서 정지해 줘요
+핸드폰으로 결제하게 카드 좀 넣어 주세요
+    wallet:link:핸드폰으로 결제하게 카드 좀 넣어 주세요
+
+# Persona 87: woman, 55, 경기 파주시, 무직
+비밀번호를 잊었는데 새로 만드는 절차가 어떻게 되나요?
+    account:password:reset:비밀번호를 잊었는데 새로 만드는 절차가 어떻게 되나요?
+해외 사이트 결제가 막혀 있는데 풀어 주실 수 있나요?
+    card:overseas:해외 사이트 결제가 막혀 있는데 풀어 주실 수 있나요?
+다음 달 청구될 금액을 지금 선결제할 수 있을까요?
+    bill:prepay:다음 달 청구될 금액을 지금 선결제할 수 있을까요?
+
+# Persona 88: woman, 49, 경기 용인시 수지구, 그 외 상점 판매원
+제가 주문하지 않은 배달 결제 27,000원이 나왔어요
+    payment:fraud:제가 주문하지 않은 배달 결제 <amount><MONEY value="27000" currency="KRW">27,000원</MONEY></amount>이 나왔어요
+딸한테 학원비 25만 원 송금해 주세요
+    transfer:send:<recipient>딸</recipient>한테 학원비 <amount><MONEY value="250000" currency="KRW">25만 원</MONEY></amount> 송금해 주세요
+지난달 결제한 건 할부 전환되나요?
+    bill:installment:지난달 결제한 건 할부 전환되나요?
+
+# Persona 89: woman, 33, 서울 서대문구, 전문 간호사
+이번 달 카드로 어디서 썼는지 내역 좀 보여주세요
+    payment:history:<DATETIME month_offset="0">이번 달</DATETIME> 카드로 어디서 썼는지 내역 좀 보여주세요
+당분간 안 쓸 카드라 일시 정지해 주세요
+    card:freeze:당분간 안 쓸 카드라 일시 정지해 주세요
+GS25에서 결제 오류가 났어요
+    payment:failed:<merchant>GS25</merchant>에서 결제 오류가 났어요
+
+# Persona 90: man, 23, 대구 동구, 무직
+페이 앱에 연결된 계좌를 다른 은행 계좌로 바꾸고 싶어
+    wallet:link:페이 앱에 연결된 계좌를 다른 은행 계좌로 바꾸고 싶어
+계정 삭제하고 싶은데요
+    account:withdraw:계정 삭제하고 싶은데요
+카드 디자인 바꿔서 재발급 가능?
+    card:reissue:카드 디자인 바꿔서 재발급 가능?
+
+# Persona 91: woman, 80, 서울 서대문구, 그 외 자동차 운전원
+전화번호가 바뀌어서 계정 번호를 010-6274-1903으로 수정해주세요
+    account:phone:전화번호가 바뀌어서 계정 번호를 <TELNUM>010-6274-1903</TELNUM>으로 수정해주세요
+새로 받은 신용카드를 앱에 등록하고 싶어요
+    wallet:link:새로 받은 <card type="CREDIT">신용카드</card>를 앱에 등록하고 싶어요
+택시에서 카드가 안 긁혔어요
+    payment:failed:택시에서 카드가 안 긁혔어요
+
+# Persona 92: man, 24, 전북 김제시, 자재 관리 사무원
+새 번호 010-9351-2840으로 계정 연락처 변경 부탁해요
+    account:phone:새 번호 <TELNUM>010-9351-2840</TELNUM>으로 계정 연락처 변경 부탁해요
+하나로마트에서 이중 결제 됐어요
+    payment:duplicate:<merchant>하나로마트</merchant>에서 이중 결제 됐어요
+직원분 연결해 주세요
+    agent:connect:직원분 연결해 주세요
+
+# Persona 93: man, 71, 충청남 당진시, 용융 도금기 조작원
+새 카드 배송이 지금 어디까지 왔는지 알려주세요
+    card:delivery:새 카드 배송이 지금 어디까지 왔는지 알려주세요
+체크카드를 어디 흘렸는지 없어졌시유
+    card:lost:<card type="DEBIT">체크카드</card>를 어디 흘렸는지 없어졌시유
+내일 아침에 전화 좀 해 주시유
+    agent:callback:<DATETIME day_offset="+1" part_of_day="MORNING">내일 아침</DATETIME>에 전화 좀 해 주시유
+
+# Persona 94: man, 64, 울산 울주군, 생산관리 사무원
+지갑을 잃어버려서 신용카드도 없어졌어요 신고해주세요
+    card:lost:지갑을 잃어버려서 신용카드도 없어졌어요 신고해주세요
+일시적으로 한도 상향 가능합니까?
+    card:limit:일시적으로 한도 상향 가능합니까?
+카드 발송 현황을 알고 싶습니다
+    card:delivery:카드 발송 현황을 알고 싶습니다
+
+# Persona 95: man, 30, 부산 수영구, 범용 소프트웨어 프로그래머
+복잡해서 그런데 상담 직원과 직접 얘기하고 싶어요
+    agent:connect:복잡해서 그런데 상담 직원과 직접 얘기하고 싶어요
+카드 배송 언제 와요?
+    card:delivery:카드 배송 언제 와요?
+앱카드 결제가 계속 실패하는데 왜 그런가요?
+    payment:failed:앱카드 결제가 계속 실패하는데 왜 그런가요?
+
+# Persona 96: man, 52, 서울 강북구, 매장 계산원
+카드 한도 현재 얼마인지 확인 부탁드립니다
+    card:limit:카드 한도 현재 얼마인지 확인 부탁드립니다
+페이머니 2만 원 충전해 주세요
+    wallet:charge:페이머니 <amount><MONEY value="20000" currency="KRW">2만 원</MONEY></amount> 충전해 주세요
+신용카드 분실했습니다
+    card:lost:<card type="CREDIT">신용카드</card> 분실했습니다
+
+# Persona 97: woman, 76, 부산 동구, 무직
+쌓인 포인트를 이번 결제에 사용할 수 있어?
+    reward:points:쌓인 포인트를 이번 결제에 사용할 수 있어?
+인자 카드 안 쓸 거라 해지해 주이소
+    card:cancel:인자 카드 안 쓸 거라 해지해 주이소
+홈쇼핑 물건 돌려보냈는데 돈은 언제 돌려주는교
+    payment:refund:홈쇼핑 물건 돌려보냈는데 돈은 언제 돌려주는교
+
+# Persona 98: woman, 57, 서울 마포구, 그 외 피부 및 체형 관리 종사원
+이번 달 카드값 총액 좀 알려주세요
+    bill:amount:<DATETIME month_offset="0">이번 달</DATETIME> 카드값 총액 좀 알려주세요
+회원 탈퇴 부탁드려요
+    account:withdraw:회원 탈퇴 부탁드려요
+친구 민정이한테 4만 원 보내 줘요
+    transfer:send:<recipient>친구 민정이</recipient>한테 <amount><MONEY value="40000" currency="KRW">4만 원</MONEY></amount> 보내 줘요
+
+# Persona 99: man, 46, 충청남 천안시 서북구, 그 외 건설·전기 및 생산 관련 관리자
+결제일을 매달 18일로 바꿔 주시면 좋겠습니다
+    bill:due_date:결제일을 매달 <DATETIME day="18">18일</DATETIME>로 바꿔 주시면 좋겠습니다
+어머니께 용돈 50만 원 보내드리려고 합니다
+    transfer:send:<recipient>어머니</recipient>께 용돈 <amount><MONEY value="500000" currency="KRW">50만 원</MONEY></amount> 보내드리려고 합니다
+출장비 때문에 카드 한도를 1000만 원으로 늘려야 합니다
+    card:limit:출장비 때문에 카드 한도를 <amount><MONEY value="10000000" currency="KRW">1000만 원</MONEY></amount>으로 늘려야 합니다
+
+# Persona 100: man, 76, 경기 안산시 상록구, 건물 청소원
+이번 달 카드 대금 30만 원 미리 갚으려고 합니다
+    bill:prepay:이번 달 카드 대금 <amount><MONEY value="300000" currency="KRW">30만 원</MONEY></amount> 미리 갚으려고 합니다
+페이에 돈 넣는 거 어떻게 하는 거요
+    wallet:charge:페이에 돈 넣는 거 어떻게 하는 거요
+쓰지도 않는 카드 연회비만 나가니 해지해 주쇼
+    card:cancel:쓰지도 않는 카드 연회비만 나가니 해지해 주쇼
