@@ -93,6 +93,18 @@ TEST(datetime_in_english) {
   CHECK_EQ(attributes("13pm"), std::string("<no match>"));
 }
 
+TEST(datetime_months_and_days_of_the_month_in_english) {
+  CHECK_EQ(attributes("this month"), std::string("month_offset=0"));
+  CHECK_EQ(attributes("next month"), std::string("month_offset=+1"));
+  CHECK_EQ(attributes("Last month"), std::string("month_offset=-1"));
+  CHECK_EQ(attributes("the 25th"), std::string("day=25"));
+  CHECK_EQ(attributes("the 1st"), std::string("day=1"));
+  CHECK_EQ(attributes("the 25th at 3pm"), std::string("day=25 hour=15 part_of_day=PM"));
+  CHECK_EQ(attributes("the 32nd"), std::string("<no match>"));
+  // A day of the month alone takes its suffix; a bare number is not a date.
+  CHECK_EQ(attributes("the 25"), std::string("<no match>"));
+}
+
 TEST(datetime_slot_in_a_sentence) {
   nlu::Script s = nlu::Script::compile(
       "agent:callback\n"
@@ -191,8 +203,12 @@ TEST(datetime_resolves_against_a_reference_time) {
   CHECK_EQ(resolved("3월 5일", now), std::string("2027-03-05 (day)"));
   CHECK_EQ(resolved("12월 25일", now), std::string("2026-12-25 (day)"));
   CHECK_EQ(resolved("15일", now), std::string("2026-11-15 (day)"));
+  CHECK_EQ(resolved("the 15th", now), std::string("2026-11-15 (day)"));
+  CHECK_EQ(resolved("the 25th", now), std::string("2026-10-25 (day)"));
   CHECK_EQ(resolved("2026년 3월 5일", now), std::string("2026-03-05 (day)"));
   CHECK_EQ(resolved("다음 달 15일", now), std::string("2026-11-15 (day)"));
+  CHECK_EQ(resolved("next month", now), std::string("2026-11-01 (month)"));
+  CHECK_EQ(resolved("last month", now), std::string("2026-09-01 (month)"));
   CHECK_EQ(resolved("내년", now), std::string("2027-01-01 (year)"));
   CHECK_EQ(resolved("2시간 뒤", now), std::string("2026-10-21 16:20 (minute)"));
   CHECK_EQ(resolved("30분 후", now), std::string("2026-10-21 14:50 (minute)"));

@@ -57,7 +57,7 @@ I'd like to raise my limit a bit because of my mom's hospital bills
 
 # Persona 7: woman, 71, 인천 중구, 간호조무사
 I would like to change my card payment date to the 25th every month
-    bill:due_date:I would like to change my card payment date to the 25th every month
+    bill:due_date:I would like to change my card payment date to <DATETIME day="25">the 25th</DATETIME> every month
 How do I add my debit card to the pay app my daughter installed?
     wallet:link:How do I add my <card type="DEBIT">debit card</card> to the pay app my daughter installed?
 Please change what I paid at the pharmacy yesterday into 3 month installments
@@ -147,13 +147,13 @@ I'll prepay 500,000 won of my card balance
 Please temporarily suspend my check card
     card:freeze:Please temporarily suspend my <card type="DEBIT">check card</card>
 Please show me my payment history for last month
-    payment:history:Please show me my payment history for last month
+    payment:history:Please show me my payment history for <DATETIME month_offset="-1">last month</DATETIME>
 Please unblock my suspended card
     card:unfreeze:Please unblock my suspended card
 
 # Persona 19: man, 31, 서울 송파구, 국가행정 사무원
 My payment date is before payday so I would like to change it to the 25th
-    bill:due_date:My payment date is before payday so I would like to change it to the 25th
+    bill:due_date:My payment date is before payday so I would like to change it to <DATETIME day="25">the 25th</DATETIME>
 I tried to pay at a bakery and it says declined
     payment:failed:I tried to pay at a bakery and it says declined
 I want to pay off everything I spent this month right away
@@ -163,7 +163,7 @@ I want to pay off everything I spent this month right away
 I want to delete my Pay app account completely
     account:withdraw:I want to delete my Pay app account completely
 Please change my card payment date to the 25th
-    bill:due_date:Please change my card payment date to the 25th
+    bill:due_date:Please change my card payment date to <DATETIME day="25">the 25th</DATETIME>
 Please lift the suspension on my card ending in 3821
     card:unfreeze:Please lift the suspension on my card ending in <last4>3821</last4>
 
@@ -171,7 +171,7 @@ Please lift the suspension on my card ending in 3821
 I would appreciate it if you could unlock my suspended card
     card:unfreeze:I would appreciate it if you could unlock my suspended card
 My payday changed so I'd like to move my payment date to the 10th
-    bill:due_date:My payday changed so I'd like to move my payment date to the 10th
+    bill:due_date:My payday changed so I'd like to move my payment date to <DATETIME day="10">the 10th</DATETIME>
 Do I get a discount when I buy gas with this card?
     reward:benefits:Do I get a discount when I buy gas with this card?
 
@@ -507,7 +507,7 @@ I have a business trip to the US next week so please allow overseas payments
 My check card is bent and I would like a new one issued
     card:reissue:My check card is bent and I would like a new one issued
 I'd like to adjust my payment date to the 14th of every month
-    bill:due_date:I'd like to adjust my payment date to the 14th of every month
+    bill:due_date:I'd like to adjust my payment date to <DATETIME day="14">the 14th</DATETIME> of every month
 A payment I didn't make was approved overseas
     payment:fraud:A payment I didn't make was approved overseas
 
@@ -531,7 +531,7 @@ I want to pay my card bill early before the due date
 My card would not work at the neighborhood restaurant could it be the terminal?
     payment:failed:My card would not work at the neighborhood restaurant could it be the terminal?
 Pull up my card history for this month please
-    payment:history:Pull up my card history for this month please
+    payment:history:Pull up my card history for <DATETIME month_offset="0">this month</DATETIME> please
 Check whether the money I sent my brother yesterday got through
     transfer:status:Check whether the money I sent my brother yesterday got through
 
@@ -587,7 +587,7 @@ There are two charges I didn't make
 My check card has not arrived yet can you track the delivery?
     card:delivery:My check card has not arrived yet can you track the delivery?
 Change my payment date to the 15th please
-    bill:due_date:Change my payment date to the 15th please
+    bill:due_date:Change my payment date to <DATETIME day="15">the 15th</DATETIME> please
 Can you call me around 9pm after I put the baby to bed?
     agent:callback:Can you call me around <DATETIME hour="21" part_of_day="PM">9pm</DATETIME> after I put the baby to bed?
 
@@ -713,7 +713,7 @@ Can I convert last month's payment to installments?
 
 # Persona 89: woman, 33, 서울 서대문구, 전문 간호사
 Please show me where I used my card this month
-    payment:history:Please show me where I used my card this month
+    payment:history:Please show me where I used my card <DATETIME month_offset="0">this month</DATETIME>
 Please temporarily suspend my card since I won't use it for a while
     card:freeze:Please temporarily suspend my card since I won't use it for a while
 I got a payment error at GS25
@@ -793,7 +793,7 @@ Send 40,000 won to my friend Minjeong
 
 # Persona 99: man, 46, 충청남 천안시 서북구, 그 외 건설·전기 및 생산 관련 관리자
 I would appreciate it if you changed my payment date to the 18th every month
-    bill:due_date:I would appreciate it if you changed my payment date to the 18th every month
+    bill:due_date:I would appreciate it if you changed my payment date to <DATETIME day="18">the 18th</DATETIME> every month
 I'd like to send 500,000 won of pocket money to my mother
     transfer:send:I'd like to send <amount><MONEY value="500000" currency="KRW">500,000 won</MONEY></amount> of pocket money to my <recipient>mother</recipient>
 I need to raise my card limit to 10 million won for business trip expenses

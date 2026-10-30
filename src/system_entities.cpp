@@ -330,8 +330,11 @@ NodePtr datetime() {
                             spaced({which_en, literal(U"week")})});
   NodePtr month_en = literals(kMonthsEn);
   NodePtr day_en = glued({day_digits(), optional(literals(kOrdinals))});
+  // A day of the month alone takes "the" and its suffix: the 25th.
+  NodePtr day_alone_en = spaced({literal(U"the"), glued({day_digits(), literals(kOrdinals)})});
   NodePtr date_en = choice({literals(kRelativeDaysEn), week_en, spaced({month_en, day_en}),
-                            spaced({day_en, literal(U"of"), month_en})});
+                            spaced({day_en, literal(U"of"), month_en}),
+                            spaced({which_en, literal(U"month")}), day_alone_en});
 
   // English times.
   NodePtr minutes_en = glued({literal(U":"), range(U'0', U'5'), range(U'0', U'9')});

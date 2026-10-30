@@ -266,13 +266,14 @@
       Rules written from Claude's 200 got 89 of GPT-6-Luna's 100 Korean
       sentences and 73 of the English ones before they saw them. The fuzz
       corpus is seeded with the persona sentences too
+- [x] English `DATETIME` reads `this month`, `next month` and `last month`
+      (`month_offset`, like `이번 달`, `다음 달`, `지난달`) and a day of the
+      month alone, `the 25th` (`day`, like `25일`). The demo's English
+      `bill:due_date` rules now capture the date as the Korean one does, so
+      ten English persona inquiries tag a `DATETIME` they didn't before
 
 ## Next
 
-- [ ] English `DATETIME` lacks forms its Korean side has: `this month`,
-      `next month` and `last month` (Korean `이번 달`, `다음 달`, `지난달`
-      give `month_offset`), and a day of the month alone (`the 25th`, while
-      `25일` gives `day`). Found writing the English persona data
 - [ ] `MONEY` doesn't read `30k won` or `2.8 million won` (`2,800,000 won`
       and `5 million won` work)
 - [ ] A system entity followed by a wildcard takes its shortest form:

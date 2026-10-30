@@ -96,8 +96,8 @@ bill:amount
 
 bill:due_date
     <?>*? 결제일 (<?>*? `@{DATETIME}) <?>*? [변경|바꾸|바꿀|바꿔|옮기|옮길|조정] <?>*?
-    <?>*? [change|move|adjust] <?>*? payment date <?>*?
-    <?>*? payment date <?>*? [change|move] <?>*?
+    <?>*? [change|move|adjust] <?>*? payment date (<?>*? `@{DATETIME}) <?>*?
+    <?>*? payment date <?>*? [change|move] (<?>*? `@{DATETIME}) <?>*?
 
 bill:installment
     (<?>*? @{merchant}) (<?>*? <amount>`@{MONEY}</amount>) (<?>*? <months>`@{KO_NUMBER}</months> 개월) <?>*? 할부 <?>*?

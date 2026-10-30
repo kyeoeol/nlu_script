@@ -123,7 +123,7 @@ inline constexpr const char32_t* kWeekdaysEn[7] = {U"monday",   U"tuesday", U"we
 
 // Days, weeks, months and years relative to now, by their offset. The
 // Korean "which" words come before 주 (week) and 달 (month); the English
-// ones before a weekday or "week".
+// ones before a weekday, "week" or "month".
 inline constexpr NumberWord kRelativeDaysKo[] = {{U"오늘", 0},  {U"내일", 1},  {U"모레", 2},
                                                  {U"글피", 3},  {U"어제", -1}, {U"그제", -2},
                                                  {U"그저께", -2}};
