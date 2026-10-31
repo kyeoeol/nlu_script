@@ -551,6 +551,10 @@ to the next one. Unqualified assignments outside any slot are an error. Later
 assignments of the same key win. Attributes are listed in the order they were
 first assigned.
 
+A slot's text never starts or ends with a space, also when an optional
+group at its edge is skipped: `<card>visa (card)</card>` captures `visa` in
+`my visa was declined`.
+
 ## C++ API
 
 ```cpp

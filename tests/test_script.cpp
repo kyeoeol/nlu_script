@@ -208,6 +208,23 @@ TEST(nested_slots_are_rendered_nested) {
   CHECK_EQ(tagged(s, "a b c"), std::string("t:<outer>a <inner>b</inner></outer> c"));
 }
 
+TEST(slots_leave_out_the_space_beside_a_skipped_optional_group) {
+  nlu::Script ends = nlu::Script::compile("t\n    <s>a (b)</s> c\n");
+  CHECK_EQ(tagged(ends, "a c"), std::string("t:<s>a</s> c"));
+  CHECK_EQ(tagged(ends, "a b c"), std::string("t:<s>a b</s> c"));
+  std::vector<nlu::Match> found = ends.match("a c");
+  CHECK_EQ(found.size(), 1u);
+  if (found.size() == 1) {
+    CHECK_EQ(found[0].slots[0].text, std::string("a"));
+    CHECK_EQ(found[0].slots[0].end, 1u);
+  }
+  nlu::Script starts = nlu::Script::compile("t\n    x::<s>(b) a</s>\n");
+  CHECK_EQ(tagged(starts, "x a"), std::string("t:x <s>a</s>"));
+  // A slot the skipped group left empty stays inside the slot around it.
+  nlu::Script nested = nlu::Script::compile("t\n    <outer>a <inner>(b)</inner></outer> c\n");
+  CHECK_EQ(tagged(nested, "a c"), std::string("t:<outer>a<inner></inner></outer> c"));
+}
+
 TEST(attribute_outside_slot_is_an_error) {
   CHECK_THROWS(nlu::CompileError, nlu::Script::compile("t\n    nine{hour=9}\n"));
   CHECK_THROWS(nlu::CompileError, nlu::Script::compile("t\n    <a>x</a> y{b.k=1}\n"));
