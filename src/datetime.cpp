@@ -74,8 +74,10 @@ std::vector<Word> make_words() {
       add(std::u32string(w.text) + kWeekdaysEn[i],
           {{"week_offset", offset(w.value)}, {"weekday", kWeekdayNames[i]}});
   }
-  for (const NumberWord& w : kWhichEn)
+  for (const NumberWord& w : kWhichEn) {
     add(std::u32string(w.text) + U"week", {{"week_offset", offset(w.value)}});
+    add(std::u32string(w.text) + U"month", {{"month_offset", offset(w.value)}});
+  }
   for (const NumberWord& m : kMonthsEn) add(m.text, {{"month", std::to_string(m.value)}});
   for (const PartOfDayEn& p : kPartsOfDayEn) {
     Attributes attrs;

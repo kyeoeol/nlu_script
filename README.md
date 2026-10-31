@@ -487,11 +487,10 @@ call me back (at) `@{DATETIME}
 | 오늘, 내일, 모레, 글피, 어제, 그제, 그저께; today, tomorrow, yesterday, the day after tomorrow | `day_offset` (`0`, `+1`, `-1`, ...) |
 | 이번/다음/지난 주, 담주; this/next/last week | `week_offset` |
 | 월요일 ... 일요일; monday ... sunday, next monday | `weekday` (`MON` ... `SUN`), `week_offset` |
-| 2026년, 3월, 5일, 삼월 십오일; march 5th, 5th of march, dec 31 | `year`, `month`, `day` |
-| 올해, 내년, 작년; 이번/다음/지난 달 | `year_offset`, `month_offset` |
+| 2026년, 3월, 5일, 삼월 십오일; march 5th, 5th of march, dec 31, the 25th | `year`, `month`, `day` |
+| 올해, 내년, 작년; 이번/다음/지난 달; this/next/last month | `year_offset`, `month_offset` |
 | 새벽, 아침, 오전, 낮, 점심, 오후, 저녁, 밤; morning, afternoon, evening, night, tonight, am, pm | `part_of_day` (`DAWN`, `MORNING`, `AM`, `DAY`, `NOON`, `PM`, `EVENING`, `NIGHT`) |
 | 3시, 세 시, 열두시, 15시, 30분, 반, 정오, 자정; 3pm, 3:30 pm, 15:30, 3 o'clock, noon, midnight | `hour`, `minute` |
-
 | 3시부터 5시까지, 내일부터 모레까지, 3시~5시, 3~5시; from 3 to 5pm, between monday and friday, 3-5pm | the start's attributes, and the end's with an `end_` prefix |
 | 2시간 뒤, 1시간 30분 후, 이틀 전, 한 달 후; in 2 hours, in an hour, 3 days ago, 2 weeks from now | `minute_offset`, `hour_offset`, `day_offset`, ... (`+2`, `-3`) |
 
