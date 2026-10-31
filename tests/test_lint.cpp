@@ -245,3 +245,55 @@ TEST(lint_findings_read_like_the_cli) {
   CHECK_EQ(findings[1].kind, std::string("unused"));
   CHECK_EQ(findings[1].message, std::string("@unused is never used"));
 }
+
+TEST(lint_searches_rules_that_put_wildcards_around_system_entities) {
+  nlu::Script s = nlu::Script::compile(
+      "agent:callback\n"
+      "    <?>*? `@{DATETIME} <?>*? [전화|연락] <?>*?\n"
+      "bill:amount\n"
+      "    (<?>*? `@{DATETIME}) <?>*? 청구 <?>*? (<?>*? `@{MONEY}) <?>*?\n");
+  nlu::LintReport report = s.lint(20000);
+  CHECK(report.complete);
+  CHECK_EQ(report.overlaps.size(), 1u);
+  if (report.overlaps.size() == 1)
+    CHECK_EQ(labels(s, report.overlaps[0].example),
+             (std::vector<std::string>{"agent:callback", "bill:amount"}));
+}
+
+TEST(lint_searches_many_labels_that_look_for_words_anywhere) {
+  // Any two of them match a sentence with both words.
+  std::string source;
+  for (char c = 'a'; c < 'a' + 12; ++c)
+    source += std::string("l") + c + "\n    <?>*? w" + c + " <?>*?\n";
+  nlu::LintReport report = nlu::Script::compile(source).lint(50000);
+  CHECK(report.complete);
+  CHECK_EQ(report.overlaps.size(), 66u);
+}
+
+TEST(lint_reports_the_dead_rules_of_labels_it_searched_fully) {
+  // The state limit stops the search for overlaps among the other labels,
+  // after card:lost's rules were searched.
+  std::string source = "card:lost\n    I lost my <?>+?\n    I lost my card\n";
+  for (char c = 'a'; c < 'a' + 16; ++c)
+    source += std::string("l") + c + "\n    <?>*? w" + c + " <?>*?\n";
+  nlu::LintReport report = nlu::Script::compile(source).lint(400);
+  CHECK(!report.complete);
+  CHECK_EQ(report.dead_rules.size(), 1u);
+  if (report.dead_rules.size() == 1) CHECK_EQ(report.dead_rules[0].line, 3);
+}
+
+TEST(lint_forgets_what_a_wildcard_after_it_takes_over) {
+  // Once the wildcard after an optional entity has started, the entity's
+  // partial matches make no difference, so they don't multiply the states.
+  nlu::Script s = nlu::Script::compile(
+      "card:limit\n"
+      "    <?>*? 한도 (<?>*? <amount>`@{MONEY}</amount>) <?>*?\n"
+      "    <?>*? limit (<?>*? <amount>`@{MONEY}</amount>) <?>*?\n"
+      "bill:amount\n"
+      "    (<?>*? `@{DATETIME}) <?>*? [청구|명세서|금액] <?>*? [얼마|알려|확인] <?>*?\n"
+      "bill:due_date\n"
+      "    <?>*? 결제일 (<?>*? `@{DATETIME}) <?>*? [변경|바꿔|옮기] <?>*?\n");
+  nlu::LintReport report = s.lint(2000);
+  CHECK(report.complete);
+  CHECK_EQ(report.overlaps.size(), 3u);
+}

@@ -111,7 +111,7 @@ struct LintReport {
   std::vector<Overlap> overlaps;          // in script order of their rules
   // Overlaps that a `# lint: allow-overlap` comment marks as intended.
   std::vector<Overlap> allowed_overlaps;  // in script order of their rules
-  // Found only when the search is complete.
+  // Of the labels whose rules were searched fully.
   std::vector<DeadRule> dead_rules;       // in script order
   std::vector<UnusedDefinition> unused;   // ordered by file and line
   std::vector<LintDirectiveError> directive_errors;  // ordered by file and line
@@ -287,10 +287,11 @@ class Script {
   // complete matches, then script order.
   std::vector<Explanation> explain(const std::string& text, std::size_t limit = 3) const;
 
-  // Static checks for script authors: labels that match the same input, and
-  // definitions that no rule uses. The overlap search explores the automaton
-  // of all rules, up to `max_states` states.
-  LintReport lint(std::size_t max_states = 100000) const;
+  // Static checks for script authors: labels that match the same input, rules
+  // that never match first, and definitions that no rule uses. Each label's
+  // rules, and each pair of labels, are searched on their own, using up to
+  // `max_states` states in all (of the automata built and of the searches).
+  LintReport lint(std::size_t max_states = 1000000) const;
 
   // Runs the cases of a script test file (its contents; `name` locates
   // errors). With `best`, cases expect the output of match_best() instead of

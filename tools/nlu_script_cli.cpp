@@ -82,8 +82,8 @@ int run_lint(const std::string& script_path, bool best, bool verbose) {
                 << "\" (allowed by a lint comment)\n";
   }
   if (!report.complete)
-    std::cout << "note: the automaton is too large to search fully; more overlaps may exist, "
-                 "and dead rules were not checked\n";
+    std::cout << "note: the search stopped at its state limit; more overlaps may exist, "
+                 "and some labels' dead rules were not checked\n";
   std::cout << findings.size() << (findings.size() == 1 ? " finding" : " findings");
   std::vector<std::string> notes;
   if (const std::size_t n = report.allowed_overlaps.size())

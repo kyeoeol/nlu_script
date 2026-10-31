@@ -290,13 +290,34 @@
       built, and a slot the skipped group left empty stays inside the slot
       around it. The demo's card variable says `@var.{brand_en} (card)`
       instead of spelling out both forms
+- [x] Lint is fast on rules that put wildcards around words and system
+      entities. The demo (82 rules, 29 labels) lints fully in about 0.2 s:
+      before, each automaton state took about 50 ms and 5,000 states found 2
+      of its 406 overlaps. The fuzz job had started timing out in lint after
+      #38 (the new demo seed has many such rules; `` <?>*? `@{DATETIME} <?>*? ``
+      alone took 50 s under its sanitizers, now 34 ms). Four changes:
+      system entities compile to their determinized automaton, built once per
+      grammar and process (`DATETIME` in about 30 ms; about 11,000 states per
+      use instead of 58,000, with one start state instead of about 2,300 that
+      every state after a wildcard carried; matching uses it too, so the
+      persona tests run in 0.3 s instead of 4.8 s and the saved demo is
+      3.9 MB instead of 9.0 MB; and an entity takes its longest form by
+      construction, so the order of its grammar's words no longer matters);
+      the search runs per pair of labels for overlaps and per label for dead
+      rules, over each label's automaton built once, instead of over all
+      rules at once, whose states had to remember which rules had matched; a
+      state of a rule is dropped from a set when a plain wildcard every
+      accepting path from it goes through has started (so `<?>*? a <?>*? b`
+      forgets how `a` matched); and searches stop once their answer can't
+      change, the overlap search going by A* towards inputs both labels
+      match. `lint()` uses up to 1,000,000 states by default (was 100,000),
+      reports the dead rules of every label searched fully, and on 1,400
+      random scripts gives the old results (3 tie on another input of the
+      same cost). The fuzz target takes inputs up to 16 KiB, so the demo
+      seed itself runs too
 
 ## Next
 
-- [ ] Lint is too slow for the demo: with its 80 rules, mostly `<?>*? word
-      <?>*?` and many with system entities, each automaton state takes about
-      50 ms (1.4 ms with the system entities stubbed out), and 1,000 states
-      find no overlap yet. `ctest` lints a small script instead
 - [ ] Publish wheels to PyPI (e.g. on a version tag)
 - [ ] If GitHub retires the Intel macOS runner (`macos-15-intel`), build the
       x86_64 wheel on the arm64 runner instead: cross-compile (pass

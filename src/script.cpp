@@ -1344,35 +1344,11 @@ std::vector<Explanation> Script::explain(const std::string& text, std::size_t li
 }
 
 LintReport Script::lint(std::size_t max_states) const {
-  // The script's automaton plus, for each rule, a copy without wildcard edges
-  // (accepting as rule n + r), which tells whether an input needs a wildcard.
   const Impl& impl = *impl_;
-  const int n = static_cast<int>(impl.rules.size());
-  Nfa nfa = impl.nfa;
-  const int start = nfa.add_state();
-  nfa.epsilon(start, impl.start);
   std::vector<RuleSource> sources;
-  for (int r = 0; r < n; ++r) {
-    const CompiledRule& rule = impl.rules[r];
-    bool wildcard_free = true;
-    const int base = static_cast<int>(nfa.states.size());
-    for (int s = rule.first; s < rule.last; ++s) nfa.add_state();
-    for (int s = rule.first; s < rule.last; ++s) {
-      State& copy = nfa.states[base + (s - rule.first)];
-      for (Edge e : impl.nfa.states[s].edges) {
-        if (e.wildcard) {
-          wildcard_free = false;
-          continue;
-        }
-        e.to = base + (e.to - rule.first);
-        copy.edges.push_back(e);
-      }
-      if (impl.nfa.states[s].accept_rule == r) copy.accept_rule = n + r;
-    }
-    nfa.epsilon(start, base + (rule.start - rule.first));
-    sources.push_back({rule.label, rule.line, rule.file, wildcard_free});
-  }
-  RuleAnalysis search = analyze_rules(nfa, start, sources, max_states);
+  for (const CompiledRule& rule : impl.rules)
+    sources.push_back({rule.label, rule.line, rule.file, rule.start, rule.first, rule.last});
+  RuleAnalysis search = analyze_rules(impl.nfa, sources, max_states);
 
   LintReport report;
   report.unused = impl.unused;
