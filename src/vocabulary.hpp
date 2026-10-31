@@ -2,9 +2,9 @@
 // grammar in system_entities.cpp matches them and the readers in numbers.cpp
 // and datetime.cpp compute attributes from them, so a word is added in one
 // place. Texts are as matched (lowercase, single spaces); the readers of
-// dates and times compare them with the spaces removed. The grammar tries
-// the words of a table longest first, so an entity takes the whole word
-// (dollars, not dollar).
+// dates and times compare them with the spaces removed. An entity takes its
+// longest form whatever the order of a table's words (dollars, not dollar):
+// see entity_automaton() in compiler.cpp.
 #ifndef NLU_SCRIPT_VOCABULARY_HPP
 #define NLU_SCRIPT_VOCABULARY_HPP
 

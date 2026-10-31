@@ -185,10 +185,12 @@ Each overlap names the first rule of each label that matches, and gives the
 shortest input that both match (normalized, so in lowercase), with `x`
 standing in for any text a wildcard accepts. Read each one and decide whether
 a label needs an exclusion, or whether `match_best()` should pick between
-them. The search explores the automaton of all rules, up to 100,000 states.
-If it stops there, the output says that more overlaps may exist. It slows
-down on many rules that are mostly wildcards, more so with system entities:
-on the demo, each state takes tens of milliseconds.
+them. Each pair of labels is searched on its own, and so are each label's
+rules for dead ones, using up to 1,000,000 states in all (of the automata
+it builds and of its searches); if it stops there, the output says that
+more overlaps may exist. The demo, whose 29 labels mostly look for words
+anywhere in a sentence (so any two of them share some sentence), takes
+about 0.2 seconds.
 
 Some overlaps are intended, and wildcards produce many. Mark them with a
 comment anywhere in the script:

@@ -1,6 +1,5 @@
 #include "system_entities.hpp"
 
-#include <algorithm>
 #include <iterator>
 #include <memory>
 #include <string>
@@ -86,13 +85,8 @@ const char32_t* text_of(const Word& w) {
   return w.text;
 }
 
-// One of `words`, longest first. A choice takes the first option that lets
-// the rule match, so a word that another one starts with comes after it: an
-// entity followed by a wildcard takes `dollars`, not `dollar` and an `s` for
-// the wildcard.
+// One of `texts`.
 NodePtr words(std::vector<std::u32string> texts) {
-  std::stable_sort(texts.begin(), texts.end(),
-                   [](const std::u32string& a, const std::u32string& b) { return a.size() > b.size(); });
   std::vector<NodePtr> options;
   for (std::u32string& t : texts) options.push_back(literal(t));
   return choice(std::move(options));
@@ -161,14 +155,12 @@ NodePtr korean_number() {
   NodePtr arabic = arabic_number();
 
   // Below 10,000 in numerals: [d]천 [d]백 [d]십 [d], highest unit first.
-  // These come before digits alone, which 5천 starts with.
   NodePtr ten = glued({optional(d), literal(U"십"), optional(d)});
   NodePtr hundred = glued({optional(d), literal(U"백"), optional(choice({ten, d}))});
   NodePtr thousand = glued({optional(d), literal(U"천"), optional(choice({hundred, ten, d}))});
   NodePtr small = choice({thousand, hundred, ten, arabic, sino});
 
   // [small]조 [small]억 [small]만 [small], highest unit first, any of them.
-  // Native numbers come first: 일곱 and 일흔 start with the numeral 일.
   auto group = [&](const char32_t* unit) { return glued({optional(small), literal(unit)}); };
   return choice(
       {native_korean_number(), in_order({group(U"조"), group(U"억"), group(U"만"), small})});

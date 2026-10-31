@@ -27,6 +27,12 @@ struct Definitions {
 int compile_rule(Nfa& nfa, const Definitions& defs, const Node& pattern, int rule,
                  bool trailing_punctuation);
 
+// The state inside a word of the wildcard that compile_wildcard() builds for
+// `<?>*?` or `<?>+?` from state `in`, if a space may follow the wildcard (a
+// soft join or the end of the rule comes next); otherwise -1. It reads
+// loaded automata too, which carry no record of their wildcards.
+int wildcard_word(const Nfa& nfa, int in);
+
 }  // namespace detail
 }  // namespace nlu
 

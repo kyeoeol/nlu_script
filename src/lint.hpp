@@ -17,25 +17,28 @@ struct RuleSource {
   std::string label;
   int line;
   std::string file;
-  bool wildcard_free;  // no path through the rule consumes a wildcard character
+  int start;        // its start state
+  int first, last;  // its states occupy the id range [first, last)
 };
 
 struct RuleAnalysis {
   std::vector<Overlap> overlaps;  // in script order of their rules
-  std::vector<DeadRule> dead_rules;  // in script order; empty if not complete
-  bool complete = true;
+  std::vector<DeadRule> dead_rules;  // in script order, of the labels searched fully
+  bool complete = true;  // false if a search stopped at the state limit
 };
 
-// Explores every normalized input the rules accept, in one search over the
-// determinized automaton from `start` (at most `max_states` states):
+// Explores the normalized inputs the rules of `script` accept, searching the
+// determinized automaton of each pair of labels, and of each label alone,
+// with at most `max_states` states (of the automata and of the searches) in
+// all:
 //  - every pair of labels that accept a common input, each with the cheapest
 //    such input: fewest characters, then spaces wherever the patterns allow
 //    them, then a placeholder such as `x` at wildcard positions;
 //  - which label of such a pair match_best() always prefers;
 //  - rules whose every input an earlier rule of their label accepts first.
-// `rules[r]` describes rule `r` (accept_rule r). For each rule, `nfa` also
-// holds a copy without wildcard edges that accepts as rule rules.size() + r.
-RuleAnalysis analyze_rules(const Nfa& nfa, int start, const std::vector<RuleSource>& rules,
+// A search stops once what it finds can no longer change. `rules[r]`
+// describes rule `r` (accept_rule r).
+RuleAnalysis analyze_rules(const Nfa& script, const std::vector<RuleSource>& rules,
                            std::size_t max_states);
 
 }  // namespace detail

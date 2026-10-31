@@ -68,6 +68,13 @@ inline char32_t unmentioned(const std::vector<char32_t>& chars, CharClass cls) {
   return c;
 }
 
+// The CharClasses that characters an automaton doesn't mention split into,
+// when guards or class-limited wildcards tell syllables apart; otherwise the
+// first stands for them all (unmentioned() treats it like CharClass::All).
+inline constexpr CharClass kOtherClasses[4] = {CharClass::NotSyllable, CharClass::SyllableNoFinal,
+                                              CharClass::SyllableRieul,
+                                              CharClass::SyllableOtherFinal};
+
 struct Edge {
   enum class Kind : std::uint8_t {
     Epsilon,  // consumes nothing

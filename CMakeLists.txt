@@ -91,7 +91,8 @@ if(NLU_SCRIPT_BUILD_TESTS)
             examples/personas/en.test
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
   # A script whose only overlap is marked by a lint comment has no findings.
-  # (The demo's wildcard rules take lint too long to search; see TASKS.md.)
+  # (Any two of the demo's labels share some sentence, since most of its rules
+  # look for words anywhere in one, so linting it lists them all.)
   add_test(NAME nlu_script_cli_lint
     COMMAND nlu_script_cli --lint tests/data/lint_allowed.nlu
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})

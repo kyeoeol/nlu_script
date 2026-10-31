@@ -9,7 +9,7 @@
 #include "nlu_script/nlu_script.hpp"
 
 extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size) {
-  if (size > 4096) return 0;
+  if (size > 16384) return 0;
   const std::string source(reinterpret_cast<const char*>(data), size);
   try {
     nlu::Script script = nlu::Script::compile(source);

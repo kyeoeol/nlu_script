@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <set>
 #include <string>
 #include <utility>
@@ -16,6 +17,9 @@ namespace detail {
 namespace {
 
 constexpr std::size_t kMaxExclusionStates = 20000;
+// System entity grammars are fixed; DATETIME, the largest, determinizes to
+// about 11,000 states.
+constexpr std::size_t kMaxEntityStates = 100000;
 
 // Repetitions multiply a rule's automaton, so nested ones grow it fast
 // ([[[[a]^(1,100)]^(1,100)]^(1,100)]^(1,100) would take gigabytes). Compiling
@@ -33,10 +37,6 @@ struct Dfa {
   std::vector<std::vector<int>> next;  // next[state][class], -1 = dead
   std::vector<bool> accept;
 };
-
-// The CharClasses that unmentioned characters split into.
-const CharClass kOtherClasses[] = {CharClass::NotSyllable, CharClass::SyllableNoFinal,
-                                   CharClass::SyllableRieul, CharClass::SyllableOtherFinal};
 
 // The representative character of each class: see Dfa.
 std::vector<char32_t> class_representatives(const std::vector<char32_t>& chars, bool by_class) {
@@ -89,6 +89,14 @@ struct Frag {
   int in;
   int out;
 };
+
+// A system entity's grammar, determinized (the start is state 0), and the
+// state that leaves the entity. See entity_automaton().
+struct EntityAutomaton {
+  Nfa nfa;
+  int out;
+};
+const EntityAutomaton& entity_automaton(const std::string& name, const Node& body);
 
 class Compiler {
  public:
@@ -192,13 +200,13 @@ class Compiler {
         if (n.exclusion) return compile_excluded_wildcard(n);
         return compile_wildcard(n.wild);
       case Node::Kind::Slot:
-        return compile_slot(n.name, *n.children[0]);
+        return compile_slot(n.name, [&] { return compile(*n.children[0]); });
       case Node::Kind::EntityRef: {
         auto it = defs_.entities.find(n.name);
         if (it == defs_.entities.end()) throw_at(n.pos, "undefined entity @{" + n.name + "}");
         const std::string ref = "@{" + n.name + "}";
         enter(n.pos, ref);
-        Frag f = compile_slot(n.name, *it->second.body);
+        Frag f = compile_slot(n.name, [&] { return compile(*it->second.body); });
         ref_stack_.pop_back();
         return f;
       }
@@ -249,7 +257,8 @@ class Compiler {
           for (const auto& kv : system) known += (known.empty() ? "" : ", ") + kv.first;
           throw_at(n.pos, "unknown system entity `@{" + n.name + "}; available: " + known);
         }
-        return compile_slot(n.name, *it->second.body, it->second.normalizer);
+        return compile_slot(n.name, [&] { return embed(entity_automaton(n.name, *it->second.body)); },
+                            it->second.normalizer);
       }
     }
     throw_at(n.pos, "internal error: unknown node");
@@ -299,9 +308,20 @@ class Compiler {
     return {in, cur};
   }
 
-  Frag compile_slot(const std::string& name, const Node& body,
-                    Normalizer normalizer = Normalizer::None) {
-    if (!with_actions_) return compile(body);
+  // A copy of a system entity's automaton.
+  Frag embed(const EntityAutomaton& entity) {
+    const int base = static_cast<int>(nfa_.states.size());
+    for (const State& s : entity.nfa.states) {
+      nfa_.states.push_back(s);
+      for (Edge& e : nfa_.states.back().edges) e.to += base;
+    }
+    return {base, base + entity.out};
+  }
+
+  // The slot `name` around what `body()` compiles.
+  template <typename Body>
+  Frag compile_slot(const std::string& name, Body body, Normalizer normalizer = Normalizer::None) {
+    if (!with_actions_) return body();
     int id = nfa_.slot_id(name);
     slots_seen_.insert(name);
     int open = static_cast<int>(nfa_.actions.size());
@@ -311,7 +331,7 @@ class Compiler {
     int in = nfa_.add_state();
     int out = nfa_.add_state();
     ++slot_depth_;
-    Frag f = compile(body);
+    Frag f = body();
     --slot_depth_;
     nfa_.add_edge(in, Edge::Kind::Action, f.in, 0, -1, open);
     nfa_.add_edge(f.out, Edge::Kind::Action, out, 0, -1, close);
@@ -512,6 +532,66 @@ class Compiler {
   }
 };
 
+// System entity grammars expand to thousands of NFA states (DATETIME to
+// about 58,000), many of which can start the entity, and they would all be
+// in every state where an entity may start (after a wildcard, say). Each
+// grammar is determinized the first time a rule uses it, and every use gets
+// a copy: one state per position in the entity. From an accepting state,
+// consuming more comes before leaving, so an entity takes its longest form.
+const EntityAutomaton& entity_automaton(const std::string& name, const Node& body) {
+  static std::mutex mutex;
+  static std::map<const Node*, EntityAutomaton> cache;
+  {
+    std::lock_guard<std::mutex> lock(mutex);
+    auto it = cache.find(&body);
+    if (it != cache.end()) return it->second;
+  }
+  // Built without the lock, so compiling other entities needn't wait; of two
+  // threads building the same one, the second drops its copy.
+  Nfa grammar;
+  const Definitions none;
+  const Frag f = Compiler(grammar, none, false).compile(body);
+  grammar.states[f.out].accept_rule = 0;
+  for (const State& s : grammar.states)
+    for (const Edge& e : s.edges)
+      if (e.kind != Edge::Kind::Char && e.kind != Edge::Kind::Space && e.kind != Edge::Kind::Epsilon)
+        throw_at(body.pos, "internal error: `@{" + name + "} has more than letters and spaces");
+
+  EntityAutomaton a;
+  Closure closure(grammar);
+  std::map<std::vector<int>, int> index;
+  std::vector<std::vector<int>> sets;
+  auto intern = [&](std::vector<int> set) {
+    auto it = index.find(set);
+    if (it != index.end()) return it->second;
+    if (sets.size() >= kMaxEntityStates)
+      throw_at(body.pos, "`@{" + name + "} is too complex to compile");
+    const int id = a.nfa.add_state();
+    index.emplace(set, id);
+    sets.push_back(std::move(set));
+    return id;
+  };
+  intern(closure({f.in}, 0));
+  for (std::size_t d = 0; d < sets.size(); ++d) {
+    std::vector<char32_t> chars;  // what the state's edges take
+    for (int s : sets[d])
+      for (const Edge& e : grammar.states[s].edges)
+        if (e.kind != Edge::Kind::Epsilon) chars.push_back(e.kind == Edge::Kind::Space ? U' ' : e.ch);
+    std::sort(chars.begin(), chars.end());
+    chars.erase(std::unique(chars.begin(), chars.end()), chars.end());
+    for (char32_t c : chars) {
+      const int to = intern(closure.step(sets[d], c));
+      a.nfa.add_edge(static_cast<int>(d), c == U' ' ? Edge::Kind::Space : Edge::Kind::Char, to, c);
+    }
+  }
+  a.out = a.nfa.add_state();
+  for (std::size_t d = 0; d < sets.size(); ++d)
+    if (std::binary_search(sets[d].begin(), sets[d].end(), f.out))
+      a.nfa.epsilon(static_cast<int>(d), a.out);
+  std::lock_guard<std::mutex> lock(mutex);
+  return cache.emplace(&body, std::move(a)).first->second;
+}
+
 }  // namespace
 
 int compile_rule(Nfa& nfa, const Definitions& defs, const Node& pattern, int rule,
@@ -536,6 +616,66 @@ int compile_rule(Nfa& nfa, const Definitions& defs, const Node& pattern, int rul
     nfa.epsilon(marks, accept);
   }
   return f.in;
+}
+
+namespace {
+
+bool any_character(const Edge& e) {
+  return e.kind == Edge::Kind::Any && e.set < 0 && e.char_class == CharClass::All;
+}
+
+// Whether a space may come right after state `s`: past actions and lone
+// epsilons, every way on is a soft join (see join()) or the end of the rule.
+bool space_may_follow(const Nfa& nfa, int s) {
+  while (nfa.states[s].accept_rule < 0 && nfa.states[s].edges.size() == 1 &&
+         (nfa.states[s].edges[0].kind == Edge::Kind::Action ||
+          nfa.states[s].edges[0].kind == Edge::Kind::Epsilon))
+    s = nfa.states[s].edges[0].to;
+  const std::vector<Edge>& edges = nfa.states[s].edges;
+  for (const Edge& e : edges) {
+    if (e.kind == Edge::Kind::Space) continue;
+    if (e.kind != Edge::Kind::Epsilon) return false;
+    if (nfa.states[e.to].accept_rule >= 0) continue;
+    if (std::none_of(edges.begin(), edges.end(), [&](const Edge& f) {
+          return f.kind == Edge::Kind::Space && f.to == e.to;
+        }))
+      return false;
+  }
+  return true;
+}
+
+}  // namespace
+
+int wildcard_word(const Nfa& nfa, int in) {
+  int word = -1, skip = -1;
+  for (const Edge& e : nfa.states[in].edges) {
+    if (any_character(e) && word < 0) {
+      word = e.to;
+    } else if (e.kind == Edge::Kind::Epsilon && skip < 0) {
+      skip = e.to;
+    } else {
+      return -1;
+    }
+  }
+  if (word < 0 || word == in) return -1;
+  int out = -1, space = -1;
+  bool loop = false;
+  for (const Edge& e : nfa.states[word].edges) {
+    if (e.kind == Edge::Kind::Epsilon && out < 0) {
+      out = e.to;
+    } else if (any_character(e) && e.to == word) {
+      loop = true;
+    } else if (e.kind == Edge::Kind::Space && space < 0) {
+      space = e.to;
+    } else {
+      return -1;
+    }
+  }
+  if (out < 0 || !loop || space < 0 || (skip >= 0 && skip != out)) return -1;
+  const std::vector<Edge>& after_space = nfa.states[space].edges;
+  if (after_space.size() != 1 || !any_character(after_space[0]) || after_space[0].to != word)
+    return -1;
+  return space_may_follow(nfa, out) ? word : -1;
 }
 
 }  // namespace detail
