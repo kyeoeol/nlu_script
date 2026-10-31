@@ -253,6 +253,31 @@ bool ordinal_value(const std::string& text, std::string& value) {
   return true;
 }
 
+namespace {
+
+// Digits with optional thousands separators and decimals, times `scale`
+// ("2.8" and 1,000,000 give 2800000). Returns false if `number` is not such
+// digits or the product is not a whole number below kLimit.
+bool scaled_value(const std::string& number, Value scale, std::string& value) {
+  const std::size_t dot = number.find('.');
+  Value whole = 0, result = 0;
+  if (!digits_value(number.substr(0, dot), whole) || !mul_add(whole, scale, 0, result))
+    return false;
+  if (dot != std::string::npos) {
+    Value unit = scale;
+    for (char c : number.substr(dot + 1)) {
+      if (c < '0' || c > '9' || unit % 10 != 0) return false;
+      unit /= 10;
+      result += static_cast<Value>(c - '0') * unit;
+    }
+  }
+  if (result >= kLimit) return false;
+  value = std::to_string(result);
+  return true;
+}
+
+}  // namespace
+
 bool money_value(const std::string& text, std::string& value, std::string& currency) {
   // Every currency marker in UTF-8, longest first, so dollars wins over
   // dollar and euro over eur.
@@ -284,6 +309,16 @@ bool money_value(const std::string& text, std::string& value, std::string& curre
   std::size_t b = amount.find_first_not_of(' '), e = amount.find_last_not_of(' ');
   if (b == std::string::npos) return false;
   amount = amount.substr(b, e - b + 1);
+  // Digits with a scale: 30k, 2.8 million.
+  for (const NumberWord& s : kAmountScales) {
+    const std::string scale = to_utf8(s.text);
+    if (amount.size() <= scale.size() ||
+        amount.compare(amount.size() - scale.size(), scale.size(), scale) != 0)
+      continue;
+    std::string number = amount.substr(0, amount.size() - scale.size());
+    while (!number.empty() && number.back() == ' ') number.pop_back();
+    if (scaled_value(number, static_cast<Value>(s.value), value)) return true;
+  }
   std::string digits;
   bool plain = true;
   for (char c : amount) {

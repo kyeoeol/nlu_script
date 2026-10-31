@@ -109,6 +109,9 @@ inline constexpr NamedWord kCurrencyWordsEn[] = {
 inline constexpr NamedWord kCurrencyCodes[] = {{U"usd", "USD"}, {U"krw", "KRW"},
                                                {U"eur", "EUR"}, {U"jpy", "JPY"},
                                                {U"gbp", "GBP"}, {U"cny", "CNY"}};
+// Scales after an amount in digits: 30k, 2.8 million.
+inline constexpr NumberWord kAmountScales[] = {
+    {U"k", 1000}, {U"thousand", 1000}, {U"million", 1000000}, {U"billion", 1000000000}};
 
 // --- dates and times ----------------------------------------------------------
 

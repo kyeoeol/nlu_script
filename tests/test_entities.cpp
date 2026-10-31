@@ -93,6 +93,18 @@ TEST(money_amounts_and_currencies) {
   CHECK_EQ(attributes("MONEY", "50"), std::string("<no match>"));
 }
 
+TEST(money_amounts_with_a_scale) {
+  CHECK_EQ(attributes("MONEY", "30k won"), std::string("value=30000 currency=KRW"));
+  CHECK_EQ(attributes("MONEY", "30K won"), std::string("value=30000 currency=KRW"));
+  CHECK_EQ(attributes("MONEY", "2.8 million won"), std::string("value=2800000 currency=KRW"));
+  CHECK_EQ(attributes("MONEY", "1.25 billion won"), std::string("value=1250000000 currency=KRW"));
+  CHECK_EQ(attributes("MONEY", "$1.5k"), std::string("value=1500 currency=USD"));
+  CHECK_EQ(attributes("MONEY", "$2.5 million"), std::string("value=2500000 currency=USD"));
+  CHECK_EQ(attributes("MONEY", "USD 30k"), std::string("value=30000 currency=USD"));
+  CHECK_EQ(attributes("MONEY", "1,500k dollars"), std::string("value=1500000 currency=USD"));
+  CHECK_EQ(attributes("MONEY", "30k"), std::string("<no match>"));
+}
+
 TEST(phone_numbers_in_other_formats) {
   for (const char* text : {"+1 555-123-4567", "+1 (555) 123-4567", "(555) 123-4567",
                            "555-123-4567", "555.123.4567", "+82 10-9876-5432",
