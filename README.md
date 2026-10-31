@@ -452,7 +452,9 @@ System entities:
 | `DATETIME` | dates, times, ranges and durations | described below |
 
 They work the same in Korean and English sentences (``change my phone
-number to `@{TELNUM}``).
+number to `@{TELNUM}``). An entity takes the whole word even when a wildcard
+follows: `` `@{MONEY} <?>*? `` tags `50 dollars` in `50 dollars`, not
+`50 dollar` with the `s` left to the wildcard.
 
 `KO_NUMBER` matches `35000`, `35,000`, `3만 5천`, `3만5천`, `삼만오천`,
 `2,500만`, `1억 2천만` and the like (units 십, 백, 천, 만, 억, 조, with

@@ -1,5 +1,6 @@
 #include "system_entities.hpp"
 
+#include <algorithm>
 #include <iterator>
 #include <memory>
 #include <string>
@@ -85,25 +86,33 @@ const char32_t* text_of(const Word& w) {
   return w.text;
 }
 
-// The words of `table`.
-template <typename Table>
-std::vector<NodePtr> literal_list(const Table& table) {
+// One of `words`, longest first. A choice takes the first option that lets
+// the rule match, so a word that another one starts with comes after it: an
+// entity followed by a wildcard takes `dollars`, not `dollar` and an `s` for
+// the wildcard.
+NodePtr words(std::vector<std::u32string> texts) {
+  std::stable_sort(texts.begin(), texts.end(),
+                   [](const std::u32string& a, const std::u32string& b) { return a.size() > b.size(); });
   std::vector<NodePtr> options;
-  for (const auto& w : table) options.push_back(literal(text_of(w)));
-  return options;
+  for (std::u32string& t : texts) options.push_back(literal(t));
+  return choice(std::move(options));
 }
+
+// One of the words of `table`.
 template <typename Table>
 NodePtr literals(const Table& table) {
-  return choice(literal_list(table));
+  std::vector<std::u32string> texts;
+  for (const auto& w : table) texts.emplace_back(text_of(w));
+  return words(std::move(texts));
 }
 
 // One of the words of `table` whose value lies in [low, high].
 template <std::size_t N>
 NodePtr literals(const NumberWord (&table)[N], int low, int high) {
-  std::vector<NodePtr> options;
+  std::vector<std::u32string> texts;
   for (const NumberWord& w : table)
-    if (w.value >= low && w.value <= high) options.push_back(literal(w.text));
-  return choice(std::move(options));
+    if (w.value >= low && w.value <= high) texts.emplace_back(w.text);
+  return words(std::move(texts));
 }
 
 // One of the characters of `chars`.
@@ -115,9 +124,9 @@ NodePtr characters(std::u32string_view chars) {
 
 // Native Korean numbers from 1 to `max` in the form used before a counter.
 NodePtr native_counting_numbers(int max) {
-  std::vector<NodePtr> options;
-  for (int n = 1; n <= max; ++n) options.push_back(literal(native_counting_form(n)));
-  return choice(std::move(options));
+  std::vector<std::u32string> texts;
+  for (int n = 1; n <= max; ++n) texts.push_back(native_counting_form(n));
+  return words(std::move(texts));
 }
 
 // One or more of `items`, in their order, separated by optional spaces.
@@ -152,15 +161,17 @@ NodePtr korean_number() {
   NodePtr arabic = arabic_number();
 
   // Below 10,000 in numerals: [d]천 [d]백 [d]십 [d], highest unit first.
+  // These come before digits alone, which 5천 starts with.
   NodePtr ten = glued({optional(d), literal(U"십"), optional(d)});
   NodePtr hundred = glued({optional(d), literal(U"백"), optional(choice({ten, d}))});
   NodePtr thousand = glued({optional(d), literal(U"천"), optional(choice({hundred, ten, d}))});
-  NodePtr small = choice({arabic, thousand, hundred, ten, sino});
+  NodePtr small = choice({thousand, hundred, ten, arabic, sino});
 
   // [small]조 [small]억 [small]만 [small], highest unit first, any of them.
+  // Native numbers come first: 일곱 and 일흔 start with the numeral 일.
   auto group = [&](const char32_t* unit) { return glued({optional(small), literal(unit)}); };
   return choice(
-      {in_order({group(U"조"), group(U"억"), group(U"만"), small}), native_korean_number()});
+      {native_korean_number(), in_order({group(U"조"), group(U"억"), group(U"만"), small})});
 }
 
 // --- ORDINAL, EN_NUMBER, MONEY ---------------------------------------------------
@@ -306,10 +317,10 @@ NodePtr datetime() {
   NodePtr count_ko = choice({digits(1, 3), sino_upto_99, native_hour});
   std::vector<NodePtr> amounts_ko;
   for (std::size_t grain = 0; grain < std::size(kGrains); ++grain) {
-    std::vector<NodePtr> units;
+    std::vector<std::u32string> units;
     for (const DurationUnit& u : kDurationUnitsKo)
-      if (u.grain == static_cast<int>(grain)) units.push_back(literal(u.text));
-    NodePtr amount = spaced({count_ko, choice(std::move(units))});
+      if (u.grain == static_cast<int>(grain)) units.emplace_back(u.text);
+    NodePtr amount = spaced({count_ko, words(std::move(units))});
     if (std::string(kGrains[grain]) == "day") amount = choice({amount, literals(kDayCountsKo)});
     amounts_ko.push_back(amount);
   }
@@ -357,19 +368,20 @@ NodePtr datetime() {
               time_en});
 
   // English durations: in 2 hours, in an hour, 3 days ago, 2 weeks from now.
-  std::vector<NodePtr> counts_en = literal_list(kCountArticlesEn);
+  std::vector<std::u32string> counts_en;
+  for (const NumberWord& w : kCountArticlesEn) counts_en.emplace_back(w.text);
   for (const NumberWord& w : kEnglishSmall)
-    if (w.value >= 1 && w.value <= kMaxWordHour) counts_en.push_back(literal(w.text));
-  NodePtr count_en = choice({digits(1, 3), choice(std::move(counts_en))});
+    if (w.value >= 1 && w.value <= kMaxWordHour) counts_en.emplace_back(w.text);
+  NodePtr count_en = choice({digits(1, 3), words(std::move(counts_en))});
   std::vector<NodePtr> amounts_en;
   for (std::size_t grain = 0; grain < std::size(kGrains); ++grain) {
-    std::vector<NodePtr> units;
+    std::vector<std::u32string> units;
     for (const DurationUnit& u : kDurationUnitsEn) {
       if (u.grain != static_cast<int>(grain)) continue;
-      units.push_back(literal(u.text));
-      units.push_back(literal(std::u32string(u.text) + U"s"));
+      units.emplace_back(u.text);
+      units.push_back(std::u32string(u.text) + U"s");
     }
-    amounts_en.push_back(spaced({count_en, choice(std::move(units))}));
+    amounts_en.push_back(spaced({count_en, words(std::move(units))}));
   }
   NodePtr span_en = in_order(std::move(amounts_en));
   NodePtr duration_en =

@@ -1,6 +1,7 @@
 // Behavior of the number, ordinal, money and phone number system entities.
 #include <map>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "harness.hpp"
@@ -103,6 +104,25 @@ TEST(money_amounts_with_a_scale) {
   CHECK_EQ(attributes("MONEY", "USD 30k"), std::string("value=30000 currency=USD"));
   CHECK_EQ(attributes("MONEY", "1,500k dollars"), std::string("value=1500000 currency=USD"));
   CHECK_EQ(attributes("MONEY", "30k"), std::string("<no match>"));
+}
+
+TEST(system_entities_take_their_longest_form_before_a_wildcard) {
+  // A wildcard after the entity could take the rest of a word (the `s` of
+  // `dollars`); the entity keeps it.
+  const std::pair<const char*, const char*> cases[] = {
+      {"MONEY", "50 dollars"},   {"MONEY", "fifty dollars"},       {"MONEY", "20 bucks"},
+      {"MONEY", "10 euros"},     {"MONEY", "3 pounds"},            {"MONEY", "$30k"},
+      {"DATETIME", "in 2 hours"}, {"DATETIME", "in 1 hour 30 minutes"},
+      {"DATETIME", "3 days ago"}, {"KO_NUMBER", "일곱"},             {"KO_NUMBER", "일흔일곱"},
+      {"KO_NUMBER", "3만 5천"},
+      {"EN_NUMBER", "seventeen"}, {"ORDINAL", "twenty-first"}};
+  for (const auto& c : cases) {
+    nlu::Script s = nlu::Script::compile(std::string("t\n    `@{") + c.first + "} <?>*?\n");
+    std::vector<nlu::Match> found = s.match(c.second);
+    CHECK_EQ(found.size(), 1u);
+    if (found.size() == 1 && found[0].slots.size() == 1)
+      CHECK_EQ(found[0].slots[0].text, std::string(c.second));
+  }
 }
 
 TEST(phone_numbers_in_other_formats) {
