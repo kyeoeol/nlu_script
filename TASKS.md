@@ -274,15 +274,18 @@
 - [x] `MONEY` reads amounts in digits with a scale (`30k won`,
       `2.8 million won`, `$1.5k`, `USD 30k`: `k`, `thousand`, `million`,
       `billion`), with the whole value (`30000`, `2800000`)
+- [x] A system entity followed by a wildcard takes its longest form, as it
+      does without one: `` `@{MONEY} <?>*? `` tags `50 dollars` (it tagged
+      `50 dollar` and left the `s` to the wildcard), `` `@{DATETIME} <?>*? ``
+      `in 2 hours`, `` `@{KO_NUMBER} <?>*? `` `일곱` (it tagged `일`) and
+      `3만 5천` (it tagged `3만 5`). The grammar tries a table's words longest
+      first, native Korean numbers before numerals (일곱, 일흔 start with 일),
+      and 5천 before the digit 5. Checked on 238 entity texts from the tests,
+      the demo and the persona data. Groups in patterns still take their first
+      alternative that lets the rule match
 
 ## Next
 
-- [ ] A system entity followed by a wildcard takes its shortest form:
-      `` `@{MONEY} <?>*? `` tags `50 dollar` in `50 dollars` and leaves the `s`
-      to the wildcard, and `` `@{DATETIME} <?>*? `` tags `in 2 hour`.
-      Without the wildcard it takes the whole word. The vocabulary lists
-      `dollar` before `dollars`, and in a group the first alternative that
-      lets the rule match wins (`<s>[ab|abc]</s> <?>*?` tags `ab` in `abcd`)
 - [ ] A slot that ends in an optional group keeps the space before it when
       the group is skipped: `<s>a (b)</s> c` tags `<s>a </s>c` in `a c`. The
       demo spells out both forms instead (`[visa] card|visa`)
