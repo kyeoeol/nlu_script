@@ -283,12 +283,16 @@
       and 5천 before the digit 5. Checked on 238 entity texts from the tests,
       the demo and the persona data. Groups in patterns still take their first
       alternative that lets the rule match
+- [x] A slot's text never starts or ends with a space: a skipped optional
+      group at its edge left the space beside it in the slot
+      (`<s>a (b)</s> c` tagged `<s>a </s>c` in `a c`, `x::<s>(b) a</s>`
+      tagged `x<s> a</s>` in `x a`). Slots are trimmed when the match is
+      built, and a slot the skipped group left empty stays inside the slot
+      around it. The demo's card variable says `@var.{brand_en} (card)`
+      instead of spelling out both forms
 
 ## Next
 
-- [ ] A slot that ends in an optional group keeps the space before it when
-      the group is skipped: `<s>a (b)</s> c` tags `<s>a </s>c` in `a c`. The
-      demo spells out both forms instead (`[visa] card|visa`)
 - [ ] Lint is too slow for the demo: with its 80 rules, mostly `<?>*? word
       <?>*?` and many with system entities, each automaton state takes about
       50 ms (1.4 ms with the system entities stubbed out), and 1,000 states

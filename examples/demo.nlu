@@ -20,7 +20,7 @@ option ignore-trailing-punctuation
 @var.type_ko: [신용{type=CREDIT}|체크{type=DEBIT}|가족{type=FAMILY}|앱{type=APP}]
 @var.brand_en: [visa{brand=VISA}|mastercard{brand=MASTERCARD}]
 @var.type_en: [credit{type=CREDIT}|debit{type=DEBIT}|check{type=DEBIT}|family{type=FAMILY}|app{type=APP}]
-@var.card: <card>[(@var.{brand_ko}) @var.{type_ko} 카드|@var.{brand_ko} 카드|(@var.{brand_en}) @var.{type_en} card|@var.{brand_en} card|@var.{brand_en}]</card>
+@var.card: <card>[(@var.{brand_ko}) @var.{type_ko} 카드|@var.{brand_ko} 카드|(@var.{brand_en}) @var.{type_en} card|@var.{brand_en} (card)]</card>
 # Any mention of a card; only a named one becomes a slot.
 @var.anycard: [@var.{card}|카드|card]
 

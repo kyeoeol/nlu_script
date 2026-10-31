@@ -919,6 +919,7 @@ struct Instance {
   std::size_t open_event;
   Attributes attributes;
   Normalizer normalizer;
+  int parent;  // the instance this one is nested in, or -1
 };
 
 std::string escape_attribute(const std::string& value) {
@@ -948,7 +949,8 @@ Match build_match(const Nfa& nfa, const CompiledRule& rule, int specificity,
     const Action& a = nfa.actions[events[i].action];
     switch (a.kind) {
       case Action::Kind::Open:
-        instances.push_back({a.slot, events[i].pos, events[i].pos, i, {}, a.normalizer});
+        instances.push_back({a.slot, events[i].pos, events[i].pos, i, {}, a.normalizer,
+                             open.empty() ? -1 : open.back()});
         open.push_back(static_cast<int>(instances.size()) - 1);
         event_instance[i] = open.back();
         break;
@@ -978,6 +980,19 @@ Match build_match(const Nfa& nfa, const CompiledRule& rule, int specificity,
       if (instances[k].open_event > i) break;
     }
     if (target >= 0) set_attribute(instances[target].attributes, a.key, a.value);
+  }
+
+  // A slot leaves out a space at either end, which a skipped optional group
+  // leaves there (`<s>a (b)</s> c` takes `a` in `a c`), and stays within the
+  // slot it is nested in (listed before it).
+  for (Instance& inst : instances) {
+    while (inst.open_pos < inst.close_pos && norm.text[inst.open_pos] == U' ') ++inst.open_pos;
+    while (inst.close_pos > inst.open_pos && norm.text[inst.close_pos - 1] == U' ') --inst.close_pos;
+    if (inst.parent >= 0) {
+      const Instance& outer = instances[inst.parent];
+      inst.open_pos = std::clamp(inst.open_pos, outer.open_pos, outer.close_pos);
+      inst.close_pos = std::clamp(inst.close_pos, outer.open_pos, outer.close_pos);
+    }
   }
 
   const std::size_t n = norm.text.size();
