@@ -80,13 +80,51 @@ jobs:
           path: crashes/
           retention-days: 7
 
+  # The tests under ThreadSanitizer, which checks the hand-written
+  # reader-writer lock and the cache that renumbers states on eviction. The
+  # Python test is left out in both sanitizer jobs: it loads the library
+  # through ctypes into an interpreter that isn't built with the sanitizer.
+  thread-sanitizer:
+    name: thread sanitizer
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Configure
+        run: >
+          cmake -S . -B build-tsan -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          "-DCMAKE_CXX_FLAGS=-fsanitize=thread -fno-omit-frame-pointer"
+          "-DCMAKE_EXE_LINKER_FLAGS=-fsanitize=thread"
+          "-DCMAKE_SHARED_LINKER_FLAGS=-fsanitize=thread"
+      - name: Build
+        run: cmake --build build-tsan --parallel
+      - name: Test
+        run: ctest --test-dir build-tsan --output-on-failure -E nlu_script_python_tests
+
+  # The tests under AddressSanitizer and UndefinedBehaviorSanitizer; undefined
+  # behavior fails the test instead of printing a warning.
+  address-sanitizer:
+    name: address and undefined sanitizers
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Configure
+        run: >
+          cmake -S . -B build-asan -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          "-DCMAKE_CXX_FLAGS=-fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer"
+          "-DCMAKE_EXE_LINKER_FLAGS=-fsanitize=address,undefined"
+          "-DCMAKE_SHARED_LINKER_FLAGS=-fsanitize=address,undefined"
+      - name: Build
+        run: cmake --build build-asan --parallel
+      - name: Test
+        run: ctest --test-dir build-asan --output-on-failure -E nlu_script_python_tests
+
   # The one check to mark as required for merging into main, so the branch
   # rule doesn't have to list (and track) every matrix job. It runs even when
   # a job it needs fails, because a skipped required check counts as passing.
   ci-passed:
     name: CI passed
     if: always()
-    needs: [build-and-test, fuzz]
+    needs: [build-and-test, fuzz, thread-sanitizer, address-sanitizer]
     runs-on: ubuntu-latest
     steps:
       - name: Fail unless every job succeeded

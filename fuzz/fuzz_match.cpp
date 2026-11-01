@@ -1,5 +1,6 @@
-// Fuzz target: matches the input against a script that uses every feature
-// of the pattern language and every system entity.
+// Fuzz target: runs match, match_best, search and explain on the input against
+// a script that uses every feature of the pattern language and every system
+// entity.
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -48,5 +49,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
   const std::string text(reinterpret_cast<const char*>(data), size);
   script.match(text);
   script.match_best(text);
+  script.search(text);
+  script.explain(text);
   return 0;
 }

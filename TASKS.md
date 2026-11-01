@@ -333,6 +333,16 @@
       first compile (entity grammars) from 42 to 30 ms and lint from 193 to
       162 ms; `nlu_script_bench` is unchanged or a little faster (100,000
       rules: 7.3 to 6.8 us per match)
+- [x] API boundary, CI and test-coverage fixes from an audit: the Python
+      package runs on 3.5 (no `accumulate(initial=)`) and raises `ValueError`
+      for text with an embedded NUL instead of cutting it there;
+      `nlu_resolve_datetime` catches C++ exceptions like the other entry
+      points (grain stays NULL on failure); CI runs the tests under
+      ThreadSanitizer and under AddressSanitizer + UBSan (both gate `CI
+      passed`); `fuzz_match` also runs `search` and `explain`; the save/load
+      test compares everything a script reports (fold-width, includes,
+      slots, offsets, explain, search, lint) and the saved demo passes
+      `demo.test` through the CLI; public struct fields have defaults.
 
 ## Next
 

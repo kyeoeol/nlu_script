@@ -127,6 +127,15 @@ class ScriptTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             nlu_script.Script.load(data[:10])
 
+    def test_embedded_nul_is_rejected_instead_of_cutting_the_text(self):
+        text = "체크카드 분실 신고\x00 아니요"
+        for method in (self.script.match, self.script.match_best, self.script.search,
+                       self.script.explain):
+            with self.assertRaises(ValueError):
+                method(text)
+        with self.assertRaises(ValueError):
+            nlu_script.Script("greet: hello\x00\n")
+
     def test_no_match_returns_empty_list(self):
         self.assertEqual(self.script.match("thank you"), [])
 
