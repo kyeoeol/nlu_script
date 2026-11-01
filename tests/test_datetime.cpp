@@ -54,6 +54,8 @@ TEST(datetime_times_in_korean) {
   CHECK_EQ(attributes("저녁 7시 반"), std::string("part_of_day=EVENING hour=19 minute=30"));
   CHECK_EQ(attributes("밤 11시"), std::string("part_of_day=NIGHT hour=23"));
   CHECK_EQ(attributes("밤 1시"), std::string("part_of_day=NIGHT hour=1"));
+  CHECK_EQ(attributes("새벽 12시"), std::string("part_of_day=DAWN hour=0"));
+  CHECK_EQ(attributes("새벽 3시"), std::string("part_of_day=DAWN hour=3"));
   CHECK_EQ(attributes("세 시 반"), std::string("hour=3 minute=30"));  // 오전 or 오후 unknown
   CHECK_EQ(attributes("열두시 삼십분"), std::string("hour=12 minute=30"));
   CHECK_EQ(attributes("15시"), std::string("hour=15"));
@@ -235,6 +237,10 @@ TEST(datetime_resolves_against_a_reference_time) {
   CHECK_EQ(resolved("내일 3시부터 5시까지", now),
            std::string("2026-10-22 03:00 ~ 2026-10-22 05:00 (hour)"));
   CHECK_EQ(resolved("내일부터 모레까지", now), std::string("2026-10-22 ~ 2026-10-23 (day)"));
+  // 24시 is midnight at the end of the day.
+  CHECK_EQ(resolved("오늘 24시", now), std::string("2026-10-22 00:00 (hour)"));
+  CHECK_EQ(resolved("22시부터 24시까지", now),
+           std::string("2026-10-21 22:00 ~ 2026-10-22 00:00 (hour)"));
   // Month ends and leap years.
   CHECK_EQ(resolved("내일", nlu::DateTimeValue{2028, 2, 28, -1, -1}), std::string("2028-02-29 (day)"));
   CHECK_EQ(resolved("다음 달", nlu::DateTimeValue{2026, 1, 31, -1, -1}),

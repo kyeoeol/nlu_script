@@ -139,7 +139,7 @@ const Unit* unit_at(const std::u32string& s, std::size_t at) {
 // The hour on a 24-hour clock, given the part of the day it falls in.
 long long to_24_hour(long long hour, const std::string& part) {
   auto between = [&](long long low, long long high) { return hour >= low && hour <= high; };
-  if (part == "AM") return hour == 12 ? 0 : hour;
+  if (part == "AM" || part == "DAWN") return hour == 12 ? 0 : hour;
   if (part == "PM" || part == "EVENING") return between(1, 11) ? hour + 12 : hour;
   if (part == "NIGHT") return between(6, 11) ? hour + 12 : hour == 12 ? 0 : hour;
   if (part == "DAY") return between(1, 6) ? hour + 12 : hour;
@@ -600,6 +600,8 @@ DateTimeValue resolve_one(const Attributes& attrs, const std::string& prefix,
     finer(5);
     return out;
   }
+  // 24시 is midnight at the end of the day.
+  if (has("hour") && get("hour") == 24) ++date;
   civil_from_days(date, out.year, out.month, out.day);
   if (has("hour")) {
     out.hour = get("hour") % 24;
