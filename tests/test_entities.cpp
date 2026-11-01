@@ -62,6 +62,28 @@ TEST(english_number_words) {
   CHECK_EQ(attributes("EN_NUMBER", "twenty twenty"), std::string("<no match>"));
 }
 
+TEST(english_numbers_take_and_before_their_last_part) {
+  CHECK_EQ(attributes("EN_NUMBER", "two thousand and five"), std::string("value=2005"));
+  CHECK_EQ(attributes("EN_NUMBER", "a thousand and one"), std::string("value=1001"));
+  CHECK_EQ(attributes("EN_NUMBER", "three million and twenty-one"), std::string("value=3000021"));
+  CHECK_EQ(attributes("EN_NUMBER", "two and three"), std::string("<no match>"));
+  CHECK_EQ(attributes("EN_NUMBER", "two thousand and"), std::string("<no match>"));
+}
+
+TEST(and_between_two_english_numbers_is_left_to_the_pattern) {
+  nlu::Script s = nlu::Script::compile("t\n    `@{EN_NUMBER} and `@{EN_NUMBER}\n");
+  for (const auto& c : {std::pair<std::string, std::string>{"two and three", "2 3"},
+                        {"two thousand and three thousand", "2000 3000"}}) {
+    std::vector<nlu::Match> found = s.match(c.first);
+    std::string values;
+    if (found.size() == 1)
+      for (const nlu::Slot& slot : found[0].slots)
+        for (const auto& kv : slot.attributes)
+          if (kv.first == "value") values += (values.empty() ? "" : " ") + kv.second;
+    CHECK_EQ(values, c.second);
+  }
+}
+
 TEST(a_zero_times_a_unit_is_zero) {
   CHECK_EQ(attributes("KO_NUMBER", "0만"), std::string("value=0"));
   CHECK_EQ(attributes("MONEY", "0만 원"), std::string("value=0 currency=KRW"));
@@ -127,7 +149,8 @@ TEST(system_entities_take_their_longest_form_before_a_wildcard) {
       {"DATETIME", "in 2 hours"}, {"DATETIME", "in 1 hour 30 minutes"},
       {"DATETIME", "3 days ago"}, {"KO_NUMBER", "일곱"},             {"KO_NUMBER", "일흔일곱"},
       {"KO_NUMBER", "3만 5천"},
-      {"EN_NUMBER", "seventeen"}, {"ORDINAL", "twenty-first"}};
+      {"EN_NUMBER", "seventeen"}, {"EN_NUMBER", "two thousand and five"},
+      {"ORDINAL", "twenty-first"}};
   for (const auto& c : cases) {
     nlu::Script s = nlu::Script::compile(std::string("t\n    `@{") + c.first + "} <?>*?\n");
     std::vector<nlu::Match> found = s.match(c.second);
