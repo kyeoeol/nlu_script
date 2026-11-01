@@ -226,40 +226,34 @@ std::vector<Match> Script::Impl::match(const std::string& text, bool best) const
   NormalizedText norm = normalize(text, fold_width);
   std::vector<int> accepted = cache().accepted_rules(norm.text);
   if (accepted.empty()) return {};
-  const int letters = static_cast<int>(
-      norm.text.size() - std::count(norm.text.begin(), norm.text.end(), U' '));
 
   struct Found {
     int rule;
-    std::vector<Event> events;
-    int specificity;
+    Replay replayed;
   };
   std::vector<Found> found;
   std::map<std::string, std::size_t> label_index;
-  std::vector<Event> events;
+  Replay replayed;
   for (int id : accepted) {
     const CompiledRule& r = rules[id];
     auto it = label_index.find(r.label);
     if (it != label_index.end() && !best) continue;
-    int wildcard_chars = 0;
-    events.clear();
-    if (r.needs_vm && !PikeVm(nfa, r.first, r.last).run(r.start, norm.text, events, wildcard_chars))
-      continue;
-    Found f{id, std::move(events), letters - wildcard_chars};
+    if (!replay(nfa, r, norm.text, replayed)) continue;
+    Found f{id, std::move(replayed)};
     if (it == label_index.end()) {
       label_index.emplace(r.label, found.size());
       found.push_back(std::move(f));
-    } else if (f.specificity > found[it->second].specificity) {
+    } else if (f.replayed.specificity > found[it->second].replayed.specificity) {
       found[it->second] = std::move(f);
     }
   }
 
   int top = 0;
-  for (const Found& f : found) top = std::max(top, f.specificity);
+  for (const Found& f : found) top = std::max(top, f.replayed.specificity);
   std::vector<Match> out;
   for (const Found& f : found) {
-    if (best && f.specificity < top) continue;
-    out.push_back(build_match(nfa, rules[f.rule], f.specificity, f.events, text, norm, 0, text.size()));
+    if (best && f.replayed.specificity < top) continue;
+    out.push_back(build_match(nfa, rules[f.rule], f.replayed, text, norm, 0, text.size()));
   }
   return out;
 }
@@ -280,7 +274,7 @@ std::vector<Match> Script::Impl::search(const std::string& text) const {
 
   LazyDfa& dfa = cache();
   std::vector<Match> out;
-  std::vector<Event> events;
+  Replay replayed;
   std::vector<int> accepts;  // the rules accepting t[i, end)
   for (std::size_t i = 0; i < n;) {
     if (t[i] == U' ' || !boundary(i)) {
@@ -301,19 +295,14 @@ std::vector<Match> Script::Impl::search(const std::string& text) const {
       continue;
     }
     const std::u32string span = t.substr(i, end - i);
-    const int letters = static_cast<int>(span.size() - std::count(span.begin(), span.end(), U' '));
     std::set<std::string> seen;
     for (int id : accepts) {
       const CompiledRule& r = rules[id];
       if (seen.count(r.label)) continue;
-      int wildcard_chars = 0;
-      events.clear();
-      if (r.needs_vm && !PikeVm(nfa, r.first, r.last).run(r.start, span, events, wildcard_chars))
-        continue;
+      if (!replay(nfa, r, span, replayed)) continue;
       seen.insert(r.label);
-      for (Event& e : events) e.pos += static_cast<int>(i);
-      out.push_back(build_match(nfa, r, letters - wildcard_chars, events, text, norm,
-                                norm.begin[i], norm.end[end - 1]));
+      for (Event& e : replayed.events) e.pos += static_cast<int>(i);
+      out.push_back(build_match(nfa, r, replayed, text, norm, norm.begin[i], norm.end[end - 1]));
     }
     i = end;
   }
