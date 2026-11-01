@@ -14,6 +14,7 @@ option(NLU_SCRIPT_BUILD_TESTS "Build the test suite" ON)
 # libFuzzer targets; needs clang, and the sources built with
 # -fsanitize=fuzzer-no-link (see the fuzz job in .github/workflows/ci.yml).
 option(NLU_SCRIPT_BUILD_FUZZERS "Build the libFuzzer targets" OFF)
+option(NLU_SCRIPT_WARNINGS_AS_ERRORS "Fail the build on compiler warnings" OFF)
 
 find_package(Threads REQUIRED)
 
@@ -23,14 +24,32 @@ if(MSVC)
   add_compile_options(/utf-8)
 endif()
 
+# Warnings for every target defined below: the library, tools, tests and fuzz
+# targets.
+if(MSVC)
+  add_compile_options(/W4)
+  if(NLU_SCRIPT_WARNINGS_AS_ERRORS)
+    add_compile_options(/WX)
+  endif()
+else()
+  add_compile_options(-Wall -Wextra -Wpedantic)
+  if(NLU_SCRIPT_WARNINGS_AS_ERRORS)
+    add_compile_options(-Werror)
+  endif()
+endif()
+
 set(NLU_SCRIPT_SOURCES
   src/c_api.cpp
   src/compiler.cpp
   src/datetime.cpp
+  src/lazy_dfa.cpp
   src/lint.cpp
   src/numbers.cpp
   src/parser.cpp
+  src/replay.cpp
+  src/save_load.cpp
   src/script.cpp
+  src/script_source.cpp
   src/script_tests.cpp
   src/system_entities.cpp
   src/unicode.cpp)
@@ -42,11 +61,6 @@ set(NLU_SCRIPT_SOURCES
 add_library(nlu_script_objects OBJECT ${NLU_SCRIPT_SOURCES})
 target_include_directories(nlu_script_objects PRIVATE
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
-if(MSVC)
-  target_compile_options(nlu_script_objects PRIVATE /W4)
-else()
-  target_compile_options(nlu_script_objects PRIVATE -Wall -Wextra -Wpedantic)
-endif()
 target_compile_definitions(nlu_script_objects PRIVATE NLU_SCRIPT_BUILDING_DLL)
 set_target_properties(nlu_script_objects PROPERTIES CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON)
 

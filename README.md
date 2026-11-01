@@ -214,7 +214,7 @@ resolved overlaps.
 The exit status is 1 when there are findings, so `--lint` can run in CI.
 In code, `Script::lint()` returns an `nlu::LintReport`, and
 `LintReport::findings(best)` the lines `--lint` prints. The C API has
-`nlu_script_lint` and Python `Script.lint(best=False)`, both returning those
+`nlu_script_lint` (`nlu_script_lint_limited` also takes a state limit) and Python `Script.lint(best=False, max_states=1000000)`, both returning those
 findings.
 
 ## Script files
@@ -639,11 +639,12 @@ A compiled script can be saved and loaded again without parsing or
 compiling: `Script::save()` / `Script::load(bytes)` (and `save_file`,
 `load_file`), `nlu_script_save` / `nlu_script_load` in C, `Script.save()` /
 `Script.load(data)` in Python, and `nlu_script_cli --save rules.nlu
-rules.nlub`; the CLI accepts a saved file wherever it takes a script. The
-format is versioned, and loading checks every count and index, so other or
-corrupt data is rejected with an error; scripts saved by a version with an
-older format must be saved again. At 50,000 rules, loading takes
-about half as long as compiling, and the saved file is about 20 MiB.
+rules.nlub`; the CLI accepts a saved file wherever it takes a script
+(`Script::is_saved(bytes)` tells the two apart). The format is versioned,
+and loading checks every count and index, so other or corrupt data is
+rejected with an error; scripts saved by a version with an older format
+must be saved again. At 50,000 rules, loading takes about half as long as
+compiling, and the saved file is about 20 MiB.
 
 `nlu_script_bench` times matching against generated scripts. On an Apple
 silicon Mac, a warm `match()` takes about 2 µs up to 10,000 rules, 4 µs at
@@ -668,6 +669,22 @@ for (size_t i = 0; i < nlu_result_count(result); ++i)
          nlu_result_specificity(result, i));
 nlu_result_free(result);
 nlu_script_free(script);
+```
+
+The lazy DFA cache can be tuned and inspected (`Script::set_cache_options`,
+`cache_options`, `cache_stats` in C++). In C, `nlu_script_set_cache_options`
+and `nlu_script_cache_options` take an `nlu_cache_options`
+(`max_states`, `max_bytes`, `per_thread`), and `nlu_script_cache_stats` fills
+an `nlu_cache_stats` (`states`, `transitions`, `bytes`, `evictions`); each
+returns 1 on success and 0 on a NULL argument or allocation failure.
+
+```c
+nlu_cache_options options;
+nlu_script_cache_options(script, &options);
+options.max_states = 50000;                    /* replaces the cache with an empty one */
+nlu_script_set_cache_options(script, &options);
+nlu_cache_stats stats;
+nlu_script_cache_stats(script, &stats);        /* stats.evictions: how often it filled up */
 ```
 
 For every compile error with its location, compile with
@@ -711,6 +728,12 @@ for m in script.match("엄마한테 3만 원 보내줘"):
         print(slot.name, slot.text, slot.begin, slot.end, slot.attributes)
 best = script.match_best("엄마한테 3만 원 보내줘")    # only the most specific labels
 ```
+
+Python exposes the DFA cache as `script.set_cache_options(max_states=...,
+max_bytes=..., per_thread=...)` (options left out keep their value),
+`script.cache_options()` (a `CacheOptions` namedtuple) and
+`script.cache_stats()` (a `CacheStats(states, transitions, bytes, evictions)`
+namedtuple).
 
 Slot offsets in Python are character offsets. To use a library you built
 yourself, set `NLU_SCRIPT_LIBRARY=/path/to/libnlu_script.so`.

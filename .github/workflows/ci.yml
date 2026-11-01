@@ -28,8 +28,11 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v7
+      # Warnings fail the build with gcc and clang. MSVC is left out: its
+      # /W4 warnings can't be checked locally, so /WX stays off until a
+      # Windows run is known to be clean.
       - name: Configure
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release ${{ matrix.os != 'windows-latest' && '-DNLU_SCRIPT_WARNINGS_AS_ERRORS=ON' || '' }}
       - name: Build
         run: cmake --build build --config Release --parallel
       - name: Test
@@ -49,6 +52,7 @@ jobs:
           cmake -S . -B build-fuzz -DCMAKE_BUILD_TYPE=RelWithDebInfo
           -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
           -DNLU_SCRIPT_BUILD_TESTS=OFF -DNLU_SCRIPT_BUILD_FUZZERS=ON
+          -DNLU_SCRIPT_WARNINGS_AS_ERRORS=ON
           "-DCMAKE_CXX_FLAGS=-fsanitize=fuzzer-no-link,address,undefined -fno-sanitize-recover=undefined"
           "-DCMAKE_EXE_LINKER_FLAGS=-fsanitize=address,undefined"
       - name: Build
@@ -92,6 +96,7 @@ jobs:
       - name: Configure
         run: >
           cmake -S . -B build-tsan -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DNLU_SCRIPT_WARNINGS_AS_ERRORS=ON
           "-DCMAKE_CXX_FLAGS=-fsanitize=thread -fno-omit-frame-pointer"
           "-DCMAKE_EXE_LINKER_FLAGS=-fsanitize=thread"
           "-DCMAKE_SHARED_LINKER_FLAGS=-fsanitize=thread"
@@ -110,6 +115,7 @@ jobs:
       - name: Configure
         run: >
           cmake -S . -B build-asan -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DNLU_SCRIPT_WARNINGS_AS_ERRORS=ON
           "-DCMAKE_CXX_FLAGS=-fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer"
           "-DCMAKE_EXE_LINKER_FLAGS=-fsanitize=address,undefined"
           "-DCMAKE_SHARED_LINKER_FLAGS=-fsanitize=address,undefined"

@@ -257,6 +257,10 @@ class Script {
   // (checking every count and index, so corrupt data is rejected).
   static Script load(const std::string& bytes);
   static Script load_file(const std::string& path);
+  // Whether `bytes` start the way saved scripts do, with "\x89NLU", which
+  // script source (UTF-8 text) never starts with: they are for load(), not
+  // compile(). load() checks the rest.
+  static bool is_saved(const std::string& bytes);
 
   Script(Script&&) noexcept;
   Script& operator=(Script&&) noexcept;

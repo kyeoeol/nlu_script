@@ -419,6 +419,42 @@
       `--search` and `--explain` modes is byte-identical on the demo inputs
       with upper-cased, halved, joined and double-spaced variants (3,912
       lines) and on 6,036 inputs to the fuzz script that uses every feature
+- [x] Lint's state limit (`nlu_script_lint_limited`, Python
+      `lint(max_states=)`), DFA cache options and statistics
+      (`nlu_script_set_cache_options`, `nlu_script_cache_options`,
+      `nlu_script_cache_stats`; Python `set_cache_options`, `cache_options`,
+      `cache_stats`) reach the C API and Python; every target builds with
+      warnings, and `NLU_SCRIPT_WARNINGS_AS_ERRORS` (ON in the gcc/clang CI
+      jobs, off for MSVC) fails the build on them
+- [x] `src/script.cpp` (2,058 lines) split along its seams and the
+      duplication between the pieces removed, with CLI output and saved
+      bytes unchanged and `nlu_script_bench` and cold and warm demo matching
+      within 2%. `match()` and `search()` replay rules through one
+      `replay()`, whose result `build_match()` takes instead of two
+      parameters; lint uses `CompiledRule` instead of a copy of it
+      (`RuleSource`); one `rule_owners()` table tells which rule owns a state,
+      for the DFA, `explain()` and lint; lint comments keep their file's
+      index instead of a pointer into a deque, so `Script::Impl` keeps its
+      files in a vector and save/load no longer convert; one `file_index()`
+      orders compile errors, unused definitions and lint findings by file;
+      `nfa.hpp` names each enum's last value (`kLastGuard`, `Edge::kLastKind`,
+      ...) for `load()` and the format's static_asserts; `run_tests_file`
+      uses `read_file`; the CLI asks the new `Script::is_saved()` instead of
+      comparing magic bytes itself; `Script::Impl`'s `id` and `dfa` are now
+      `cache_id` and `shared_dfa`, which locals no longer shadow. The files:
+      - `script_source.{hpp,cpp}`: the parser of script files
+        (`parse_script`), which definitions the rules reach, `read_file` and
+        `file_index`
+      - `lazy_dfa.{hpp,cpp}`: `PartStepper` and `LazyDfa`; `run()` and the
+        lock's fast paths stay in the header, adding, evicting and stepping
+        states and the lock's slow paths are in the .cpp
+      - `replay.{hpp,cpp}`: the Pike VM, `replay()` and `build_match()`
+      - `rule.hpp`: `CompiledRule` and `rule_owners()`; `script_impl.hpp`:
+        `Script::Impl`
+      - `save_load.cpp`: `Script::save`, `load` and `is_saved`
+      - `lint.cpp`: also `Script::lint` and `LintReport::findings`
+      - `script.cpp` (301 lines): compiling, `match`, `match_best`, `search`,
+        `explain` and the cache options
 - [x] Wider system entities and whitespace, from an audit of forms that
       didn't match: `EN_NUMBER` takes `and` before a last part below 100
       after a scale (`two thousand and five` 2005, `a thousand and one`),
@@ -437,6 +473,10 @@
 
 ## Next
 
+- [ ] `-Wshadow` warns in `src/numbers.cpp:109`: the `unit` of the
+      `large_unit` branch shadows the one of the `small_unit` branch before
+      it. Renaming it leaves the library free of `-Wshadow` warnings, which
+      CI could then turn on
 - [ ] Warm matching is still about 80% Pike VM (7.7 us for a cached demo
       sentence): per input character it visits about 20 states and tests
       about 39 consuming edges, 57% of them in runs of more than 8 edges of
@@ -446,11 +486,6 @@
       demo); it could read the sets of the lazy DFA's states instead
 - [ ] Compiling 50,000 rules: parsing is about half (an AST node per token),
       and every NFA state allocates its own edge vector
-- [ ] Publish wheels to PyPI (e.g. on a version tag)
-- [ ] If GitHub retires the Intel macOS runner (`macos-15-intel`), build the
-      x86_64 wheel on the arm64 runner instead: cross-compile (pass
-      `ARCHFLAGS` to CMake as `CMAKE_OSX_ARCHITECTURES`) and test under
-      Rosetta 2
 
 ## Open questions
 
