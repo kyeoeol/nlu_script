@@ -431,11 +431,6 @@
       demo); it could read the sets of the lazy DFA's states instead
 - [ ] Compiling 50,000 rules: parsing is about half (an AST node per token),
       and every NFA state allocates its own edge vector
-- [ ] Publish wheels to PyPI (e.g. on a version tag)
-- [ ] If GitHub retires the Intel macOS runner (`macos-15-intel`), build the
-      x86_64 wheel on the arm64 runner instead: cross-compile (pass
-      `ARCHFLAGS` to CMake as `CMAKE_OSX_ARCHITECTURES`) and test under
-      Rosetta 2
 
 ## Open questions
 
