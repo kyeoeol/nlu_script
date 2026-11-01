@@ -112,6 +112,15 @@ class ScriptTest(unittest.TestCase):
         self.assertEqual((resolved.start, resolved.end),
                          (datetime.date(2026, 10, 22), datetime.date(2026, 10, 23)))
 
+    def test_resolve_datetime_stays_within_the_years_python_dates_have(self):
+        resolve = nlu_script.resolve_datetime
+        first, last = datetime.date(1, 1, 1), datetime.date(9999, 12, 31)
+        self.assertEqual(resolve({"day_offset": "-1"}, first).start, first)
+        self.assertEqual(resolve({"day_offset": "+1"}, last).start, last)
+        self.assertEqual(resolve({"month_offset": "-30000"}, first).start, first)
+        self.assertEqual(resolve({"hour_offset": "+1"}, datetime.datetime(9999, 12, 31, 23, 30)).start,
+                         datetime.datetime(9999, 12, 31, 23, 59))
+
     def test_search_finds_rules_in_free_text(self):
         text = "그럼 마일리지 잔액 알려주시고 신용카드 분실 신고도 할게요"
         found = self.script.search(text)
@@ -126,6 +135,15 @@ class ScriptTest(unittest.TestCase):
                              self.script.match("체크카드 분실 신고")[0].tagged)
         with self.assertRaises(ValueError):
             nlu_script.Script.load(data[:10])
+
+    def test_embedded_nul_is_rejected_instead_of_cutting_the_text(self):
+        text = "체크카드 분실 신고\x00 아니요"
+        for method in (self.script.match, self.script.match_best, self.script.search,
+                       self.script.explain):
+            with self.assertRaises(ValueError):
+                method(text)
+        with self.assertRaises(ValueError):
+            nlu_script.Script("greet: hello\x00\n")
 
     def test_no_match_returns_empty_list(self):
         self.assertEqual(self.script.match("thank you"), [])

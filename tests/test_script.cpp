@@ -1,4 +1,6 @@
 // Behavior of scripts: labels, slots, attributes and compile errors.
+#include <filesystem>
+#include <fstream>
 #include <string>
 #include <thread>
 #include <utility>
@@ -6,6 +8,8 @@
 
 #include "harness.hpp"
 #include "nlu_script/nlu_script.hpp"
+
+namespace fs = std::filesystem;
 
 namespace {
 
@@ -111,6 +115,31 @@ TEST(slot_spans_decomposed_hangul_in_the_original_input) {
   CHECK_EQ(found[0].slots[0].begin, 0u);
   CHECK_EQ(found[0].slots[0].end, card.size());
   CHECK_EQ(found[0].tagged, "<card>" + card + "</card>" + input.substr(card.size()));
+}
+
+TEST(slot_spans_combining_marks_that_normalization_reorders) {
+  // BEH, SHADDA (class 33), FATHA (class 30): NFC puts FATHA first.
+  nlu::Script s = nlu::Script::compile("pay\n    pay <who><?>+?</who>\n");
+  const std::string beh = "بَّ";
+  std::vector<nlu::Match> found = s.match("pay " + beh);
+  CHECK_EQ(found.size(), 1u);
+  if (found.size() == 1) {
+    CHECK_EQ(found[0].slots[0].text, beh);
+    CHECK_EQ(found[0].slots[0].begin, 4u);
+    CHECK_EQ(found[0].slots[0].end, 4u + beh.size());
+    CHECK_EQ(found[0].tagged, "pay <who>" + beh + "</who>");
+  }
+  // Marks of classes 230, 232, 220, which NFC orders 220, 230, 232. The
+  // reordered marks can't be told apart in the original bytes, so a slot
+  // with some of them takes them all.
+  nlu::Script t = nlu::Script::compile("end\n    q<s><?>+?</s>̕\n");
+  const std::string marks = "̣̇̕";
+  found = t.match("q" + marks);
+  CHECK_EQ(found.size(), 1u);
+  if (found.size() == 1) {
+    CHECK_EQ(found[0].slots[0].text, marks);
+    CHECK_EQ(found[0].tagged, "q<s>" + marks + "</s>");
+  }
 }
 
 TEST(slot_ends_before_a_particle_pair) {
@@ -498,7 +527,8 @@ TEST(option_ignore_trailing_punctuation) {
   CHECK(labels(strict, "are you there?").empty());
   nlu::Script lenient = nlu::Script::compile("option ignore-trailing-punctuation\n" + rules);
   for (const char* text : {"are you there", "are you there?", "are you there ?!", "are you there...",
-                           "거기 계세요？", "거기 계세요~~"})
+                           "거기 계세요？", "거기 계세요~~", "거기 계세요;", "거기 계세요；",
+                           "거기 계세요:", "거기 계세요："})
     CHECK_EQ(labels(lenient, text), (std::vector<std::string>{"agent:check"}));
   CHECK_EQ(labels(lenient, "is my card blocked?"), (std::vector<std::string>{"card:blocked"}));
   CHECK(labels(lenient, "are you? there").empty());
@@ -778,6 +808,103 @@ TEST(saved_scripts_load_and_match_the_same) {
   CHECK_EQ(loaded.lint().findings().size(), original.lint().findings().size());
   CHECK_EQ(loaded.lint().allowed_overlaps.size(), original.lint().allowed_overlaps.size());
   CHECK_EQ(loaded.search("so I lost my credit card today").size(), 1u);
+}
+
+namespace {
+
+// Everything a Match reports, one line per match, slots and attributes included.
+std::string dump(const std::vector<nlu::Match>& found) {
+  std::string out;
+  for (const nlu::Match& m : found) {
+    out += m.label + " | " + m.tagged + " | " + m.file + ":" + std::to_string(m.line) +
+           " | specificity " + std::to_string(m.specificity) + " | " +
+           std::to_string(m.begin) + "-" + std::to_string(m.end);
+    for (const nlu::Slot& slot : m.slots) {
+      out += " | " + slot.name + "=" + slot.text + "@" + std::to_string(slot.begin) + "-" +
+             std::to_string(slot.end);
+      for (const auto& kv : slot.attributes) out += "," + kv.first + ":" + kv.second;
+    }
+    out += "\n";
+  }
+  return out;
+}
+
+std::string dump(const std::vector<nlu::Explanation>& explained) {
+  std::string out;
+  for (const nlu::Explanation& e : explained) {
+    out += e.label + " | " + e.file + ":" + std::to_string(e.line) + " | " +
+           std::to_string(e.matched) + (e.complete ? " complete" : " partial");
+    for (const std::string& next : e.expected) out += " | " + next;
+    out += "\n";
+  }
+  return out;
+}
+
+std::string dump(const nlu::LintReport& report) {
+  std::string out = report.complete ? "complete\n" : "incomplete\n";
+  for (const nlu::LintFinding& f : report.findings())
+    out += f.kind + " | " + f.file + ":" + std::to_string(f.line) + " | " + f.message + "\n";
+  for (const nlu::Overlap& o : report.allowed_overlaps)
+    out += "allowed " + o.label + ":" + std::to_string(o.line) + " " + o.other_label + ":" +
+           std::to_string(o.other_line) + " | " + o.example + " | " + o.file + " | " +
+           o.other_file + " | " + o.best_label + "\n";
+  for (const std::string& file : report.files) out += "file " + file + "\n";
+  return out;
+}
+
+}  // namespace
+
+TEST(a_saved_script_reproduces_everything_the_original_reports) {
+  const fs::path dir = fs::temp_directory_path() / "nlu_script_save_round_trip";
+  fs::remove_all(dir);
+  fs::create_directories(dir);
+  std::ofstream(dir / "cards.nlu", std::ios::binary)
+      << "@card: [신용{type=CREDIT}|체크{type=DEBIT}]카드, [credit|debit]{type=OTHER} card\n"
+         "@unused: 안 씀\n"
+         "card:lost\n"
+         "    <card>@{card}</card>(을/를) 분실했어요\n"
+         "    I lost my <card>@{card}</card>\n";
+  const std::string main_file = (dir / "main.nlu").string();
+  std::ofstream(main_file, std::ios::binary)
+      << "option fold-width\n"
+         "option ignore-trailing-punctuation\n"
+         "include cards.nlu\n"
+         "# lint: allow-overlap report:any *\n"
+         "transfer:send\n"
+         "    <recipient><?>+?</recipient>::[한테|에게] <amount>`@{KO_NUMBER}</amount> 원 보내줘\n"
+         "    send `@{NUMBER} dollars to <recipient><?>+?</recipient>\n"
+         "report:any\n"
+         "    I <?>+?\n";
+  nlu::Script original = nlu::Script::compile_file(main_file);
+  nlu::Script loaded = nlu::Script::load(original.save());
+  fs::remove_all(dir);  // the loaded script must not read the files again
+
+  // Full-width letters, digits and spaces exercise fold-width; the rest go
+  // through the included file, the particle pair, slots and a system entity.
+  const std::vector<std::string> inputs = {
+      "체크카드를 분실했어요!", "체크카드을 분실했어요", "신용카드가 분실했어요",
+      "I lost my debit card", "Ｉ　ｌｏｓｔ　ｍｙ　ｃｒｅｄｉｔ　ｃａｒｄ",
+      "민수한테 삼만 원 보내줘", "send １２ dollars to Mina", "I found it", "thank you"};
+  std::string everything;
+  for (const std::string& text : inputs) {
+    const std::string inside = "음 " + text + " 요";
+    CHECK_EQ(dump(loaded.match(text)), dump(original.match(text)));
+    CHECK_EQ(dump(loaded.match_best(text)), dump(original.match_best(text)));
+    CHECK_EQ(dump(loaded.search(inside)), dump(original.search(inside)));
+    CHECK_EQ(dump(loaded.explain(text, 5)), dump(original.explain(text, 5)));
+    everything += dump(original.match(text)) + dump(original.search(inside));
+  }
+  // The inputs must reach what the comparison is for.
+  CHECK(everything.find("cards.nlu") != std::string::npos);
+  CHECK(everything.find("recipient=민수") != std::string::npos);
+  CHECK(everything.find("type:DEBIT") != std::string::npos);
+  CHECK(!original.match("Ｉ　ｌｏｓｔ　ｍｙ　ｃｒｅｄｉｔ　ｃａｒｄ").empty());
+  CHECK(!original.match("send １２ dollars to Mina").empty());
+
+  const nlu::LintReport a = original.lint(), b = loaded.lint();
+  CHECK_EQ(dump(b), dump(a));
+  CHECK(!a.unused.empty());  // @unused in the included file, with its file name
+  CHECK_EQ(loaded.rule_count(), original.rule_count());
 }
 
 namespace {

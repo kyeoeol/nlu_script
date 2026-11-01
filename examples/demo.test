@@ -126,7 +126,7 @@ talk to a human
 call me back tomorrow at 3pm
     agent:callback:call me back <DATETIME day_offset="+1" hour="15" part_of_day="PM">tomorrow at 3pm</DATETIME>
 call me back in an hour
-    agent:callback:call me back <DATETIME hour_offset="+1">in an hour</DATETIME>
+    agent:callback:call me back <DATETIME hour_offset="+1" duration="true">in an hour</DATETIME>
 
 # No label: thanks, and a card mentioned with no request
 thank you
