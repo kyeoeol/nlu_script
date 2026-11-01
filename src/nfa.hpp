@@ -93,7 +93,8 @@ struct Edge {
   CharClass char_class = CharClass::All;  // Any: only characters of this class
   // Consumes text for a wildcard or a typo rather than pattern text: every
   // Any edge, and the Char edges of an excluded wildcard. It doesn't count
-  // towards a match's specificity.
+  // towards a match's specificity. On an epsilon edge it is a typo's
+  // left-out letter, which takes one off the specificity.
   bool wildcard = false;
 
   bool consumes() const {

@@ -570,4 +570,13 @@ TEST(typo_matches_rank_below_exact_ones) {
   if (best.size() == 1) CHECK_EQ(best[0].label, std::string("card:lost"));
   for (const nlu::Match& m : s.match("I lost my cord"))
     if (m.label == "card:lost") CHECK(m.specificity < 11);
+
+  // A left-out letter counts as one wildcard character too.
+  nlu::Script left_out = nlu::Script::compile(
+      "card:lost:typo\n    [I lost my cards]&\ncard:lost:exact\n    I lost my card\n");
+  best = left_out.match_best("I lost my card");
+  CHECK_EQ(best.size(), 1u);
+  if (best.size() == 1) CHECK_EQ(best[0].label, std::string("card:lost:exact"));
+  for (const nlu::Match& m : left_out.match("I lost my card"))
+    CHECK_EQ(m.specificity, m.label == "card:lost:exact" ? 11 : 10);
 }

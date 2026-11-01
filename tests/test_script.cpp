@@ -754,7 +754,9 @@ const char* kSaveScript =
     "agent:callback\n"
     "    `@{DATETIME}::(에) 전화 주세요\n"
     "report:any\n"
-    "    I <?>+?\n";
+    "    I <?>+?\n"
+    "card:found\n"
+    "    [I found my cards]&\n";
 
 }  // namespace
 
@@ -763,13 +765,14 @@ TEST(saved_scripts_load_and_match_the_same) {
   nlu::Script loaded = nlu::Script::load(original.save());
   CHECK_EQ(loaded.rule_count(), original.rule_count());
   for (const char* text : {"체크카드를 분실했어요!", "I lost my debit card", "내일 오후 3시에 전화 주세요",
-                           "I found it", "thank you"}) {
+                           "I found it", "thank you", "I found my card"}) {
     std::vector<nlu::Match> a = original.match(text), b = loaded.match(text);
     CHECK_EQ(a.size(), b.size());
     for (std::size_t i = 0; i < a.size() && i < b.size(); ++i) {
       CHECK_EQ(b[i].label, a[i].label);
       CHECK_EQ(b[i].tagged, a[i].tagged);
       CHECK_EQ(b[i].line, a[i].line);
+      CHECK_EQ(b[i].specificity, a[i].specificity);  // a left-out letter too
     }
   }
   CHECK_EQ(loaded.lint().findings().size(), original.lint().findings().size());

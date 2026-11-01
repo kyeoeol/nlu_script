@@ -323,6 +323,7 @@ class Compiler {
       for (int to : letters) {
         nfa_.add_edge(s, Edge::Kind::Any, to + offset);
         nfa_.epsilon(s, to + offset);
+        nfa_.states[s].edges.back().wildcard = true;  // a left-out letter counts as one
       }
       if (beside_letter[s - lo]) nfa_.add_edge(s, Edge::Kind::Any, s + offset);
     }

@@ -391,8 +391,8 @@ not match.
 
 Groups nest. Repetition counts are capped at 100. A typo-tolerant group
 takes one edit in all of its text; a swap of two letters is two edits.
-Typos count as wildcard characters for `specificity`, so `match_best()`
-prefers an exact match. Use it on longer text: in short words one edit
+Typos count as wildcard characters for `specificity`, and a left-out letter
+takes one off it, so `match_best()` prefers an exact match. Use it on longer text: in short words one edit
 matches many other words. Since nested repetitions
 multiply (and a typo-tolerant group doubles what it contains), a rule may
 compile to at most 500,000 automaton states and a whole

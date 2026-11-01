@@ -769,8 +769,9 @@ class PikeVm {
       : nfa_(nfa), first_(first), mark_(static_cast<std::size_t>(last - first), 0) {}
 
   // Runs the rule over the text and returns the actions on the highest
-  // priority accepting path, and how many characters wildcards consumed on
-  // it. Returns false if the rule does not match.
+  // priority accepting path, and how many characters count as wildcard text
+  // on it: those wildcards and typos consumed, and one per letter a typo left
+  // out. Returns false if the rule does not match.
   bool run(int start, const std::u32string& text, std::vector<Event>& events, int& wildcard_chars) {
     std::vector<Thread> current;
     std::vector<Thread> next;
@@ -814,13 +815,14 @@ class PikeVm {
     int state;
     int edge;  // consuming edge to follow, or -1 for an accepting thread
     int log;   // index into log_, or -1
-    int wild;  // characters consumed by wildcards so far
+    int wild;  // wildcard characters so far (see run())
   };
+  static constexpr int kVisit = -2;
   struct Item {
-    bool visit;  // true: explore `state`; false: emit a thread
     int state;
-    int edge;
+    int edge;  // kVisit: explore `state`; otherwise emit a thread with this edge
     int log;
+    int wild;
   };
 
   const Nfa& nfa_;
@@ -854,15 +856,16 @@ class PikeVm {
   }
 
   // Depth-first, in edge order, so threads are listed by priority. `prev` is
-  // the character consumed last, which guard edges test.
+  // the character consumed last, which guard edges test. A state's wildcard
+  // count is that of the first path to reach it.
   void add(std::vector<Thread>& list, int state, int log, int pos, char32_t prev, int wild) {
     stack_.clear();
-    stack_.push_back({true, state, -1, log});
+    stack_.push_back({state, kVisit, log, wild});
     while (!stack_.empty()) {
       const Item item = stack_.back();
       stack_.pop_back();
-      if (!item.visit) {
-        list.push_back({item.state, item.edge, item.log, wild});
+      if (item.edge != kVisit) {
+        list.push_back({item.state, item.edge, item.log, item.wild});
         continue;
       }
       unsigned& mark = mark_[item.state - first_];
@@ -873,17 +876,17 @@ class PikeVm {
       for (std::size_t k = 0; k < st.edges.size(); ++k) {
         const Edge& e = st.edges[k];
         if (e.kind == Edge::Kind::Epsilon) {
-          children_.push_back({true, e.to, -1, item.log});
+          children_.push_back({e.to, kVisit, item.log, item.wild + (e.wildcard ? 1 : 0)});
         } else if (e.kind == Edge::Kind::Guard) {
-          if (guard_holds(e.guard, prev)) children_.push_back({true, e.to, -1, item.log});
+          if (guard_holds(e.guard, prev)) children_.push_back({e.to, kVisit, item.log, item.wild});
         } else if (e.kind == Edge::Kind::Action) {
           log_.push_back({e.action, pos, item.log});
-          children_.push_back({true, e.to, -1, static_cast<int>(log_.size()) - 1});
+          children_.push_back({e.to, kVisit, static_cast<int>(log_.size()) - 1, item.wild});
         } else {
-          children_.push_back({false, item.state, static_cast<int>(k), item.log});
+          children_.push_back({item.state, static_cast<int>(k), item.log, item.wild});
         }
       }
-      if (st.accept_rule >= 0) children_.push_back({false, item.state, -1, item.log});
+      if (st.accept_rule >= 0) children_.push_back({item.state, -1, item.log, item.wild});
       stack_.insert(stack_.end(), children_.rbegin(), children_.rend());
     }
   }

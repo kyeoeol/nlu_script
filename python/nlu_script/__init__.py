@@ -181,7 +181,8 @@ class Match(collections.namedtuple("Match",
     """A matched label. `line` and `file` locate the rule that matched (`file`
     is empty for a script compiled from a string); `specificity` counts the
     input characters, not counting spaces, that the rule matched with pattern
-    text rather than wildcards; `begin` and `end` are character offsets of the
+    text rather than wildcards or typos, less one for each letter a typo left
+    out; `begin` and `end` are character offsets of the
     matched text (the whole input for match(), a span for search())."""
 
     __slots__ = ()
