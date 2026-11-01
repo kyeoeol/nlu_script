@@ -669,7 +669,7 @@ LintReport Script::lint(std::size_t max_states) const {
   report.unused = impl.unused;
   report.dead_rules = std::move(search.dead_rules);
   report.complete = search.complete;
-  report.files.assign(impl.files.begin(), impl.files.end());
+  report.files = impl.files;
 
   // `# lint: allow-overlap A B ...` allows overlaps among its labels; `*`
   // stands for every label.
@@ -678,7 +678,7 @@ LintReport Script::lint(std::size_t max_states) const {
   std::vector<std::set<std::string>> allowed;
   for (const LintDirective& d : impl_->lint_directives) {
     auto error = [&](const std::string& message) {
-      report.directive_errors.push_back({d.pos.line, message, file_name(d.pos)});
+      report.directive_errors.push_back({d.line, message, impl.files[d.file]});
     };
     if (d.command != "allow-overlap") {
       error("unknown lint command '" + d.command + "'; expected allow-overlap");
@@ -734,11 +734,9 @@ std::vector<LintFinding> LintReport::findings(bool best) const {
     out.push_back({"unused", d.file, d.line, d.name + " is never used"});
   for (const LintDirectiveError& e : directive_errors)
     out.push_back({"directive", e.file, e.line, e.message});
-  auto file_index = [&](const std::string& file) {
-    return std::find(files.begin(), files.end(), file) - files.begin();
-  };
   std::stable_sort(out.begin(), out.end(), [&](const LintFinding& a, const LintFinding& b) {
-    return std::make_pair(file_index(a.file), a.line) < std::make_pair(file_index(b.file), b.line);
+    return std::make_pair(file_index(files, a.file), a.line) <
+           std::make_pair(file_index(files, b.file), b.line);
   });
   return out;
 }

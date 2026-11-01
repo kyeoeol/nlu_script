@@ -152,11 +152,9 @@ std::string Script::save() const {
   for (const std::string& f : impl.files) w.str(f);
   w.size(impl.lint_directives.size());
   for (const LintDirective& d : impl.lint_directives) {
-    std::size_t file = 0;
-    while (file < impl.files.size() && &impl.files[file] != d.pos.file) ++file;
-    w.size(file);
-    w.i32(d.pos.line);
-    w.i32(d.pos.column);
+    w.size(d.file);
+    w.i32(d.line);
+    w.i32(d.column);
     w.str(d.command);
     w.size(d.args.size());
     for (const std::string& a : d.args) w.str(a);
@@ -238,9 +236,10 @@ Script Script::load(const std::string& bytes) {
   for (std::size_t k = 0; k < files; ++k) impl->files.push_back(r.str());
   impl->lint_directives.resize(r.count(5));
   for (LintDirective& d : impl->lint_directives) {
-    const std::size_t file = r.u32();
-    if (file >= impl->files.size()) Reader::fail("bad lint comment");
-    d.pos = SourcePos{r.i32(), r.i32(), &impl->files[file]};
+    d.file = r.u32();
+    if (d.file >= impl->files.size()) Reader::fail("bad lint comment");
+    d.line = r.i32();
+    d.column = r.i32();
     d.command = r.str();
     d.args.resize(r.count(1));
     for (std::string& a : d.args) a = r.str();

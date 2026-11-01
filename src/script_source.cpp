@@ -28,12 +28,16 @@ bool read_file(const std::string& path, std::string& out) {
 
 namespace {
 
-// Reads a comment line as a lint directive if its text starts with "lint:".
-bool parse_lint_directive(const std::string& comment, const SourcePos& pos, LintDirective& out) {
+// Reads a comment line, at `pos` in the script's file number `file`, as a
+// lint directive if its text starts with "lint:".
+bool parse_lint_directive(const std::string& comment, std::size_t file, const SourcePos& pos,
+                          LintDirective& out) {
   std::istringstream words(comment.substr(comment.find('#') + 1));
   std::string head;
   if (!(words >> head) || head.compare(0, 5, "lint:") != 0) return false;
-  out.pos = pos;
+  out.file = file;
+  out.line = pos.line;
+  out.column = pos.column;
   out.command = head.substr(5);
   if (out.command.empty()) words >> out.command;
   out.args.clear();
@@ -116,7 +120,7 @@ class ScriptParser {
   ParsedScript parse(const std::string& source, const std::string& main_file) {
     out_.files.push_back(main_file);
     if (!main_file.empty()) read_.insert(path_key(resolve("", main_file)));
-    parse_file(source, &out_.files.back());
+    parse_file(source, 0);
     finish(out_.defs.entities, entity_values_, out_.broken_entities, "entity @");
     finish(out_.defs.variables, variable_values_, out_.broken_variables, "variable @var.");
     return std::move(out_);
@@ -138,7 +142,9 @@ class ScriptParser {
     std::string current;  // the label or definition being read
   };
 
-  void parse_file(const std::string& source, const std::string* name) {
+  // Parses out_.files[index], whose text is `source`.
+  void parse_file(const std::string& source, std::size_t index) {
+    const std::string* name = &out_.files[index];
     File f{name, Block::None, ""};
     std::istringstream lines(source);
     std::string raw;
@@ -156,7 +162,7 @@ class ScriptParser {
       const SourcePos pos{line_no, static_cast<int>(first) + 1, name};
       if (line[first] == U'#') {
         LintDirective directive;
-        if (parse_lint_directive(raw, pos, directive))
+        if (parse_lint_directive(raw, index, pos, directive))
           out_.lint_directives.push_back(std::move(directive));
         continue;
       }
@@ -281,7 +287,7 @@ class ScriptParser {
     std::string source;
     if (!read_file(resolved, source)) throw_at(pos, "cannot open included file " + resolved);
     out_.files.push_back(resolved);
-    parse_file(source, &out_.files.back());
+    parse_file(source, out_.files.size() - 1);
   }
 
   void finish(std::map<std::string, Definition>& table,
@@ -313,9 +319,7 @@ class ScriptParser {
 // Orders positions by file (the main script, then included files as they are
 // read) and then by line and column.
 std::tuple<std::size_t, int, int> position_key(const ParsedScript& parsed, const SourcePos& pos) {
-  std::size_t file = 0;
-  while (file < parsed.files.size() && &parsed.files[file] != pos.file) ++file;
-  return {pos.file ? file : 0, pos.line, pos.column};
+  return {file_index(parsed.files, file_name(pos)), pos.line, pos.column};
 }
 
 // The entities and variables that `roots` refer to, directly or through

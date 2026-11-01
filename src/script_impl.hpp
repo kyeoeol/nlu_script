@@ -4,7 +4,6 @@
 
 #include <atomic>
 #include <cstdint>
-#include <deque>
 #include <iterator>
 #include <memory>
 #include <string>
@@ -25,8 +24,8 @@ struct Script::Impl {
   std::vector<detail::CompiledRule> rules;
   std::vector<int> rule_of;  // the rule owning each state, -1 for the start state
   std::vector<UnusedDefinition> unused;
-  std::deque<std::string> files;  // what lint_directives' positions point into
-  std::vector<detail::LintDirective> lint_directives;
+  std::vector<std::string> files;  // the main script, then included files as they are read
+  std::vector<detail::LintDirective> lint_directives;  // their `file` indexes `files`
   int start = 0;
 
   // The DFA cache: one shared, or one per thread (see cache()).

@@ -3,6 +3,8 @@
 #ifndef NLU_SCRIPT_SCRIPT_SOURCE_HPP
 #define NLU_SCRIPT_SCRIPT_SOURCE_HPP
 
+#include <algorithm>
+#include <cstddef>
 #include <deque>
 #include <set>
 #include <string>
@@ -23,7 +25,9 @@ struct Rule {
 
 // A `# lint: <command> <args...>` comment.
 struct LintDirective {
-  SourcePos pos;
+  std::size_t file;  // index into the script's files
+  int line;
+  int column;
   std::string command;
   std::vector<std::string> args;
 };
@@ -63,6 +67,14 @@ Diagnostic diagnostic(const CompileError& e);
 
 // The file of `pos`, or "" for none.
 std::string file_name(const SourcePos& pos);
+
+// The index of `file` in `files` (a script's files, the main script first,
+// then included files in the order they are read), or files.size() if it
+// isn't there. Positions are ordered by file this way.
+template <typename Files>
+std::size_t file_index(const Files& files, const std::string& file) {
+  return static_cast<std::size_t>(std::find(files.begin(), files.end(), file) - files.begin());
+}
 
 bool read_file(const std::string& path, std::string& out);
 

@@ -98,9 +98,7 @@ std::unique_ptr<Script::Impl> compile_source(const std::string& source, const st
     // Ordered by file and position; an error inside a definition is reported
     // once, however many rules use it.
     auto key = [&](const Diagnostic& d) {
-      std::size_t file = 0;
-      while (file < parsed.files.size() && parsed.files[file] != d.file) ++file;
-      return std::make_tuple(file, d.line, d.column, d.message);
+      return std::make_tuple(file_index(parsed.files, d.file), d.line, d.column, d.message);
     };
     std::sort(errors.begin(), errors.end(),
               [&](const Diagnostic& a, const Diagnostic& b) { return key(a) < key(b); });
@@ -113,9 +111,7 @@ std::unique_ptr<Script::Impl> compile_source(const std::string& source, const st
   }
   impl->fold_width = parsed.options.fold_width;
   impl->unused = unused_definitions(parsed);
-  // Moving a deque keeps its elements in place, so the directives' file
-  // pointers stay valid.
-  impl->files = std::move(parsed.files);
+  impl->files.assign(parsed.files.begin(), parsed.files.end());
   impl->lint_directives = std::move(parsed.lint_directives);
   impl->index_rules();
   impl->dfa = impl->make_dfa(impl->cache_options);
