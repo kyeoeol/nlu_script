@@ -280,6 +280,26 @@ TEST(datetime_resolves_against_a_reference_time) {
            std::string("2027-01-01 00:30 (minute)"));
 }
 
+TEST(resolve_datetime_takes_the_next_month_or_year_with_the_day_given_alone) {
+  // A day of the month alone is the next one, today included, in a month
+  // that has it.
+  CHECK_EQ(resolved("31일", {2026, 11, 5, -1, -1}), std::string("2026-12-31 (day)"));
+  CHECK_EQ(resolved("the 31st", {2026, 11, 5, -1, -1}), std::string("2026-12-31 (day)"));
+  CHECK_EQ(resolved("30일", {2026, 1, 31, -1, -1}), std::string("2026-03-30 (day)"));
+  CHECK_EQ(resolved("29일", {2028, 1, 30, -1, -1}), std::string("2028-02-29 (day)"));
+  CHECK_EQ(resolved("31일", {2026, 10, 31, -1, -1}), std::string("2026-10-31 (day)"));
+  // A month and day alone: the next year that has the day.
+  CHECK_EQ(resolved("2월 29일", {2026, 10, 21, -1, -1}), std::string("2028-02-29 (day)"));
+  CHECK_EQ(resolved("2월 29일", {2028, 2, 29, -1, -1}), std::string("2028-02-29 (day)"));
+  CHECK_EQ(resolved("2월 29일", {2097, 3, 1, -1, -1}), std::string("2104-02-29 (day)"));
+  // A month given by an offset or with its year keeps its own days.
+  CHECK_EQ(resolved("다음 달 31일", {2026, 10, 21, -1, -1}), std::string("2026-11-30 (day)"));
+  CHECK_EQ(resolved("2026년 2월 29일", {2026, 10, 21, -1, -1}),
+           std::string("2026-02-28 (day)"));
+  // No year has 2월 30일: it is the month's last day.
+  CHECK_EQ(resolved("2월 30일", {2026, 10, 21, -1, -1}), std::string("2027-02-28 (day)"));
+}
+
 TEST(resolve_datetime_ignores_attributes_out_of_range) {
   const nlu::DateTimeValue now{2026, 10, 21, 14, 20};
   auto date = [&](const std::vector<std::pair<std::string, std::string>>& attributes) {

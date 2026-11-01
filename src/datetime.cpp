@@ -569,21 +569,34 @@ DateTimeValue resolve_one(const Attributes& attrs, const std::string& prefix,
     month = get("month");
     day = has("day") ? get("day") : 1;
     finer(1);
-    // A month (and day) alone means the next one, this one included.
+    // A month (and day) alone means the next one, this one included, in a
+    // year that has the day (2월 29일). No year has 2월 30일, which is the
+    // month's last day.
     if (!has("year") && !has("year_offset") && !has("month_offset")) {
-      clamp_day();
-      const bool past = has("day") ? days_from_civil(year, static_cast<unsigned>(month),
-                                                     static_cast<unsigned>(day)) < today
-                                   : month < now.month;
-      if (past && year == now.year) ++year;
+      const int wanted = day;
+      const bool ever = wanted <= (month == 2 ? 29 : days_in_month(1, month));
+      year = now.year;
+      for (int tries = 0; tries < 9; ++tries, ++year) {  // leap years are at most 8 apart
+        day = ever ? wanted : std::min(wanted, days_in_month(year, month));
+        if (day > days_in_month(year, month)) continue;
+        const bool ahead = has("day") ? days_from_civil(year, static_cast<unsigned>(month),
+                                                        static_cast<unsigned>(day)) >= today
+                                      : year > now.year || month >= now.month;
+        if (ahead) break;
+      }
     }
   }
   if (has("day")) {
     day = get("day");
     finer(3);
-    if (!has("month") && !has("month_offset") && !has("year") && !has("year_offset") &&
-        year == now.year && month == now.month && day < now.day)
-      add_months(1);
+    // A day of the month alone means the next one, today included, in a
+    // month that has it (31일 skips November).
+    if (!has("month") && !has("month_offset") && !has("year") && !has("year_offset")) {
+      year = now.year;
+      month = now.month;
+      if (day < now.day) add_months(1);
+      if (day > days_in_month(year, month)) add_months(1);  // the next month has it
+    }
   }
   clamp_day();
   long long date = days_from_civil(year, static_cast<unsigned>(month), static_cast<unsigned>(day));
