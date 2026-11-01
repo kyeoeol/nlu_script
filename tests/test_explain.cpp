@@ -62,3 +62,19 @@ TEST(explain_marks_complete_matches_and_respects_the_limit) {
   }
   CHECK(s.explain("hello").empty());  // no rule gets past the first character
 }
+
+TEST(explain_reports_rules_that_match_the_empty_input) {
+  nlu::Script s = nlu::Script::compile("greet\n    (hello)\nask\n    hi\n");
+  CHECK_EQ(s.match("").size(), 1u);
+  for (const char* input : {"", "  "}) {
+    std::vector<nlu::Explanation> found = s.explain(input);
+    CHECK_EQ(found.size(), 1u);
+    if (found.size() != 1) continue;
+    CHECK_EQ(found[0].label, std::string("greet"));
+    CHECK(found[0].complete);
+    CHECK_EQ(found[0].matched, 0u);
+    CHECK_EQ(expected(found[0]), std::string("h"));
+  }
+  // A rule that matches none of a longer input is still left out.
+  CHECK(s.explain("x").empty());
+}

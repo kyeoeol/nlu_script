@@ -165,7 +165,7 @@ std::vector<Explanation> Script::explain(const std::string& text, std::size_t li
         if (i == norm.text.size())
           for (std::size_t j = k; j < end; ++j)
             if (impl.nfa.states[states[j]].accept_rule == r) complete[r] = true;
-        if (i > 0) {
+        if (i > 0 || norm.text.empty()) {
           furthest[r] = i;
           stopped[r].assign(states.begin() + k, states.begin() + end);
         }
@@ -178,8 +178,10 @@ std::vector<Explanation> Script::explain(const std::string& text, std::size_t li
   }
 
   std::vector<std::size_t> order;
+  // A rule that matched none of the input is left out, unless the input is
+  // empty and the rule matches it.
   for (std::size_t r = 0; r < n; ++r)
-    if (furthest[r] > 0) order.push_back(r);
+    if (furthest[r] > 0 || complete[r]) order.push_back(r);
   std::stable_sort(order.begin(), order.end(), [&](std::size_t a, std::size_t b) {
     return std::make_pair(furthest[a], complete[a]) > std::make_pair(furthest[b], complete[b]);
   });
@@ -196,7 +198,8 @@ std::vector<Explanation> Script::explain(const std::string& text, std::size_t li
         if (e.kind == Edge::Kind::Any) next.insert("any character");
       }
     }
-    out.push_back({rule.label, rule.line, rule.file, norm.end[furthest[r] - 1], complete[r],
+    const std::size_t matched = furthest[r] > 0 ? norm.end[furthest[r] - 1] : 0;
+    out.push_back({rule.label, rule.line, rule.file, matched, complete[r],
                    std::vector<std::string>(next.begin(), next.end())});
   }
   return out;

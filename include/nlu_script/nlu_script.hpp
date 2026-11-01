@@ -296,9 +296,11 @@ class Script {
   void set_cache_options(const CacheOptions& options);
   CacheOptions cache_options() const;
 
-  // For debugging rules: the `limit` rules that got furthest into `text`
-  // (rules that match none of it are left out), longest match first, then
-  // complete matches, then script order.
+  // For debugging rules: the `limit` rules that got furthest into `text`,
+  // longest match first, then complete matches, then script order. Rules
+  // that match none of a non-empty text are left out; a rule that matches
+  // the whole text is reported even when the text is empty (`complete`,
+  // `matched` 0).
   std::vector<Explanation> explain(const std::string& text, std::size_t limit = 3) const;
 
   // Static checks for script authors: labels that match the same input, rules
