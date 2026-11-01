@@ -200,12 +200,15 @@ Attributes scan_single(const std::u32string& s) {
       i += word->text.size();
       continue;
     }
-    // Sino-Korean numerals with a unit (삼월, 십오일, 이십일일). The run may
-    // swallow the unit 일 (day), which is then given back.
+    // Sino-Korean numerals with a unit (삼월, 십오일, 이십일일). The run stops
+    // where 일요일 starts, whose 일 is not a numeral or the unit 일 (day), and
+    // may swallow the unit 일, which is then given back.
+    auto weekday_at = [&](std::size_t at) { return starts_with(s, at, U"일요일"); };
+    auto unit_after = [&](std::size_t at) { return weekday_at(at) ? nullptr : unit_at(s, at); };
     std::size_t end = i;
-    while (end < s.size() && is_sino(s[end])) ++end;
-    if (end > i + 1 && !unit_at(s, end) && s[end - 1] == U'일') --end;
-    const Unit* unit = end > i ? unit_at(s, end) : nullptr;
+    while (end < s.size() && is_sino(s[end]) && !weekday_at(end)) ++end;
+    if (end > i + 1 && !unit_after(end) && s[end - 1] == U'일') --end;
+    const Unit* unit = end > i ? unit_after(end) : nullptr;
     std::string value;
     if (unit && korean_number_value(to_utf8(s.substr(i, end - i)), value)) {
       set_field(attrs, unit->field, std::stoll(value), unit->low, unit->high);

@@ -173,6 +173,11 @@ TEST(datetime_reads_decomposed_hangul) {
 
 TEST(datetime_more_orders) {
   CHECK_EQ(attributes("3월 5일 월요일"), std::string("month=3 day=5 weekday=MON"));
+  // 일요일 starts with the numeral 일, which belongs to the weekday.
+  CHECK_EQ(attributes("3월 이십일 일요일"), std::string("month=3 day=20 weekday=SUN"));
+  CHECK_EQ(attributes("3월 오일 일요일"), std::string("month=3 day=5 weekday=SUN"));
+  CHECK_EQ(attributes("이십일일 일요일"), std::string("day=21 weekday=SUN"));
+  CHECK_EQ(attributes("3월 이십일일 일요일"), std::string("month=3 day=21 weekday=SUN"));
   CHECK_EQ(attributes("3pm tomorrow"), std::string("hour=15 part_of_day=PM day_offset=+1"));
   CHECK_EQ(attributes("noon on friday"), std::string("hour=12 minute=0 weekday=FRI"));
 }
