@@ -349,12 +349,33 @@
       `x::[{s.k=v}ab]`); with `option fold-width`, half-width kana with a
       voicing mark (`ｶﾞｲﾄﾞ`) match, since patterns are width-folded before NFC
       as input is; `[k]^<0` is an error instead of `[k]^>0`
+- [x] Cached sentences match about 1.9x faster, with identical output. A
+      profile of warm matching on the demo found about 76% of the time in
+      `PikeVm::add`: every accepted rule got a fresh `PikeVm`, which
+      allocated marks the size of the rule (DATETIME rules: 11,000+ states),
+      thread lists and a log, and `add()` copied each state's edges into a
+      child list before pushing them on its stack. The Pike VM now keeps that
+      memory per thread (`thread_local`, sized to the largest rule the thread
+      has run, with a generation counter so marks are never cleared),
+      follows a state's first passable epsilon, guard or action edge at once,
+      leaving only where to go on in the state on its stack, and lists a run
+      of consecutive consuming edges as one thread, in the same priority
+      order. A cached demo or persona sentence went from 14.8 to 7.7 us in
+      `match()` and from 14.5 to 7.7 us in `search()`; on 4 threads from 4.4
+      to 2.3 us per match; the first pass over the 652 sentences on a fresh
+      cache from 138 to 128 us each. `nlu_script_bench` (no slots or
+      wildcards, so no Pike VM) is unchanged. CLI output in plain, `--best`,
+      `--search` and `--explain` modes is byte-identical on the demo inputs
+      with upper-cased, halved, joined and double-spaced variants (3,912
+      lines) and on 6,036 inputs to the fuzz script that uses every feature
 
 ## Next
 
-- [ ] Warm matching is about 75% Pike VM (`PikeVm::add`): 15 us for a
-      cached demo sentence. A fresh `PikeVm` per rule allocates scratch the
-      size of the rule (DATETIME rules: 11,000+ states)
+- [ ] Warm matching is still about 80% Pike VM (7.7 us for a cached demo
+      sentence): per input character it visits about 20 states and tests
+      about 39 consuming edges, 57% of them in runs of more than 8 edges of
+      one state. Finding the edge by binary search where a state's character
+      edges are sorted (entity grammars) saved only 1%
 - [ ] `explain()` computes every closure again (0.8 ms per sentence on the
       demo); it could read the sets of the lazy DFA's states instead
 - [ ] Compiling 50,000 rules: parsing is about half (an AST node per token),
