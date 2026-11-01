@@ -415,15 +415,21 @@ Attributes datetime_attributes(const std::string& text) {
   Attributes end = scan_single(strip_spaces(second));
   // One end's part of the day carries over to the other's hour: 오후 3시부터
   // 5시까지, from 3 to 5pm (but not 11 to 2pm, where 11 is in the morning).
+  // An end earlier on the 12-hour clock is in the next half of the day: in
+  // the afternoon after a morning start (오전 11시부터 1시까지 ends at 13), in
+  // the next day's morning after a later one (밤 11시부터 1시까지 ends at 1).
   const std::string* start_part = get(start, "part_of_day");
   const std::string* end_part = get(end, "part_of_day");
   const std::string* start_hour = get(start, "hour");
   const std::string* end_hour = get(end, "hour");
   if (start_hour && end_hour) {
-    if (!start_part && end_part && std::stoll(*start_hour) % 12 <= std::stoll(*end_hour) % 12)
+    const long long from = std::stoll(*start_hour), to = std::stoll(*end_hour);
+    const bool in_order = from % 12 <= to % 12;
+    if (!start_part && end_part && in_order)
       set_attribute(start, "part_of_day", *end_part);
     else if (start_part && !end_part)
-      set_attribute(end, "part_of_day", *start_part);
+      set_attribute(end, "part_of_day",
+                    in_order ? *start_part : (to_24_hour(from, *start_part) < 12 ? "PM" : "AM"));
   }
   adjust_hour(start);
   adjust_hour(end);

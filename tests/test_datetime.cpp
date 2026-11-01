@@ -153,6 +153,24 @@ TEST(datetime_ranges) {
   CHECK_EQ(attributes("3"), std::string("<no match>"));
 }
 
+TEST(datetime_range_end_earlier_on_the_clock_is_in_the_next_half_of_the_day) {
+  CHECK_EQ(attributes("오전 11시부터 1시까지"),
+           std::string("part_of_day=AM hour=11 end_hour=13 end_part_of_day=PM"));
+  CHECK_EQ(attributes("오전 11시부터 12시까지"),
+           std::string("part_of_day=AM hour=11 end_hour=12 end_part_of_day=PM"));
+  CHECK_EQ(attributes("아침 9시부터 1시까지"),
+           std::string("part_of_day=MORNING hour=9 end_hour=13 end_part_of_day=PM"));
+  CHECK_EQ(attributes("from 11am to 1 o'clock"),
+           std::string("hour=11 part_of_day=AM end_hour=13 end_part_of_day=PM"));
+  // After the evening or the night, the next half is the next day's morning.
+  CHECK_EQ(attributes("밤 11시부터 1시까지"),
+           std::string("part_of_day=NIGHT hour=23 end_hour=1 end_part_of_day=AM"));
+  CHECK_EQ(attributes("밤 11시부터 12시까지"),
+           std::string("part_of_day=NIGHT hour=23 end_hour=0 end_part_of_day=AM"));
+  CHECK_EQ(attributes("저녁 7시부터 1시까지"),
+           std::string("part_of_day=EVENING hour=19 end_hour=1 end_part_of_day=AM"));
+}
+
 TEST(datetime_durations) {
   CHECK_EQ(attributes("2시간 뒤"), std::string("hour_offset=+2"));
   CHECK_EQ(attributes("1시간 30분 후"), std::string("hour_offset=+1 minute_offset=+30"));
