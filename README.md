@@ -266,11 +266,15 @@ harmless. Errors, matches (`Match::file`, `nlu_result_file`, Python
 A pattern must match the **whole** input. Before matching, the input is
 normalized: whitespace runs collapse to one space, leading and trailing
 whitespace is dropped, and letters are matched case-insensitively (simple
-Unicode case folding: `Ä`, `Σ`, `П` as well as ASCII). Text is put in
-Unicode NFC first, in the input and in scripts alike, so precomposed and
-decomposed forms match: `café` with `cafe` + U+0301, and Hangul syllables
-with conjoining jamo (NFD, as in text copied from macOS file names). Slot
-text and offsets always refer to the original input.
+Unicode case folding: `Ä`, `Σ`, `П` as well as ASCII). Whitespace is every
+character with Unicode's White_Space property: tabs, line breaks, U+0085,
+and the no-break, thin, narrow no-break, ideographic and other Unicode
+spaces (U+00A0, U+1680, U+2000 to U+200A, U+2028, U+2029, U+202F, U+205F,
+U+3000). Text is put in Unicode NFC first, in the input and in scripts
+alike, so precomposed and decomposed forms match: `café` with `cafe` +
+U+0301, and Hangul syllables with conjoining jamo (NFD, as in text copied
+from macOS file names). Slot text and offsets always refer to the original
+input.
 
 Matching is language-neutral: Korean, English and mixed input (`OTP 재발급`)
 follow the same rules. Punctuation in the input is not stripped, so

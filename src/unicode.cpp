@@ -213,19 +213,22 @@ std::string to_utf8(const std::u32string& text) {
   return out;
 }
 
+// The characters with Unicode's White_Space property.
 bool is_space(char32_t c) {
+  if (c <= 0x20) return c == 0x20 || (c >= 0x09 && c <= 0x0D);  // space, \t \n \v \f \r
+  if (c < 0x85) return false;
   switch (c) {
-    case U' ':
-    case U'\t':
-    case U'\n':
-    case U'\r':
-    case U'\f':
-    case U'\v':
+    case 0x0085:  // next line
     case 0x00A0:  // no-break space
+    case 0x1680:  // ogham space mark
+    case 0x2028:  // line separator
+    case 0x2029:  // paragraph separator
+    case 0x202F:  // narrow no-break space
+    case 0x205F:  // medium mathematical space
     case 0x3000:  // ideographic space
       return true;
     default:
-      return false;
+      return c >= 0x2000 && c <= 0x200A;  // en quad ... hair space, thin space among them
   }
 }
 
