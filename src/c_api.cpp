@@ -347,10 +347,55 @@ const char* nlu_explanation_expected(const nlu_explanation* e, size_t i, size_t 
   return x && j < x->expected.size() ? x->expected[j].c_str() : nullptr;
 }
 
+int nlu_script_set_cache_options(nlu_script* script, const nlu_cache_options* options) {
+  if (!script || !options) return 0;
+  try {
+    nlu::CacheOptions o;
+    o.max_states = options->max_states;
+    o.max_bytes = options->max_bytes;
+    o.per_thread = options->per_thread != 0;
+    script->script.set_cache_options(o);
+    return 1;
+  } catch (const std::exception&) {
+    return 0;
+  }
+}
+
+int nlu_script_cache_options(const nlu_script* script, nlu_cache_options* options) {
+  if (!script || !options) return 0;
+  try {
+    nlu::CacheOptions o = script->script.cache_options();
+    options->max_states = o.max_states;
+    options->max_bytes = o.max_bytes;
+    options->per_thread = o.per_thread ? 1 : 0;
+    return 1;
+  } catch (const std::exception&) {
+    return 0;
+  }
+}
+
+int nlu_script_cache_stats(const nlu_script* script, nlu_cache_stats* stats) {
+  if (!script || !stats) return 0;
+  try {
+    nlu::CacheStats c = script->script.cache_stats();
+    stats->states = c.states;
+    stats->transitions = c.transitions;
+    stats->bytes = c.bytes;
+    stats->evictions = c.evictions;
+    return 1;
+  } catch (const std::exception&) {
+    return 0;
+  }
+}
+
 nlu_lint* nlu_script_lint(const nlu_script* script, int best) {
+  return nlu_script_lint_limited(script, best, 1000000);
+}
+
+nlu_lint* nlu_script_lint_limited(const nlu_script* script, int best, size_t max_states) {
   if (!script) return nullptr;
   try {
-    nlu::LintReport report = script->script.lint();
+    nlu::LintReport report = script->script.lint(max_states);
     return new nlu_lint{report.findings(best != 0), report.allowed_overlaps.size(),
                         report.complete};
   } catch (const std::exception&) {

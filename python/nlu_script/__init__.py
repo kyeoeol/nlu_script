@@ -18,8 +18,9 @@ import itertools
 import os
 import sys
 
-__all__ = ["CompileError", "DateTimeRange", "Diagnostic", "Explanation", "LintFinding",
-           "LintReport", "Match", "Script", "Slot", "TestFailure", "TestReport", "resolve_datetime"]
+__all__ = ["CacheOptions", "CacheStats", "CompileError", "DateTimeRange", "Diagnostic",
+           "Explanation", "LintFinding", "LintReport", "Match", "Script", "Slot", "TestFailure",
+           "TestReport", "resolve_datetime"]
 __version__ = "0.1.0"
 
 
@@ -108,7 +109,7 @@ _explanation_complete = _declare("nlu_explanation_complete", ctypes.c_int, _ptr,
 _explanation_expected_count = _declare("nlu_explanation_expected_count", _size, _ptr, _size)
 _explanation_expected = _declare("nlu_explanation_expected", ctypes.c_char_p, _ptr, _size,
                                  _size)
-_lint = _declare("nlu_script_lint", _ptr, _ptr, ctypes.c_int)
+_lint = _declare("nlu_script_lint_limited", _ptr, _ptr, ctypes.c_int, _size)
 _lint_free = _declare("nlu_lint_free", None, _ptr)
 _lint_count = _declare("nlu_lint_count", _size, _ptr)
 _lint_kind = _declare("nlu_lint_kind", ctypes.c_char_p, _ptr, _size)
@@ -131,6 +132,25 @@ _tests_actual = _declare("nlu_test_report_actual", ctypes.c_char_p, _ptr, _size,
 _tests_actual_line = _declare("nlu_test_report_actual_line", ctypes.c_int, _ptr, _size, _size)
 _tests_actual_file = _declare("nlu_test_report_actual_file", ctypes.c_char_p, _ptr, _size,
                               _size)
+
+
+class _CacheOptions(ctypes.Structure):
+    _fields_ = [("max_states", _size), ("max_bytes", _size), ("per_thread", ctypes.c_int)]
+
+
+class _CacheStats(ctypes.Structure):
+    _fields_ = [("states", _size), ("transitions", _size), ("bytes", _size),
+                ("evictions", _size)]
+
+
+_set_cache_options = _declare("nlu_script_set_cache_options", ctypes.c_int, _ptr,
+                              ctypes.POINTER(_CacheOptions))
+_cache_options = _declare("nlu_script_cache_options", ctypes.c_int, _ptr,
+                          ctypes.POINTER(_CacheOptions))
+_cache_stats = _declare("nlu_script_cache_stats", ctypes.c_int, _ptr,
+                        ctypes.POINTER(_CacheStats))
+
+
 class _DateTime(ctypes.Structure):
     _fields_ = [("year", ctypes.c_int), ("month", ctypes.c_int), ("day", ctypes.c_int),
                 ("hour", ctypes.c_int), ("minute", ctypes.c_int)]
@@ -208,6 +228,8 @@ class Explanation(collections.namedtuple("Explanation",
 
 LintFinding = collections.namedtuple("LintFinding", "kind file line message")
 LintReport = collections.namedtuple("LintReport", "findings allowed complete")
+CacheOptions = collections.namedtuple("CacheOptions", "max_states max_bytes per_thread")
+CacheStats = collections.namedtuple("CacheStats", "states transitions bytes evictions")
 TestReport = collections.namedtuple("TestReport", "passed failed failures")
 
 
@@ -358,13 +380,43 @@ class Script:
         finally:
             _explanation_free(result)
 
-    def lint(self, best=False):
+    def set_cache_options(self, max_states=None, max_bytes=None, per_thread=None):
+        """Replaces the DFA cache with an empty one. Options left out keep their
+        current value (the defaults are 200000 states, 64 MiB, shared). When
+        either limit is reached, the cache drops the states not used lately.
+        Not safe while other threads match with this script."""
+        current = self.cache_options()
+        options = _CacheOptions(
+            current.max_states if max_states is None else max_states,
+            current.max_bytes if max_bytes is None else max_bytes,
+            int(current.per_thread if per_thread is None else bool(per_thread)))
+        if not _set_cache_options(self._checked(), ctypes.byref(options)):
+            raise MemoryError("nlu_script_set_cache_options failed")
+
+    def cache_options(self):
+        """The current CacheOptions(max_states, max_bytes, per_thread)."""
+        options = _CacheOptions()
+        if not _cache_options(self._checked(), ctypes.byref(options)):
+            raise MemoryError("nlu_script_cache_options failed")
+        return CacheOptions(options.max_states, options.max_bytes, bool(options.per_thread))
+
+    def cache_stats(self):
+        """What the DFA cache holds now: CacheStats(states, transitions, bytes,
+        evictions)."""
+        stats = _CacheStats()
+        if not _cache_stats(self._checked(), ctypes.byref(stats)):
+            raise MemoryError("nlu_script_cache_stats failed")
+        return CacheStats(stats.states, stats.transitions, stats.bytes, stats.evictions)
+
+    def lint(self, best=False, max_states=1000000):
         """Lints the script (as `nlu_script_cli --lint`) and returns a
         LintReport: `findings` (LintFinding(kind, file, line, message), kind one
         of "overlap", "dead-rule", "unused", "directive"), how many overlaps
         `# lint: allow-overlap` comments allow, and whether the search was
-        complete. With `best`, overlaps that match_best() resolves are left out."""
-        result = _lint(self._checked(), 1 if best else 0)
+        complete. With `best`, overlaps that match_best() resolves are left out.
+        The search uses up to `max_states` states; a smaller limit can stop it
+        early, which makes `complete` False."""
+        result = _lint(self._checked(), 1 if best else 0, max_states)
         if not result:
             raise MemoryError("nlu_script_lint failed")
         try:

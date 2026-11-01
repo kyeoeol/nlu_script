@@ -141,6 +141,35 @@ NLU_SCRIPT_API size_t nlu_explanation_expected_count(const nlu_explanation* expl
 NLU_SCRIPT_API const char* nlu_explanation_expected(const nlu_explanation* explanation, size_t i,
                                                     size_t j);
 
+/* The limits of a script's DFA cache, as nlu::CacheOptions in C++. When either
+ * limit is reached, the cache keeps the states used since the last eviction
+ * and drops the rest. `per_thread` nonzero gives each thread its own cache. */
+typedef struct nlu_cache_options {
+  size_t max_states;
+  size_t max_bytes;
+  int per_thread;
+} nlu_cache_options;
+
+/* What the cache holds now, as nlu::CacheStats in C++. */
+typedef struct nlu_cache_stats {
+  size_t states;       /* DFA states cached */
+  size_t transitions;  /* cached transitions between them */
+  size_t bytes;        /* approximate memory they take */
+  size_t evictions;    /* times the cache was full and dropped unused states */
+} nlu_cache_stats;
+
+/* Replaces the script's cache with an empty one with these options (the
+ * defaults are 200000 states, 64 MiB, shared). Not safe while other threads
+ * match with the script. Returns 1 on success, 0 if `script` or `options` is
+ * NULL or on allocation failure. */
+NLU_SCRIPT_API int nlu_script_set_cache_options(nlu_script* script,
+                                                const nlu_cache_options* options);
+/* Fill `options` with the current options and `stats` with the cache's
+ * statistics. Return 1 on success, 0 (leaving the output untouched) if an
+ * argument is NULL or on allocation failure. */
+NLU_SCRIPT_API int nlu_script_cache_options(const nlu_script* script, nlu_cache_options* options);
+NLU_SCRIPT_API int nlu_script_cache_stats(const nlu_script* script, nlu_cache_stats* stats);
+
 /* Lints the script: its findings as `nlu_script_cli --lint` prints them, with
  * `kind` "overlap", "dead-rule", "unused" or "directive". With `best`
  * nonzero, overlaps that match_best resolves are left out. `allowed` counts
@@ -148,6 +177,11 @@ NLU_SCRIPT_API const char* nlu_explanation_expected(const nlu_explanation* expla
  * `complete` is 0 if the search stopped at its state limit. Returns NULL if
  * `script` is NULL or on allocation failure. */
 NLU_SCRIPT_API nlu_lint* nlu_script_lint(const nlu_script* script, int best);
+/* Like nlu_script_lint, with the search limited to `max_states` states in all
+ * (nlu_script_lint uses 1000000). A small limit stops the search early and
+ * makes nlu_lint_complete return 0. */
+NLU_SCRIPT_API nlu_lint* nlu_script_lint_limited(const nlu_script* script, int best,
+                                                 size_t max_states);
 NLU_SCRIPT_API void nlu_lint_free(nlu_lint* lint);
 NLU_SCRIPT_API size_t nlu_lint_count(const nlu_lint* lint);
 NLU_SCRIPT_API const char* nlu_lint_kind(const nlu_lint* lint, size_t i);

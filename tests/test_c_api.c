@@ -120,6 +120,66 @@ static void test_lint(void) {
   nlu_script_free(script);
 }
 
+static void test_lint_state_limit(void) {
+  nlu_script* script = nlu_script_compile("a\n    one\nb\n    two\n", NULL, NULL, NULL);
+  nlu_lint* lint;
+  CHECK(script != NULL);
+  if (!script) return;
+  lint = nlu_script_lint_limited(script, 0, 2);
+  CHECK(lint != NULL && nlu_lint_complete(lint) == 0);
+  nlu_lint_free(lint);
+  lint = nlu_script_lint_limited(script, 0, 1000000);
+  CHECK(lint != NULL && nlu_lint_complete(lint) == 1);
+  nlu_lint_free(lint);
+  nlu_script_free(script);
+}
+
+static void test_cache_options_and_stats(void) {
+  char source[8192];
+  size_t used = 0;
+  int i;
+  nlu_script* script;
+  nlu_cache_options options;
+  nlu_cache_stats before, after;
+  for (i = 0; i < 40; ++i)
+    used += (size_t)sprintf(source + used, "label%d\n    order %d for customer %d\n", i,
+                            i * 7919, i);
+  script = nlu_script_compile(source, NULL, NULL, NULL);
+  CHECK(script != NULL);
+  if (!script) return;
+
+  CHECK(nlu_script_cache_options(script, &options) == 1);
+  CHECK(options.max_states > 0 && options.max_bytes > 0 && options.per_thread == 0);
+
+  CHECK(nlu_script_cache_stats(script, &before) == 1);
+  nlu_result_free(nlu_script_match(script, "order 7919 for customer 1"));
+  CHECK(nlu_script_cache_stats(script, &after) == 1);
+  CHECK(after.states > before.states);
+  CHECK(after.transitions > before.transitions);
+  CHECK(after.bytes > 0 && after.evictions == 0);
+
+  options.max_states = 20;
+  options.per_thread = 1;
+  CHECK(nlu_script_set_cache_options(script, &options) == 1);
+  options.max_states = 0;
+  CHECK(nlu_script_cache_options(script, &options) == 1);
+  CHECK(options.max_states == 20 && options.per_thread == 1);
+  for (i = 0; i < 40; ++i) {
+    char text[64];
+    nlu_result* result;
+    sprintf(text, "order %d for customer %d", i * 7919, i);
+    result = nlu_script_match(script, text);
+    CHECK(nlu_result_count(result) == 1);
+    nlu_result_free(result);
+  }
+  CHECK(nlu_script_cache_stats(script, &after) == 1);
+  CHECK(after.evictions > 0 && after.states <= 20);
+
+  CHECK(nlu_script_cache_stats(NULL, &after) == 0);
+  CHECK(nlu_script_set_cache_options(script, NULL) == 0);
+  nlu_script_free(script);
+}
+
 static void test_resolve_datetime(void) {
   const char* keys[] = {"day_offset", "part_of_day", "hour"};
   const char* values[] = {"+1", "PM", "15"};
@@ -301,6 +361,8 @@ int main(void) {
   test_match_best();
   test_explain();
   test_lint();
+  test_lint_state_limit();
+  test_cache_options_and_stats();
   test_resolve_datetime();
   test_search();
   test_save_and_load();
