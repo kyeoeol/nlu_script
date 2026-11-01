@@ -266,11 +266,15 @@ harmless. Errors, matches (`Match::file`, `nlu_result_file`, Python
 A pattern must match the **whole** input. Before matching, the input is
 normalized: whitespace runs collapse to one space, leading and trailing
 whitespace is dropped, and letters are matched case-insensitively (simple
-Unicode case folding: `Ä`, `Σ`, `П` as well as ASCII). Text is put in
-Unicode NFC first, in the input and in scripts alike, so precomposed and
-decomposed forms match: `café` with `cafe` + U+0301, and Hangul syllables
-with conjoining jamo (NFD, as in text copied from macOS file names). Slot
-text and offsets always refer to the original input.
+Unicode case folding: `Ä`, `Σ`, `П` as well as ASCII). Whitespace is every
+character with Unicode's White_Space property: tabs, line breaks, U+0085,
+and the no-break, thin, narrow no-break, ideographic and other Unicode
+spaces (U+00A0, U+1680, U+2000 to U+200A, U+2028, U+2029, U+202F, U+205F,
+U+3000). Text is put in Unicode NFC first, in the input and in scripts
+alike, so precomposed and decomposed forms match: `café` with `cafe` +
+U+0301, and Hangul syllables with conjoining jamo (NFD, as in text copied
+from macOS file names). Slot text and offsets always refer to the original
+input.
 
 Matching is language-neutral: Korean, English and mixed input (`OTP 재발급`)
 follow the same rules. Punctuation in the input is not stripped, so
@@ -447,9 +451,9 @@ System entities:
 | Entity | Matches | Attributes |
 |---|---|---|
 | `NUMBER` | digits | |
-| `TELNUM` | phone numbers: Korean (`010-9876-5432`, `031-765-4321`, `01098765432`), international (`+1 555-123-4567`, `+44 20 7946 0958`), North American (`(555) 123-4567`, `555.123.4567`) | |
-| `KO_NUMBER` | numbers in digits and Korean numerals (`3만 5천`, `삼만오천`), native ones (`스물셋`) | `value` |
-| `EN_NUMBER` | numbers in English words or digits (`twenty-one`, `two hundred and five`, `3 million`) | `value` |
+| `TELNUM` | phone numbers: Korean (`010-9876-5432`, `010.9876.5432`, `031-765-4321`, `01098765432`), international (`+1 555-123-4567`, `+44 20 7946 0958`), North American (`(555) 123-4567`, `555.123.4567`) | |
+| `KO_NUMBER` | numbers in digits and Korean numerals (`3만 5천`, `5천 3백`, `삼만오천`), native ones (`스물셋`) | `value` |
+| `EN_NUMBER` | numbers in English words or digits (`twenty-one`, `two hundred and five`, `two thousand and five`, `nineteen hundred and ninety`, `3 million`) | `value` |
 | `ORDINAL` | `첫 번째`, `두번째`, `3번째`, `셋째`, `first`, `twelfth`, `twenty-first`, `21st` | `value` |
 | `MONEY` | `3만 원`, `5,000원`, `50달러`, `$12.50`, `€10`, `fifty dollars`, `20 bucks`, `USD 50`, `30k won`, `$2.8 million` | `value`, `currency` (`KRW`, `USD`, `EUR`, `JPY`, `GBP`, `CNY`) |
 | `DATETIME` | dates, times, ranges and durations | described below |
@@ -460,9 +464,12 @@ follows: `` `@{MONEY} <?>*? `` tags `50 dollars` in `50 dollars`, not
 `50 dollar` with the `s` left to the wildcard.
 
 `KO_NUMBER` matches `35000`, `35,000`, `3만 5천`, `3만5천`, `삼만오천`,
-`2,500만`, `1억 2천만` and the like (units 십, 백, 천, 만, 억, 조, with
-sino-Korean digits 일 to 구 or Arabic digits). Its slot gets the number as a
-`value` attribute:
+`5천 3백`, `2,500만`, `1억 2천만` and the like (units 십, 백, 천, 만, 억, 조,
+with sino-Korean digits 일 to 구 or Arabic digits). A space may follow a
+unit (`1만 5천 3백`, `삼천 오백`, `3천 5백만`) but never comes between a
+digit and its unit (`5 천`), and below 만 the ones digit stays on its unit
+(`삼백 이십오`; in `백 일`, `일` is a word of its own). Its slot gets the
+number as a `value` attribute:
 
 ```
 <amount>`@{KO_NUMBER}</amount> 원 보내줘
@@ -473,6 +480,15 @@ Values of 10^18 or more match without a `value`. Native Korean numbers go
 up to 99 (`하나`, `열`, `스물셋`, `아흔아홉`), including the forms used before a
 counter (`한`, `두`, `세`, `네`, `스무`). `MONEY` keeps decimals as written
 (`$12.50` gives `value="12.50"`) and reads Korean or English amounts.
+
+`EN_NUMBER` goes up to 999,999,999,999 in words. It takes `and` before a
+last part below 100 that follows `hundred` or a scale (`two hundred and
+five`, `two thousand and five` gives 2005, `a thousand and one`); anywhere
+else `and` is left to the pattern, so `` `@{EN_NUMBER} and `@{EN_NUMBER} ``
+reads `two and three` as 2 and 3. Hundreds may be counted past ten
+(`twelve hundred` gives 1200, `nineteen hundred and ninety` 1990,
+`twenty-five hundred` 2500; not `ten` or `twenty hundred`) when they make
+the whole number, with no scale before or after them.
 
 `DATETIME` matches dates and times in Korean and English and describes them
 with attributes relative to now, which the caller resolves against its own

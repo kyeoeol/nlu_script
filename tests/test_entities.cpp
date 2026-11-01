@@ -49,6 +49,18 @@ TEST(korean_numbers_include_native_numbers) {
   CHECK_EQ(attributes("KO_NUMBER", "하나둘"), std::string("<no match>"));
 }
 
+TEST(korean_numbers_below_10000_may_space_their_units) {
+  CHECK_EQ(attributes("KO_NUMBER", "5천 3백"), std::string("value=5300"));
+  CHECK_EQ(attributes("KO_NUMBER", "1만 5천 3백"), std::string("value=15300"));
+  CHECK_EQ(attributes("KO_NUMBER", "삼천 오백"), std::string("value=3500"));
+  CHECK_EQ(attributes("KO_NUMBER", "3백 2십5"), std::string("value=325"));
+  CHECK_EQ(attributes("KO_NUMBER", "3천 5백만"), std::string("value=35000000"));
+  CHECK_EQ(attributes("MONEY", "5천 3백 원"), std::string("value=5300 currency=KRW"));
+  // A space follows a unit, and the ones digit stays on its unit.
+  CHECK_EQ(attributes("KO_NUMBER", "5 천"), std::string("<no match>"));
+  CHECK_EQ(attributes("KO_NUMBER", "백 일"), std::string("<no match>"));
+}
+
 TEST(english_number_words) {
   CHECK_EQ(attributes("EN_NUMBER", "seven"), std::string("value=7"));
   CHECK_EQ(attributes("EN_NUMBER", "Nineteen"), std::string("value=19"));
@@ -60,6 +72,39 @@ TEST(english_number_words) {
   CHECK_EQ(attributes("EN_NUMBER", "1,250"), std::string("value=1250"));
   CHECK_EQ(attributes("EN_NUMBER", "3 million"), std::string("value=3000000"));
   CHECK_EQ(attributes("EN_NUMBER", "twenty twenty"), std::string("<no match>"));
+}
+
+TEST(english_numbers_take_and_before_their_last_part) {
+  CHECK_EQ(attributes("EN_NUMBER", "two thousand and five"), std::string("value=2005"));
+  CHECK_EQ(attributes("EN_NUMBER", "a thousand and one"), std::string("value=1001"));
+  CHECK_EQ(attributes("EN_NUMBER", "three million and twenty-one"), std::string("value=3000021"));
+  CHECK_EQ(attributes("EN_NUMBER", "two and three"), std::string("<no match>"));
+  CHECK_EQ(attributes("EN_NUMBER", "two thousand and"), std::string("<no match>"));
+}
+
+TEST(english_numbers_count_hundreds_past_ten) {
+  CHECK_EQ(attributes("EN_NUMBER", "twelve hundred"), std::string("value=1200"));
+  CHECK_EQ(attributes("EN_NUMBER", "nineteen hundred and ninety"), std::string("value=1990"));
+  CHECK_EQ(attributes("EN_NUMBER", "twenty-five hundred"), std::string("value=2500"));
+  CHECK_EQ(attributes("EN_NUMBER", "fifteen hundred fifty"), std::string("value=1550"));
+  CHECK_EQ(attributes("MONEY", "twelve hundred dollars"), std::string("value=1200 currency=USD"));
+  // Past ten, hundreds make the whole number.
+  CHECK_EQ(attributes("EN_NUMBER", "two thousand twelve hundred"), std::string("<no match>"));
+  CHECK_EQ(attributes("EN_NUMBER", "twelve hundred thousand"), std::string("<no match>"));
+}
+
+TEST(and_between_two_english_numbers_is_left_to_the_pattern) {
+  nlu::Script s = nlu::Script::compile("t\n    `@{EN_NUMBER} and `@{EN_NUMBER}\n");
+  for (const auto& c : {std::pair<std::string, std::string>{"two and three", "2 3"},
+                        {"two thousand and three thousand", "2000 3000"}}) {
+    std::vector<nlu::Match> found = s.match(c.first);
+    std::string values;
+    if (found.size() == 1)
+      for (const nlu::Slot& slot : found[0].slots)
+        for (const auto& kv : slot.attributes)
+          if (kv.first == "value") values += (values.empty() ? "" : " ") + kv.second;
+    CHECK_EQ(values, c.second);
+  }
 }
 
 TEST(a_zero_times_a_unit_is_zero) {
@@ -126,8 +171,10 @@ TEST(system_entities_take_their_longest_form_before_a_wildcard) {
       {"MONEY", "10 euros"},     {"MONEY", "3 pounds"},            {"MONEY", "$30k"},
       {"DATETIME", "in 2 hours"}, {"DATETIME", "in 1 hour 30 minutes"},
       {"DATETIME", "3 days ago"}, {"KO_NUMBER", "일곱"},             {"KO_NUMBER", "일흔일곱"},
-      {"KO_NUMBER", "3만 5천"},
-      {"EN_NUMBER", "seventeen"}, {"ORDINAL", "twenty-first"}};
+      {"KO_NUMBER", "3만 5천"}, {"KO_NUMBER", "1만 5천 3백"},
+      {"EN_NUMBER", "seventeen"}, {"EN_NUMBER", "two thousand and five"},
+      {"EN_NUMBER", "nineteen hundred and ninety"}, {"ORDINAL", "twenty-first"},
+      {"TELNUM", "010.9876.5432"}};
   for (const auto& c : cases) {
     nlu::Script s = nlu::Script::compile(std::string("t\n    `@{") + c.first + "} <?>*?\n");
     std::vector<nlu::Match> found = s.match(c.second);
@@ -144,4 +191,13 @@ TEST(phone_numbers_in_other_formats) {
     CHECK_EQ(attributes("TELNUM", text), std::string());
   CHECK_EQ(attributes("TELNUM", "911"), std::string("<no match>"));
   CHECK_EQ(attributes("TELNUM", "123-45"), std::string("<no match>"));
+}
+
+TEST(korean_phone_numbers_may_be_dotted) {
+  for (const char* text : {"010.9876.5432", "02.1234.5678", "02.123.4567"})
+    CHECK_EQ(attributes("TELNUM", text), std::string());
+  // The groups keep their lengths.
+  CHECK_EQ(attributes("TELNUM", "010.98.5432"), std::string("<no match>"));
+  CHECK_EQ(attributes("TELNUM", "010.9876.543"), std::string("<no match>"));
+  CHECK_EQ(attributes("TELNUM", "010..9876.5432"), std::string("<no match>"));
 }

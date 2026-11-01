@@ -145,20 +145,21 @@ NodePtr native_korean_number() {
 }
 
 // Numbers written with digits and Korean numerals: 35000, 35,000, 3만 5천,
-// 삼만오천, 2,500만, 1억 2천만. Below 만 a number is either digits or
-// numerals (with single digits allowed for numerals: 3천5백); 만, 억 and 조
-// groups may be separated by spaces. A space only ever separates two parts,
-// so the entity never ends in one.
+// 삼만오천, 5천 3백, 2,500만, 1억 2천만. Below 만 a number is either digits
+// or numerals (with single digits allowed for numerals: 3천5백). A space may
+// follow a unit: 만, 억 and 조 groups may be separated by spaces, and so may
+// the 천, 백 and 십 parts, though the ones digit stays on the last of them
+// (삼백 이십오; in 백 일, the 일 is a word of its own). A space only ever
+// separates two parts, so the entity never ends in one.
 NodePtr korean_number() {
   NodePtr sino = characters(kSinoDigits);
   NodePtr d = choice({sino, range(U'1', U'9')});
   NodePtr arabic = arabic_number();
 
   // Below 10,000 in numerals: [d]천 [d]백 [d]십 [d], highest unit first.
-  NodePtr ten = glued({optional(d), literal(U"십"), optional(d)});
-  NodePtr hundred = glued({optional(d), literal(U"백"), optional(choice({ten, d}))});
-  NodePtr thousand = glued({optional(d), literal(U"천"), optional(choice({hundred, ten, d}))});
-  NodePtr small = choice({thousand, hundred, ten, arabic, sino});
+  auto part = [&](const char32_t* unit) { return glued({optional(d), literal(unit)}); };
+  NodePtr numerals = glued({in_order({part(U"천"), part(U"백"), part(U"십")}), optional(d)});
+  NodePtr small = choice({numerals, arabic, sino});
 
   // [small]조 [small]억 [small]만 [small], highest unit first, any of them.
   auto group = [&](const char32_t* unit) { return glued({optional(small), literal(unit)}); };
@@ -169,20 +170,32 @@ NodePtr korean_number() {
 // --- ORDINAL, EN_NUMBER, MONEY ---------------------------------------------------
 
 // One to 999,999,999,999 in English words, or in digits: twenty-one, two
-// hundred and five, three thousand five hundred, 3 million, 1,250.
+// hundred and five, three thousand five hundred, two thousand and five,
+// nineteen hundred and ninety, 3 million, 1,250.
 NodePtr english_number() {
   NodePtr units = literals(kEnglishSmall, 1, 9);
   NodePtr tens = literals(kEnglishTens);
-  NodePtr below_100 = choice({glued({tens, literal(U"-"), units}), spaced({tens, units}), tens,
-                              literals(kEnglishSmall, 10, 19), units,
+  NodePtr compound_tens = choice({glued({tens, literal(U"-"), units}), spaced({tens, units})});
+  NodePtr below_100 = choice({compound_tens, tens, literals(kEnglishSmall, 10, 19), units,
                               literal(word_for(kEnglishSmall, 0))});
-  NodePtr hundreds_of = spaced({choice({units, literal(U"a")}), literal(U"hundred")});
-  NodePtr below_1000 = choice({spaced({hundreds_of, literal(U"and"), below_100}),
-                               spaced({hundreds_of, below_100}), hundreds_of, below_100});
+  // `and` may come before the last part, when it is below 100 and follows
+  // hundred or a scale: two hundred and five, a thousand and one. Elsewhere
+  // (two and three) it is not part of the number.
+  auto hundreds = [&](NodePtr count) {
+    NodePtr head = spaced({count, literal(U"hundred")});
+    return choice({spaced({head, literal(U"and"), below_100}), spaced({head, below_100}), head});
+  };
+  NodePtr below_1000 = choice({hundreds(choice({units, literal(U"a")})), below_100});
   auto scale = [&](const char32_t* word) {
     return spaced({choice({below_1000, arabic_number(), literal(U"a")}), literal(word)});
   };
+  NodePtr scales = in_order({scale(U"billion"), scale(U"million"), scale(U"thousand")});
+  // Hundreds counted past ten (twelve hundred, twenty-five hundred, but not
+  // ten or twenty hundred) make the whole number: no scale comes before or
+  // after them.
+  NodePtr past_ten = choice({literals(kEnglishSmall, 11, 19), compound_tens});
   return choice({in_order({scale(U"billion"), scale(U"million"), scale(U"thousand"), below_1000}),
+                 spaced({scales, literal(U"and"), below_100}), hundreds(past_ten),
                  arabic_number()});
 }
 
@@ -228,14 +241,13 @@ NodePtr money() {
                  spaced({codes, amount}), spaced({amount, codes})});
 }
 
-// Phone numbers: Korean (010-9876-5432, 031-765-4321, 01098765432),
-// international (+1 555-123-4567, +44 20 7946 0958, +82 10-9876-5432) and
-// North American ((555) 123-4567, 555.123.4567).
+// Phone numbers: Korean (010-9876-5432, 010.9876.5432, 031-765-4321,
+// 01098765432), international (+1 555-123-4567, +44 20 7946 0958, +82
+// 10-9876-5432) and North American ((555) 123-4567, 555.123.4567).
 NodePtr phone_number() {
-  NodePtr korean_separator = optional(choice({literal(U"-"), literal(U" ")}));
-  NodePtr korean = glued({literal(U"0"), digits(1, 2), korean_separator, digits(3, 4),
-                          korean_separator, digits(4, 4)});
   NodePtr separator = optional(choice({literal(U"-"), literal(U" "), literal(U".")}));
+  NodePtr korean =
+      glued({literal(U"0"), digits(1, 2), separator, digits(3, 4), separator, digits(4, 4)});
   NodePtr area = choice({glued({literal(U"("), digits(1, 4), literal(U")")}), digits(1, 4)});
   NodePtr international =
       glued({literal(U"+"), digits(1, 3), separator, area, separator, digits(2, 4), separator,
