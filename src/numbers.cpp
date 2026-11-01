@@ -84,6 +84,7 @@ bool korean_number_value(const std::string& text, std::string& value) {
   Value section = 0;  // below 만: sum of the 십, 백 and 천 parts so far
   Value pending = 0;  // the digits not yet given a unit
   bool has_pending = false;
+  bool has_section = false;  // whether 십, 백 or 천 came since the last 만, 억 or 조
   bool in_digits = false;
   bool any = false;
   for (const DecodedChar& d : decode_utf8(text)) {
@@ -104,12 +105,13 @@ bool korean_number_value(const std::string& text, std::string& value) {
       if (!mul_add(has_pending ? pending : 1, unit, section, section)) return false;
       pending = 0;
       has_pending = false;
-      any = true;
+      has_section = any = true;
     } else if (Value unit = large_unit(c)) {
-      Value group = section + pending;
-      if (!mul_add(group ? group : 1, unit, total, total)) return false;
+      // A unit alone counts once (만 is 10000), but 0만 is 0.
+      const bool counted = has_pending || has_section;
+      if (!mul_add(counted ? section + pending : 1, unit, total, total)) return false;
       section = pending = 0;
-      has_pending = false;
+      has_pending = has_section = false;
       any = true;
     } else {
       return false;
@@ -173,17 +175,22 @@ bool digits_value(const std::string& word, Value& out) {
 
 bool english_number_value(const std::string& text, std::string& value) {
   Value total = 0, current = 0;
+  bool has_current = false;  // whether a number came since the last scale
   bool any = false;
   for (const std::string& word : words_of(text)) {
     Value n = 0;
     if (word == "and") continue;
+    // A scale alone counts once (thousand is 1000), but zero thousand is 0.
     if (word == "hundred") {
-      if (!mul_add(current ? current : 1, 100, 0, current)) return false;
+      if (!mul_add(has_current ? current : 1, 100, 0, current)) return false;
     } else if (word == "thousand" || word == "million" || word == "billion") {
       const Value scale = word == "thousand" ? 1000ULL : word == "million" ? 1000000ULL
                                                                            : 1000000000ULL;
-      if (!mul_add(current ? current : 1, scale, total, total)) return false;
+      if (!mul_add(has_current ? current : 1, scale, total, total)) return false;
       current = 0;
+      has_current = false;
+      any = true;
+      continue;
     } else if (english_word_value(word) >= 0) {
       current += static_cast<Value>(english_word_value(word));
     } else if (digits_value(word, n)) {
@@ -191,7 +198,7 @@ bool english_number_value(const std::string& text, std::string& value) {
     } else {
       return false;
     }
-    any = true;
+    has_current = any = true;
   }
   if (!any || total + current >= kLimit) return false;
   value = std::to_string(total + current);
