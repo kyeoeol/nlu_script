@@ -447,7 +447,7 @@ System entities:
 | Entity | Matches | Attributes |
 |---|---|---|
 | `NUMBER` | digits | |
-| `TELNUM` | phone numbers: Korean (`010-9876-5432`, `031-765-4321`, `01098765432`), international (`+1 555-123-4567`, `+44 20 7946 0958`), North American (`(555) 123-4567`, `555.123.4567`) | |
+| `TELNUM` | phone numbers: Korean (`010-9876-5432`, `010.9876.5432`, `031-765-4321`, `01098765432`), international (`+1 555-123-4567`, `+44 20 7946 0958`), North American (`(555) 123-4567`, `555.123.4567`) | |
 | `KO_NUMBER` | numbers in digits and Korean numerals (`3만 5천`, `5천 3백`, `삼만오천`), native ones (`스물셋`) | `value` |
 | `EN_NUMBER` | numbers in English words or digits (`twenty-one`, `two hundred and five`, `two thousand and five`, `nineteen hundred and ninety`, `3 million`) | `value` |
 | `ORDINAL` | `첫 번째`, `두번째`, `3번째`, `셋째`, `first`, `twelfth`, `twenty-first`, `21st` | `value` |

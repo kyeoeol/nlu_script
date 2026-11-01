@@ -241,14 +241,13 @@ NodePtr money() {
                  spaced({codes, amount}), spaced({amount, codes})});
 }
 
-// Phone numbers: Korean (010-9876-5432, 031-765-4321, 01098765432),
-// international (+1 555-123-4567, +44 20 7946 0958, +82 10-9876-5432) and
-// North American ((555) 123-4567, 555.123.4567).
+// Phone numbers: Korean (010-9876-5432, 010.9876.5432, 031-765-4321,
+// 01098765432), international (+1 555-123-4567, +44 20 7946 0958, +82
+// 10-9876-5432) and North American ((555) 123-4567, 555.123.4567).
 NodePtr phone_number() {
-  NodePtr korean_separator = optional(choice({literal(U"-"), literal(U" ")}));
-  NodePtr korean = glued({literal(U"0"), digits(1, 2), korean_separator, digits(3, 4),
-                          korean_separator, digits(4, 4)});
   NodePtr separator = optional(choice({literal(U"-"), literal(U" "), literal(U".")}));
+  NodePtr korean =
+      glued({literal(U"0"), digits(1, 2), separator, digits(3, 4), separator, digits(4, 4)});
   NodePtr area = choice({glued({literal(U"("), digits(1, 4), literal(U")")}), digits(1, 4)});
   NodePtr international =
       glued({literal(U"+"), digits(1, 3), separator, area, separator, digits(2, 4), separator,

@@ -173,7 +173,8 @@ TEST(system_entities_take_their_longest_form_before_a_wildcard) {
       {"DATETIME", "3 days ago"}, {"KO_NUMBER", "일곱"},             {"KO_NUMBER", "일흔일곱"},
       {"KO_NUMBER", "3만 5천"}, {"KO_NUMBER", "1만 5천 3백"},
       {"EN_NUMBER", "seventeen"}, {"EN_NUMBER", "two thousand and five"},
-      {"EN_NUMBER", "nineteen hundred and ninety"}, {"ORDINAL", "twenty-first"}};
+      {"EN_NUMBER", "nineteen hundred and ninety"}, {"ORDINAL", "twenty-first"},
+      {"TELNUM", "010.9876.5432"}};
   for (const auto& c : cases) {
     nlu::Script s = nlu::Script::compile(std::string("t\n    `@{") + c.first + "} <?>*?\n");
     std::vector<nlu::Match> found = s.match(c.second);
@@ -190,4 +191,13 @@ TEST(phone_numbers_in_other_formats) {
     CHECK_EQ(attributes("TELNUM", text), std::string());
   CHECK_EQ(attributes("TELNUM", "911"), std::string("<no match>"));
   CHECK_EQ(attributes("TELNUM", "123-45"), std::string("<no match>"));
+}
+
+TEST(korean_phone_numbers_may_be_dotted) {
+  for (const char* text : {"010.9876.5432", "02.1234.5678", "02.123.4567"})
+    CHECK_EQ(attributes("TELNUM", text), std::string());
+  // The groups keep their lengths.
+  CHECK_EQ(attributes("TELNUM", "010.98.5432"), std::string("<no match>"));
+  CHECK_EQ(attributes("TELNUM", "010.9876.543"), std::string("<no match>"));
+  CHECK_EQ(attributes("TELNUM", "010..9876.5432"), std::string("<no match>"));
 }
