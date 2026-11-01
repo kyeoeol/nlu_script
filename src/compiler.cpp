@@ -123,19 +123,7 @@ class Compiler {
     } level{++depth_};
     check_size(n.pos);
     Frag f = compile_body(n);
-    if (!with_actions_) return f;
-    for (const Assignment& a : n.assignments) {
-      if (a.slot.empty() && slot_depth_ == 0)
-        throw_at(a.pos, "attribute '" + a.key +
-                        "' is assigned outside of a slot; use {slot." + a.key + "=...}");
-      if (!a.slot.empty()) qualified_.push_back(a);
-      int action = static_cast<int>(nfa_.actions.size());
-      nfa_.actions.push_back(Action{Action::Kind::Assign,
-                                    a.slot.empty() ? -1 : nfa_.slot_id(a.slot), a.key, a.value});
-      int next = nfa_.add_state();
-      nfa_.add_edge(f.out, Edge::Kind::Action, next, 0, -1, action);
-      f.out = next;
-    }
+    if (!may_skip(n)) f.out = assign(n, f.out);
     return f;
   }
 
@@ -178,6 +166,32 @@ class Compiler {
     ref_stack_.push_back(ref);
   }
 
+  // Whether `n` is a group that may be skipped, (a) or [a]^(0,n). Its
+  // attributes apply only on the paths through it, where compile_body()
+  // puts them, as an alternative's apply only to its branch.
+  static bool may_skip(const Node& n) {
+    return n.kind == Node::Kind::Optional || (n.kind == Node::Kind::Repeat && n.min == 0);
+  }
+
+  // Adds the edges that perform n's assignments after state `from`, and
+  // returns the state after them.
+  int assign(const Node& n, int from) {
+    if (!with_actions_) return from;
+    for (const Assignment& a : n.assignments) {
+      if (a.slot.empty() && slot_depth_ == 0)
+        throw_at(a.pos, "attribute '" + a.key +
+                        "' is assigned outside of a slot; use {slot." + a.key + "=...}");
+      if (!a.slot.empty()) qualified_.push_back(a);
+      int action = static_cast<int>(nfa_.actions.size());
+      nfa_.actions.push_back(Action{Action::Kind::Assign,
+                                    a.slot.empty() ? -1 : nfa_.slot_id(a.slot), a.key, a.value});
+      int next = nfa_.add_state();
+      nfa_.add_edge(from, Edge::Kind::Action, next, 0, -1, action);
+      from = next;
+    }
+    return from;
+  }
+
   void join(int from, int to, bool hard) {
     if (!hard) nfa_.add_edge(from, Edge::Kind::Space, to);
     nfa_.epsilon(from, to);
@@ -216,7 +230,7 @@ class Compiler {
         Frag f = compile(*n.children[0]);
         nfa_.epsilon(in, f.in);  // greedy: prefer matching the optional part
         nfa_.epsilon(in, out);
-        nfa_.epsilon(f.out, out);
+        nfa_.epsilon(assign(n, f.out), out);
         return {in, out};
       }
       case Node::Kind::Repeat:
@@ -380,6 +394,11 @@ class Compiler {
     const bool hard = !n.soft_repeat;
     int in = nfa_.add_state();
     int out = nfa_.add_state();
+    // With no repetition required, the way past them all leaves from `in`;
+    // the others go through `taken`, where the attributes apply (may_skip()).
+    const bool skip = n.min == 0 && with_actions_ && !n.assignments.empty();
+    const int taken = skip ? nfa_.add_state() : out;
+    auto leave = [&](int from) { nfa_.epsilon(from, from == in ? out : taken); };
     int cur = in;
     bool first = true;  // no space before the first repetition
     for (int i = 0; i < n.min; ++i) {
@@ -393,23 +412,24 @@ class Compiler {
       int loop = nfa_.add_state();
       if (first) {
         nfa_.epsilon(cur, f.in);
-        nfa_.epsilon(cur, out);
+        leave(cur);
       } else {
         nfa_.epsilon(cur, loop);
       }
       join(loop, f.in, hard);  // greedy: prefer another repetition
-      nfa_.epsilon(loop, out);
+      leave(loop);
       nfa_.epsilon(f.out, loop);
-      return {in, out};
+    } else {
+      for (int i = n.min; i < n.max; ++i) {
+        Frag f = compile(body);
+        join(cur, f.in, hard || first);
+        leave(cur);
+        first = false;
+        cur = f.out;
+      }
+      leave(cur);
     }
-    for (int i = n.min; i < n.max; ++i) {
-      Frag f = compile(body);
-      join(cur, f.in, hard || first);
-      nfa_.epsilon(cur, out);
-      first = false;
-      cur = f.out;
-    }
-    nfa_.epsilon(cur, out);
+    if (skip) nfa_.epsilon(assign(n, taken), out);
     return {in, out};
   }
 

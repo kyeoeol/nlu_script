@@ -570,6 +570,12 @@ transfer:send
 ```
 
 An attribute assignment applies when the token right before it matches.
+After an optional group, or a repetition that may match nothing
+(`[k]^(0,n)`), it applies only when the group matched (at least once), just
+as one inside an alternative applies only to its branch:
+`<card>(체크){type=DEBIT} 카드</card> 분실` tags `카드 분실` as
+`<card>카드</card> 분실`, and `체크 카드 분실` as
+`<card type="DEBIT">체크 카드</card> 분실`.
 `{slot.key=value}` applies to the closest earlier `<slot>`, or if there is none,
 to the next one. Unqualified assignments outside any slot are an error. Later
 assignments of the same key win. Attributes are listed in the order they were

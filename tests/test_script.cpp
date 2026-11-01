@@ -224,6 +224,31 @@ TEST(later_assignment_overrides_earlier_one) {
   CHECK_EQ(attribute(s.match("a b")[0].slots[0], "v"), std::string("2"));
 }
 
+TEST(a_skipped_group_sets_no_attributes) {
+  // An optional group's attributes apply only when the group matched, as an
+  // alternative's apply only to its branch.
+  nlu::Script optional = nlu::Script::compile(
+      "card:lost\n"
+      "    <card>(체크){type=DEBIT} 카드</card> 분실\n"
+      "    lost my <card>(debit){card.type=DEBIT} card</card>\n");
+  CHECK_EQ(tagged(optional, "카드 분실"), std::string("card:lost:<card>카드</card> 분실"));
+  CHECK_EQ(tagged(optional, "체크 카드 분실"),
+           std::string("card:lost:<card type=\"DEBIT\">체크 카드</card> 분실"));
+  CHECK_EQ(tagged(optional, "lost my card"), std::string("card:lost:lost my <card>card</card>"));
+  CHECK_EQ(tagged(optional, "lost my debit card"),
+           std::string("card:lost:lost my <card type=\"DEBIT\">debit card</card>"));
+  // A repetition that may match nothing sets them once it has matched at
+  // least once; one that must match always does.
+  nlu::Script repeated = nlu::Script::compile(
+      "t\n"
+      "    <s>[very]^(0,2){k=v} good</s>\n"
+      "    <s>[so]^(1,2){k=w} bad</s>\n");
+  CHECK_EQ(tagged(repeated, "good"), std::string("t:<s>good</s>"));
+  CHECK_EQ(tagged(repeated, "very good"), std::string("t:<s k=\"v\">very good</s>"));
+  CHECK_EQ(tagged(repeated, "very very good"), std::string("t:<s k=\"v\">very very good</s>"));
+  CHECK_EQ(tagged(repeated, "so bad"), std::string("t:<s k=\"w\">so bad</s>"));
+}
+
 TEST(attributes_leave_spaces_as_they_are) {
   // Text that an attribute splits is still one word.
   nlu::Script word = nlu::Script::compile("t\n    <s>ab{k=v}cd</s>\n");
