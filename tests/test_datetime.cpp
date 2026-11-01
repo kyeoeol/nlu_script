@@ -332,6 +332,16 @@ TEST(resolve_datetime_takes_a_range_end_given_alone_from_the_start) {
            std::string("2026-10-21 11:00 ~ 2026-10-21 13:00 (hour)"));
   CHECK_EQ(resolved("오늘 밤 11시부터 내일 새벽 1시까지", now),
            std::string("2026-10-21 23:00 ~ 2026-10-22 01:00 (hour)"));
+  // A bare hour, with no part of the day of its own or the start's, is 12
+  // hours later on the start's day before it is on the next day. Its
+  // attribute stays as written.
+  CHECK_EQ(resolved("11시부터 1시까지", now),
+           std::string("2026-10-21 11:00 ~ 2026-10-21 13:00 (hour)"));
+  CHECK_EQ(resolved("10시부터 9시까지", now),
+           std::string("2026-10-21 10:00 ~ 2026-10-21 21:00 (hour)"));
+  CHECK_EQ(attributes("11시부터 1시까지"), std::string("hour=11 end_hour=1"));
+  CHECK_EQ(resolved("3시부터 5시까지", now),
+           std::string("2026-10-21 03:00 ~ 2026-10-21 05:00 (hour)"));
   // An end with a date, earlier on the start's day, moves by the unit it
   // left out.
   CHECK_EQ(resolved("금요일 오후 3시부터 금요일 오후 1시까지", now),

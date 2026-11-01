@@ -731,13 +731,25 @@ DateTimeRange resolve_datetime(const std::vector<std::pair<std::string, std::str
     // it (between monday and friday ends on the Friday after that Monday),
     // and a time alone is on its day. One that still comes before the start
     // is the next one after the start's day, so 밤 11시부터 새벽 1시까지
-    // ends at 01:00 the next day.
+    // ends at 01:00 the next day. A bare hour from 1 to 12 (no part of the
+    // day, its own or the start's) is 12 hours later on the same day first:
+    // 11시부터 1시까지 ends at 13:00.
     const long long start = day_number(out.start);
     int end_grain = 0;
     out.end = resolve_one(attributes, "end_", now, start, end_grain);
     if (!counts_from_now(attributes, "end_") && before(out.end, end_grain, out.start)) {
-      end_grain = 0;
-      out.end = resolve_one(attributes, "end_", now, start + 1, end_grain);
+      const std::string* hour = field(attributes, "end_", "hour");
+      int written = 0;
+      const bool bare = hour && field_value("hour", *hour, written) && written >= 1 &&
+                        written <= 12 && !field(attributes, "end_", "part_of_day");
+      DateTimeValue later = out.end;
+      later.hour += 12;
+      if (bare && later.hour < 24 && !before(later, end_grain, out.start)) {
+        out.end = later;
+      } else {
+        end_grain = 0;
+        out.end = resolve_one(attributes, "end_", now, start + 1, end_grain);
+      }
     }
     out.has_end = true;
   }

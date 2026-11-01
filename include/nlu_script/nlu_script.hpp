@@ -193,7 +193,8 @@ struct DateTimeRange {
 // its own counts from the start (between monday and friday ends on the
 // Friday after that Monday) and, if it still comes before the start, moves
 // forward by the unit it left out (밤 11시부터 새벽 1시까지 ends the next
-// day). Attributes whose values are out of range (month 13, offsets beyond
+// day), a bare hour first by 12 hours (11시부터 1시까지 ends at 13:00).
+// Attributes whose values are out of range (month 13, offsets beyond
 // 100,000) are ignored, `now` is clamped into range, and results stay within
 // the years 1 to 9999.
 DateTimeRange resolve_datetime(const std::vector<std::pair<std::string, std::string>>& attributes,

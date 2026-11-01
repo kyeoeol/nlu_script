@@ -539,7 +539,10 @@ of its own: a weekday, a day of the month or a month alone is the next one
 on or after the start (`between monday and friday` is 10-26 to 10-30, `3월
 5일부터 10일까지` 2027-03-05 to 03-10), and a time alone falls on the start's
 day. An end that still comes before the start moves forward by the unit its
-text left out, so `밤 11시부터 새벽 1시까지` ends at 01:00 the next day.
+text left out, so `밤 11시부터 새벽 1시까지` ends at 01:00 the next day. A
+bare hour, with no part of the day of its own or the start's, is first 12
+hours later on the start's day: `11시부터 1시까지` ends at 13:00 (its
+`end_hour` stays `1`) and `10시부터 9시까지` at 21:00.
 
 Attributes whose values are out of range (month 13, an offset beyond
 100,000) are ignored, `now` is clamped into range, and results stay within

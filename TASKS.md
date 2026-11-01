@@ -324,7 +324,9 @@
         friday` was 10-26 ~ 10-23 and is 10-26 ~ 10-30, `3월 5일부터
         10일까지` ended on 2026-11-10 and ends on 2027-03-10. An end still
         before the start moves by the unit it left out, so `밤 11시부터
-        새벽 1시까지` ends at 01:00 the next day
+        새벽 1시까지` ends at 01:00 the next day; a bare hour is 12 hours
+        later on the same day first, so `11시부터 1시까지` ends at 13:00,
+        not at 01:00 the next day
       - a range end earlier on the 12-hour clock is in the next half of the
         day: `오전 11시부터 1시까지` ended at 1 and ends at 13
       - English dates followed by a time: digits ran together once spaces
