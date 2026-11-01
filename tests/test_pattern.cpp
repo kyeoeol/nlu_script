@@ -384,6 +384,21 @@ TEST(deeply_nested_groups_are_errors) {
   CHECK(matches(std::string(50, '(') + "a" + std::string(50, ')'), "a"));
 }
 
+TEST(deeply_nested_exclusions_are_errors) {
+  // \\\<?> <?> <?> <?>: each exclusion excludes the next wildcard and its
+  // own exclusions. 10,000 levels used to overflow the stack.
+  auto nested = [](int levels) {
+    std::string pattern = std::string(static_cast<std::size_t>(levels), '\\') + "<?>";
+    for (int i = 0; i < levels; ++i) pattern += " <?>";
+    return pattern;
+  };
+  CHECK_THROWS(nlu::CompileError, rule(nested(300)));
+  // One character, unless it is one character.
+  CHECK(!matches(nested(1), "a"));
+  // One character, unless it is (one character, unless it is one character).
+  CHECK(matches(nested(2), "a"));
+}
+
 TEST(ascii_letters_match_case_insensitively) {
   CHECK(matches("reset (my) PIN", "Reset my pin"));
   CHECK(matches("Check My Balance", "check my balance"));

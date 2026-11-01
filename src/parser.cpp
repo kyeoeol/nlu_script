@@ -12,7 +12,8 @@ namespace {
 
 constexpr int kMaxRepeat = 100;
 constexpr std::size_t kMaxPermuteTokens = 5;
-// Groups nest by recursion, so their depth is bounded to keep the stack safe.
+// Groups and exclusions nest by recursion, so their depth is bounded to keep
+// the stack safe.
 constexpr int kMaxDepth = 100;
 
 std::string utf8(char32_t c) {
@@ -134,6 +135,24 @@ class Parser {
     return node;
   }
 
+  // One level of nesting, held while a group or an exclusion is parsed;
+  // each recurses into the items it contains.
+  class Level {
+   public:
+    explicit Level(Parser& parser) : depth_(parser.depth_) {
+      if (depth_ == kMaxDepth)
+        parser.error("groups are nested too deeply (over " + std::to_string(kMaxDepth) +
+                     " levels)");
+      ++depth_;
+    }
+    ~Level() { --depth_; }
+    Level(const Level&) = delete;
+    Level& operator=(const Level&) = delete;
+
+   private:
+    int& depth_;
+  };
+
   // A sequence or alternation stops before one of these.
   bool at_stop(bool in_permute) const {
     char32_t c = peek();
@@ -145,12 +164,7 @@ class Parser {
 
   // alternation := sequence ('|' sequence)*
   std::shared_ptr<Node> parse_alternation(bool in_permute) {
-    struct Depth {
-      int& depth;
-      ~Depth() { --depth; }
-    } depth{++depth_};
-    if (depth_ > kMaxDepth)
-      error("groups are nested too deeply (over " + std::to_string(kMaxDepth) + " levels)");
+    const Level level(*this);
     std::size_t start = i_;
     std::vector<std::shared_ptr<Node>> options;
     options.push_back(parse_sequence(in_permute));
@@ -422,6 +436,7 @@ class Parser {
   // \X <?>*? : the wildcard must not match X in full. Several exclusions may
   // precede one wildcard.
   std::shared_ptr<Node> parse_exclusion() {
+    const Level level(*this);  // \\X nests one exclusion in another
     std::size_t start = i_;
     auto excluded = make(Node::Kind::Choice, start);
     while (peek() == U'\\') {
