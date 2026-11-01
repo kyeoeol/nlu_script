@@ -315,6 +315,22 @@
       random scripts gives the old results (3 tie on another input of the
       same cost). The fuzz target takes inputs up to 16 KiB, so the demo
       seed itself runs too
+- [x] Fixes in the parser, compiler and slot matcher: nested typo groups
+      stop at the 500,000-state rule cap (the copy each makes went
+      unchecked; 18 levels of `[abc]&` took 951 MB); nested exclusions
+      (`\\X <?> <?>`) count towards the 100-level group limit, and
+      definitions nest at most 100 deep, with groups through them at most
+      400 compile levels (10,000 exclusions and 11,000 chained variables
+      overflowed the stack, and so did 100 variables each wrapping the next
+      in 98 groups; at the limits an optimized build needs under 384 KiB, so
+      a 512 KiB `std::thread` stack holds them); a typo group takes a letter
+      added at the end of a word (`I lost my cards`); a left-out letter takes
+      one off `specificity`, so `match_best()` prefers the exact rule (lint's
+      wildcard-free copies leave that edge out too); an attribute between two
+      pieces of text no longer lets a space in between them (`ab{k=v}cd`, and
+      `x::[{s.k=v}ab]`); with `option fold-width`, half-width kana with a
+      voicing mark (`ｶﾞｲﾄﾞ`) match, since patterns are width-folded before NFC
+      as input is; `[k]^<0` is an error instead of `[k]^>0`
 
 ## Next
 
