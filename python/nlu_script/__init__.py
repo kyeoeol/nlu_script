@@ -18,8 +18,9 @@ import itertools
 import os
 import sys
 
-__all__ = ["CompileError", "DateTimeRange", "Diagnostic", "Explanation", "LintFinding",
-           "LintReport", "CacheOptions", "CacheStats", "Match", "Script", "Slot", "TestFailure", "TestReport", "resolve_datetime"]
+__all__ = ["CacheOptions", "CacheStats", "CompileError", "DateTimeRange", "Diagnostic",
+           "Explanation", "LintFinding", "LintReport", "Match", "Script", "Slot", "TestFailure",
+           "TestReport", "resolve_datetime"]
 __version__ = "0.1.0"
 
 
@@ -131,6 +132,8 @@ _tests_actual = _declare("nlu_test_report_actual", ctypes.c_char_p, _ptr, _size,
 _tests_actual_line = _declare("nlu_test_report_actual_line", ctypes.c_int, _ptr, _size, _size)
 _tests_actual_file = _declare("nlu_test_report_actual_file", ctypes.c_char_p, _ptr, _size,
                               _size)
+
+
 class _CacheOptions(ctypes.Structure):
     _fields_ = [("max_states", _size), ("max_bytes", _size), ("per_thread", ctypes.c_int)]
 
