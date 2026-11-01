@@ -419,6 +419,13 @@
       `--search` and `--explain` modes is byte-identical on the demo inputs
       with upper-cased, halved, joined and double-spaced variants (3,912
       lines) and on 6,036 inputs to the fuzz script that uses every feature
+- [x] Lint's state limit (`nlu_script_lint_limited`, Python
+      `lint(max_states=)`), DFA cache options and statistics
+      (`nlu_script_set_cache_options`, `nlu_script_cache_options`,
+      `nlu_script_cache_stats`; Python `set_cache_options`, `cache_options`,
+      `cache_stats`) reach the C API and Python; every target builds with
+      warnings, and `NLU_SCRIPT_WARNINGS_AS_ERRORS` (ON in the gcc/clang CI
+      jobs, off for MSVC) fails the build on them
 
 ## Next
 
