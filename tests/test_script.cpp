@@ -195,6 +195,21 @@ TEST(later_assignment_overrides_earlier_one) {
   CHECK_EQ(attribute(s.match("a b")[0].slots[0], "v"), std::string("2"));
 }
 
+TEST(attributes_leave_spaces_as_they_are) {
+  // Text that an attribute splits is still one word.
+  nlu::Script word = nlu::Script::compile("t\n    <s>ab{k=v}cd</s>\n");
+  CHECK_EQ(tagged(word, "abcd"), std::string("t:<s k=\"v\">abcd</s>"));
+  CHECK_EQ(tagged(word, "ab cd"), std::string("<no match>"));
+  // An attribute at the start of a group keeps the '::' before the group.
+  nlu::Script hard = nlu::Script::compile("t\n    <s>x</s>::[{s.k=v}ab|cd]\n");
+  CHECK_EQ(tagged(hard, "xab"), std::string("t:<s k=\"v\">x</s>ab"));
+  CHECK_EQ(tagged(hard, "x ab"), std::string("<no match>"));
+  // A space beside the attribute, or a group next to it, still lets a space in.
+  nlu::Script soft = nlu::Script::compile("t\n    <s>ab {k=v}cd [ef]{k=w}gh ij{k=x}[kl]</s>\n");
+  CHECK_EQ(tagged(soft, "ab cd ef gh ij kl"), std::string("t:<s k=\"x\">ab cd ef gh ij kl</s>"));
+  CHECK_EQ(tagged(soft, "abcdefghijkl"), std::string("t:<s k=\"x\">abcdefghijkl</s>"));
+}
+
 TEST(repeated_slot_yields_one_slot_per_occurrence) {
   nlu::Script s = nlu::Script::compile("t\n    [<n>@var.{d}</n>]^(1,3)\n@var.d: [1|2|3]\n");
   std::vector<nlu::Match> found = s.match("1 2 3");

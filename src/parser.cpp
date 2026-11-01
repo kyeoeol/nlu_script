@@ -178,14 +178,19 @@ class Parser {
     return choice;
   }
 
-  // sequence := item ((space | '::' | nothing) item)*
+  // sequence := item ((space | '::' | nothing) item)*, with assignments
+  // after any item. Assignments don't change how the items join.
   std::shared_ptr<Node> parse_sequence(bool in_permute) {
     auto seq = make(Node::Kind::Sequence, i_);
     std::vector<std::shared_ptr<Node>> items;
-    bool saw_space = false;
+    bool saw_space = false;  // since the last item or assignment
+    bool spaced = false;     // since the last item
     bool hard = false;
+    bool assigned = false;   // an assignment since the last item
+    bool leading = false;    // items[0] is the empty literal of a leading assignment
+    bool text = false;       // the last item is literal text, not a group
     for (;;) {
-      saw_space = skip_spaces() || saw_space;
+      if (skip_spaces()) saw_space = spaced = true;
       if (at_stop(in_permute)) break;
       if (looking_at(U"::")) {
         if (items.empty()) error("'::' must join two tokens");
@@ -199,16 +204,25 @@ class Parser {
       if (peek() == U'{') {
         std::size_t at = i_;
         std::vector<Assignment> assignments = parse_assignments();
-        if (items.empty()) items.push_back(make(Node::Kind::Literal, at));
+        if (items.empty()) {
+          items.push_back(make(Node::Kind::Literal, at));
+          leading = true;
+        }
         for (Assignment& a : assignments) items.back()->assignments.push_back(std::move(a));
+        assigned = true;
         saw_space = false;
         continue;
       }
+      // Literal text that an assignment splits stays one word (ab{k=v}cd is
+      // abcd), and no space may follow the empty literal that carries a
+      // leading assignment.
+      const bool next_text = peek() == U'"' || literal_char(peek(), in_permute);
+      const bool word = assigned && !spaced && text && next_text;
       std::shared_ptr<Node> item = parse_item(in_permute);
-      if (!items.empty()) seq->hard_joins.push_back(hard);
+      if (!items.empty()) seq->hard_joins.push_back(hard || leading || word);
       items.push_back(item);
-      hard = false;
-      saw_space = false;
+      text = next_text;
+      hard = saw_space = spaced = assigned = leading = false;
     }
     if (hard) error("'::' must be directly followed by a token");
     if (items.size() == 1) return items[0];
