@@ -148,14 +148,7 @@ CacheOptions Script::cache_options() const { return impl_->cache_options; }
 std::vector<Explanation> Script::explain(const std::string& text, std::size_t limit) const {
   const Impl& impl = *impl_;
   const NormalizedText norm = normalize(text, impl.fold_width);
-  // The rule owning each NFA state: rules occupy contiguous, ascending ranges.
-  auto rule_of = [&](int state) {
-    auto it = std::upper_bound(impl.rules.begin(), impl.rules.end(), state,
-                               [](int s, const CompiledRule& r) { return s < r.first; });
-    if (it == impl.rules.begin()) return -1;
-    --it;
-    return state < it->last ? static_cast<int>(it - impl.rules.begin()) : -1;
-  };
+  const std::vector<int>& rule_of = impl.rule_of;
 
   // One pass over the input with every rule at once. For each rule, keep
   // the furthest position where it was still alive and its states there.
@@ -168,9 +161,9 @@ std::vector<Explanation> Script::explain(const std::string& text, std::size_t li
   for (std::size_t i = 0;; ++i) {
     // `states` is sorted, so each rule's states are next to each other.
     for (std::size_t k = 0; k < states.size();) {
-      const int r = rule_of(states[k]);
+      const int r = rule_of[states[k]];
       std::size_t end = k + 1;
-      while (end < states.size() && rule_of(states[end]) == r) ++end;
+      while (end < states.size() && rule_of[states[end]] == r) ++end;
       if (r >= 0) {
         if (i == norm.text.size())
           for (std::size_t j = k; j < end; ++j)

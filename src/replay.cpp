@@ -5,7 +5,6 @@
 
 #include "datetime.hpp"
 #include "numbers.hpp"
-#include "script_impl.hpp"
 
 namespace nlu {
 namespace detail {

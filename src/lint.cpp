@@ -153,7 +153,7 @@ std::vector<int> post_dominators(const Nfa& nfa, const Reversed& into, int lo, i
 // from remembering anything else.
 class Covers {
  public:
-  Covers(const Nfa& nfa, const Reversed& into, const std::vector<RuleSource>& rules)
+  Covers(const Nfa& nfa, const Reversed& into, const std::vector<CompiledRule>& rules)
       : up_(nfa.states.size(), -1), word_(nfa.states.size(), -1), mark_(nfa.states.size(), 0) {
     for (int r = 0; r < static_cast<int>(rules.size()); ++r) {
       const int lo = rules[r].first, m = rules[r].last - lo;
@@ -465,16 +465,14 @@ class Search {
 
 }  // namespace
 
-RuleAnalysis analyze_rules(const Nfa& script, const std::vector<RuleSource>& rules,
+RuleAnalysis analyze_rules(const Nfa& script, const std::vector<CompiledRule>& rules,
                            std::size_t max_states) {
   RuleAnalysis out;
   const int n = static_cast<int>(rules.size());
 
   // The rule each of the script's states belongs to, and the fewest
   // characters from each to its rule's end.
-  std::vector<int> owner(script.states.size(), -1);
-  for (int r = 0; r < n; ++r)
-    for (int s = rules[r].first; s < rules[r].last; ++s) owner[s] = r;
+  const std::vector<int> owner = rule_owners(script.states.size(), rules);
   const Reversed into(script);
   const std::vector<int> distance = distances(script, into);
   // The fewest characters an input needs from `set` to match one of the
@@ -494,7 +492,7 @@ RuleAnalysis analyze_rules(const Nfa& script, const std::vector<RuleSource>& rul
   std::vector<int> copy_start(n);
   std::vector<bool> wildcard_free(n, true);
   for (int r = 0; r < n; ++r) {
-    const RuleSource& rule = rules[r];
+    const CompiledRule& rule = rules[r];
     const int base = static_cast<int>(nfa.states.size());
     for (int s = rule.first; s < rule.last; ++s) nfa.add_state();
     for (int s = rule.first; s < rule.last; ++s) {
@@ -586,7 +584,7 @@ RuleAnalysis analyze_rules(const Nfa& script, const std::vector<RuleSource>& rul
   }
   for (int r = 0; r < n; ++r) {
     if (used[r] || !labels[label_of[r]].searched) continue;
-    const RuleSource& rule = rules[r];
+    const CompiledRule& rule = rules[r];
     DeadRule d{rule.label, rule.line, rule.file, !seen[r], 0, ""};
     if (seen[r] && !covered_by[r].empty()) {
       d.covered_by_line = rules[covered_by[r].front()].line;
@@ -631,8 +629,8 @@ RuleAnalysis analyze_rules(const Nfa& script, const std::vector<RuleSource>& rul
         if (first[0] < 0) {
           first[0] = rule_of[0];
           first[1] = rule_of[1];
-          const RuleSource& x = rules[first[0]];
-          const RuleSource& y = rules[first[1]];
+          const CompiledRule& x = rules[first[0]];
+          const CompiledRule& y = rules[first[1]];
           found.push_back({{first[0], first[1]},
                            {x.label, x.line, y.label, y.line, search.example(), x.file, y.file, ""}});
         }
@@ -665,10 +663,7 @@ using namespace detail;
 
 LintReport Script::lint(std::size_t max_states) const {
   const Impl& impl = *impl_;
-  std::vector<RuleSource> sources;
-  for (const CompiledRule& rule : impl.rules)
-    sources.push_back({rule.label, rule.line, rule.file, rule.start, rule.first, rule.last});
-  RuleAnalysis search = analyze_rules(impl.nfa, sources, max_states);
+  RuleAnalysis search = analyze_rules(impl.nfa, impl.rules, max_states);
 
   LintReport report;
   report.unused = impl.unused;
@@ -679,7 +674,7 @@ LintReport Script::lint(std::size_t max_states) const {
   // `# lint: allow-overlap A B ...` allows overlaps among its labels; `*`
   // stands for every label.
   std::set<std::string> known;
-  for (const RuleSource& r : sources) known.insert(r.label);
+  for (const CompiledRule& r : impl.rules) known.insert(r.label);
   std::vector<std::set<std::string>> allowed;
   for (const LintDirective& d : impl_->lint_directives) {
     auto error = [&](const std::string& message) {

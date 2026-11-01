@@ -2,7 +2,6 @@
 #ifndef NLU_SCRIPT_SCRIPT_IMPL_HPP
 #define NLU_SCRIPT_SCRIPT_IMPL_HPP
 
-#include <algorithm>
 #include <atomic>
 #include <cstdint>
 #include <deque>
@@ -15,22 +14,10 @@
 #include "lazy_dfa.hpp"
 #include "nfa.hpp"
 #include "nlu_script/nlu_script.hpp"
+#include "rule.hpp"
 #include "script_source.hpp"
 
 namespace nlu {
-namespace detail {
-
-struct CompiledRule {
-  std::string label;
-  int line;
-  std::string file;
-  int start;  // start state
-  int first;  // the rule's states occupy the id range [first, last)
-  int last;
-  bool needs_vm;  // see needs_pike_vm()
-};
-
-}  // namespace detail
 
 struct Script::Impl {
   detail::Nfa nfa;
@@ -61,11 +48,7 @@ struct Script::Impl {
   }
 
   // Sets rule_of from the rules' state ranges, once they are all compiled.
-  void index_rules() {
-    rule_of.assign(nfa.states.size(), -1);
-    for (std::size_t r = 0; r < rules.size(); ++r)
-      std::fill(rule_of.begin() + rules[r].first, rule_of.begin() + rules[r].last, static_cast<int>(r));
-  }
+  void index_rules() { rule_of = detail::rule_owners(nfa.states.size(), rules); }
 
   detail::LazyDfa& cache() const {
     if (!cache_options.per_thread) return *dfa;

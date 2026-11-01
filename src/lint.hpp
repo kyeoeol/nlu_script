@@ -8,18 +8,10 @@
 
 #include "nfa.hpp"
 #include "nlu_script/nlu_script.hpp"
+#include "rule.hpp"
 
 namespace nlu {
 namespace detail {
-
-// Where a rule comes from.
-struct RuleSource {
-  std::string label;
-  int line;
-  std::string file;
-  int start;        // its start state
-  int first, last;  // its states occupy the id range [first, last)
-};
 
 struct RuleAnalysis {
   std::vector<Overlap> overlaps;  // in script order of their rules
@@ -38,7 +30,7 @@ struct RuleAnalysis {
 //  - rules whose every input an earlier rule of their label accepts first.
 // A search stops once what it finds can no longer change. `rules[r]`
 // describes rule `r` (accept_rule r).
-RuleAnalysis analyze_rules(const Nfa& script, const std::vector<RuleSource>& rules,
+RuleAnalysis analyze_rules(const Nfa& script, const std::vector<CompiledRule>& rules,
                            std::size_t max_states);
 
 }  // namespace detail

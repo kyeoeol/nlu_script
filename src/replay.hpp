@@ -11,12 +11,11 @@
 
 #include "nfa.hpp"
 #include "nlu_script/nlu_script.hpp"
+#include "rule.hpp"
 #include "unicode.hpp"
 
 namespace nlu {
 namespace detail {
-
-struct CompiledRule;  // script_impl.hpp
 
 struct Event {
   int action;
