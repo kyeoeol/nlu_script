@@ -483,7 +483,8 @@ TEST(option_ignore_trailing_punctuation) {
   CHECK(labels(strict, "are you there?").empty());
   nlu::Script lenient = nlu::Script::compile("option ignore-trailing-punctuation\n" + rules);
   for (const char* text : {"are you there", "are you there?", "are you there ?!", "are you there...",
-                           "거기 계세요？", "거기 계세요~~"})
+                           "거기 계세요？", "거기 계세요~~", "거기 계세요;", "거기 계세요；",
+                           "거기 계세요:", "거기 계세요："})
     CHECK_EQ(labels(lenient, text), (std::vector<std::string>{"agent:check"}));
   CHECK_EQ(labels(lenient, "is my card blocked?"), (std::vector<std::string>{"card:blocked"}));
   CHECK(labels(lenient, "are you? there").empty());
