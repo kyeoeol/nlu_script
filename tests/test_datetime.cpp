@@ -185,18 +185,22 @@ TEST(datetime_range_end_earlier_on_the_clock_is_in_the_next_half_of_the_day) {
 }
 
 TEST(datetime_durations) {
-  CHECK_EQ(attributes("2시간 뒤"), std::string("hour_offset=+2"));
-  CHECK_EQ(attributes("1시간 30분 후"), std::string("hour_offset=+1 minute_offset=+30"));
-  CHECK_EQ(attributes("두 시간 후"), std::string("hour_offset=+2"));
-  CHECK_EQ(attributes("삼십 분 뒤"), std::string("minute_offset=+30"));
-  CHECK_EQ(attributes("이틀 전"), std::string("day_offset=-2"));
-  CHECK_EQ(attributes("3주 뒤"), std::string("week_offset=+3"));
-  CHECK_EQ(attributes("한 달 후"), std::string("month_offset=+1"));
-  CHECK_EQ(attributes("in 2 hours"), std::string("hour_offset=+2"));
-  CHECK_EQ(attributes("in an hour"), std::string("hour_offset=+1"));
-  CHECK_EQ(attributes("3 days ago"), std::string("day_offset=-3"));
-  CHECK_EQ(attributes("2 weeks from now"), std::string("week_offset=+2"));
-  CHECK_EQ(attributes("in 1 hour 30 minutes"), std::string("hour_offset=+1 minute_offset=+30"));
+  CHECK_EQ(attributes("2시간 뒤"), std::string("hour_offset=+2 duration=true"));
+  CHECK_EQ(attributes("1시간 30분 후"),
+           std::string("hour_offset=+1 minute_offset=+30 duration=true"));
+  CHECK_EQ(attributes("두 시간 후"), std::string("hour_offset=+2 duration=true"));
+  CHECK_EQ(attributes("삼십 분 뒤"), std::string("minute_offset=+30 duration=true"));
+  CHECK_EQ(attributes("이틀 전"), std::string("day_offset=-2 duration=true"));
+  CHECK_EQ(attributes("3주 뒤"), std::string("week_offset=+3 duration=true"));
+  CHECK_EQ(attributes("in 2 hours"), std::string("hour_offset=+2 duration=true"));
+  CHECK_EQ(attributes("in an hour"), std::string("hour_offset=+1 duration=true"));
+  CHECK_EQ(attributes("3 days ago"), std::string("day_offset=-3 duration=true"));
+  CHECK_EQ(attributes("2 weeks from now"), std::string("week_offset=+2 duration=true"));
+  CHECK_EQ(attributes("in 1 hour 30 minutes"),
+           std::string("hour_offset=+1 minute_offset=+30 duration=true"));
+  // A duration of months is not a calendar month: 한 달 후 is not 다음 달.
+  CHECK_EQ(attributes("한 달 후"), std::string("month_offset=+1 duration=true"));
+  CHECK_EQ(attributes("다음 달"), std::string("month_offset=+1"));
 }
 
 TEST(datetime_reads_decomposed_hangul) {
@@ -278,6 +282,25 @@ TEST(datetime_resolves_against_a_reference_time) {
            std::string("2026-02-01 (month)"));
   CHECK_EQ(resolved("1시간 뒤", nlu::DateTimeValue{2026, 12, 31, 23, 30}),
            std::string("2027-01-01 00:30 (minute)"));
+}
+
+TEST(resolve_datetime_counts_durations_from_now) {
+  const nlu::DateTimeValue now{2026, 10, 21, 14, 20};  // a Wednesday
+  CHECK_EQ(resolved("한 달 후", now), std::string("2026-11-21 (day)"));
+  CHECK_EQ(resolved("in 2 weeks", now), std::string("2026-11-04 (day)"));
+  CHECK_EQ(resolved("a week ago", now), std::string("2026-10-14 (day)"));
+  CHECK_EQ(resolved("1년 후", now), std::string("2027-10-21 (day)"));
+  CHECK_EQ(resolved("2년 전", now), std::string("2024-10-21 (day)"));
+  CHECK_EQ(resolved("3 days ago", now), std::string("2026-10-18 (day)"));
+  CHECK_EQ(resolved("2시간 뒤", now), std::string("2026-10-21 16:20 (minute)"));
+  CHECK_EQ(resolved("하루 2시간 후", now), std::string("2026-10-22 16:20 (minute)"));
+  // Calendar offsets still start the week, month or year.
+  CHECK_EQ(resolved("다음 달", now), std::string("2026-11-01 (month)"));
+  CHECK_EQ(resolved("다음 주", now), std::string("2026-10-26 (week)"));
+  // A month that is too short ends the count on its last day.
+  CHECK_EQ(resolved("한 달 후", {2026, 1, 31, -1, -1}), std::string("2026-02-28 (day)"));
+  CHECK_EQ(resolved("1년 후", {2028, 2, 29, -1, -1}), std::string("2029-02-28 (day)"));
+  CHECK_EQ(resolved("1년 1개월 후", {2028, 1, 31, -1, -1}), std::string("2029-02-28 (day)"));
 }
 
 TEST(resolve_datetime_takes_a_range_end_given_alone_from_the_start) {

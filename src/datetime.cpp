@@ -297,8 +297,9 @@ bool is_duration(const std::u32string& s) {
   return starts_with(s, 0, U"in") && !starts_with(s, 0, U"inthe") && s.size() > 2;
 }
 
-// Reads a duration into signed offsets: 1시간30분후 gives hour_offset=+1 and
-// minute_offset=+30, 3daysago day_offset=-3.
+// Reads a duration into signed offsets and duration=true, as it counts from
+// now (the offsets of 다음 달 count calendar months): 1시간30분후 gives
+// hour_offset=+1 and minute_offset=+30, 3daysago day_offset=-3.
 Attributes scan_duration(const std::u32string& s) {
   const int sign = ends_with(s, U"전") || ends_with(s, U"ago") ? -1 : 1;
   static const char32_t* const kFiller[] = {U"fromnow", U"later", U"ago", U"in",
@@ -361,6 +362,7 @@ Attributes scan_duration(const std::u32string& s) {
     }
     if (!filler) ++i;
   }
+  set_attribute(attrs, "duration", "true");
   return attrs;
 }
 
@@ -529,21 +531,27 @@ bool has_field(const Attributes& attrs, const std::string& prefix, const std::st
   return text && (key == "weekday" ? weekday_index(*text) >= 0 : field_value(key, *text, value));
 }
 
-// Whether the fields under `prefix` give a year or an offset, which count
-// from now.
+// Whether the fields under `prefix` are a duration (2시간 뒤, 한 달 후).
+bool has_duration(const Attributes& attrs, const std::string& prefix) {
+  const std::string* text = field(attrs, prefix, "duration");
+  return text && *text == "true";
+}
+
+// Whether the fields under `prefix` give a year, an offset or a duration,
+// which count from now.
 bool counts_from_now(const Attributes& attrs, const std::string& prefix) {
   for (const char* key : {"year", "year_offset", "month_offset", "week_offset", "day_offset",
                           "hour_offset", "minute_offset"})
     if (has_field(attrs, prefix, key)) return true;
-  return false;
+  return has_duration(attrs, prefix);
 }
 
 long long day_number(const DateTimeValue& v) {
   return days_from_civil(v.year, static_cast<unsigned>(v.month), static_cast<unsigned>(v.day));
 }
 
-// Resolves the fields under `prefix` ("" or "end_"). A year and offsets
-// count from `now`. Otherwise a weekday, day of the month or month given
+// Resolves the fields under `prefix` ("" or "end_"). A year, offsets and
+// durations count from `now`. Otherwise a weekday, day of the month or month given
 // alone is the next one on or after day `from` (as days_from_civil() counts
 // them), and a time alone falls on `from`. `grain` (an index into kGrains)
 // only gets finer.
@@ -569,74 +577,89 @@ DateTimeValue resolve_one(const Attributes& attrs, const std::string& prefix,
     month = static_cast<int>(total - y * 12) + 1;
   };
 
-  if (has("year_offset")) {
-    year += get("year_offset");
-    month = day = 1;
-    finer(0);
-  }
-  if (has("year")) {
-    year = get("year");
-    if (year < 100) year += 2000;
-    month = day = 1;
-    finer(0);
-  }
-  if (has("month_offset")) {
-    add_months(get("month_offset"));
-    day = 1;
-    finer(1);
-  }
-  if (has("month")) {
-    month = get("month");
-    day = has("day") ? get("day") : 1;
-    finer(1);
-    // A month (and day) alone means the next one, this one included, in a
-    // year that has the day (2월 29일). No year has 2월 30일, which is the
-    // month's last day.
-    if (!has("year") && !has("year_offset") && !has("month_offset")) {
-      const int wanted = day;
-      const bool ever = wanted <= (month == 2 ? 29 : days_in_month(1, month));
-      year = from_year;
-      for (int tries = 0; tries < 9; ++tries, ++year) {  // leap years are at most 8 apart
-        day = ever ? wanted : std::min(wanted, days_in_month(year, month));
-        if (day > days_in_month(year, month)) continue;
-        const bool ahead = has("day") ? days_from_civil(year, static_cast<unsigned>(month),
-                                                        static_cast<unsigned>(day)) >= from
-                                      : year > from_year || month >= from_month;
-        if (ahead) break;
+  long long date;
+  if (has_duration(attrs, prefix)) {
+    // A duration counts from now: 한 달 후 is the same day next month (or its
+    // last day, if it is shorter), not the 1st as with 다음 달.
+    year = now.year;
+    month = now.month;
+    day = now.day;
+    add_months(12 * get("year_offset") + get("month_offset"));
+    clamp_day();
+    date = days_from_civil(year, static_cast<unsigned>(month), static_cast<unsigned>(day)) +
+           7LL * get("week_offset") + get("day_offset");
+    finer(3);
+  } else {
+    if (has("year_offset")) {
+      year += get("year_offset");
+      month = day = 1;
+      finer(0);
+    }
+    if (has("year")) {
+      year = get("year");
+      if (year < 100) year += 2000;
+      month = day = 1;
+      finer(0);
+    }
+    if (has("month_offset")) {
+      add_months(get("month_offset"));
+      day = 1;
+      finer(1);
+    }
+    if (has("month")) {
+      month = get("month");
+      day = has("day") ? get("day") : 1;
+      finer(1);
+      // A month (and day) alone means the next one, this one included, in a
+      // year that has the day (2월 29일). No year has 2월 30일, which is the
+      // month's last day.
+      if (!has("year") && !has("year_offset") && !has("month_offset")) {
+        const int wanted = day;
+        const bool ever = wanted <= (month == 2 ? 29 : days_in_month(1, month));
+        year = from_year;
+        for (int tries = 0; tries < 9; ++tries, ++year) {  // leap years are at most 8 apart
+          day = ever ? wanted : std::min(wanted, days_in_month(year, month));
+          if (day > days_in_month(year, month)) continue;
+          const bool ahead = has("day") ? days_from_civil(year, static_cast<unsigned>(month),
+                                                          static_cast<unsigned>(day)) >= from
+                                        : year > from_year || month >= from_month;
+          if (ahead) break;
+        }
       }
     }
-  }
-  if (has("day")) {
-    day = get("day");
-    finer(3);
-    // A day of the month alone means the next one, today included, in a
-    // month that has it (31일 skips November).
-    if (!has("month") && !has("month_offset") && !has("year") && !has("year_offset")) {
-      year = from_year;
-      month = from_month;
-      if (day < from_day) add_months(1);
-      if (day > days_in_month(year, month)) add_months(1);  // the next month has it
+    if (has("day")) {
+      day = get("day");
+      finer(3);
+      // A day of the month alone means the next one, today included, in a
+      // month that has it (31일 skips November).
+      if (!has("month") && !has("month_offset") && !has("year") && !has("year_offset")) {
+        year = from_year;
+        month = from_month;
+        if (day < from_day) add_months(1);
+        if (day > days_in_month(year, month)) add_months(1);  // the next month has it
+      }
     }
-  }
-  clamp_day();
-  long long date = days_from_civil(year, static_cast<unsigned>(month), static_cast<unsigned>(day));
-  auto weekday_of = [](long long d) { return ((d + 3) % 7 + 7) % 7; };  // 1970-01-01 was a Thursday
-  if (has("week_offset")) {
-    date = today - weekday_of(today) + 7LL * get("week_offset");
-    finer(2);
-  }
-  if (has("weekday")) {
-    const int wd = weekday_index(*field(attrs, prefix, "weekday"));
+    clamp_day();
+    date = days_from_civil(year, static_cast<unsigned>(month), static_cast<unsigned>(day));
+    // 1970-01-01 was a Thursday.
+    auto weekday_of = [](long long d) { return ((d + 3) % 7 + 7) % 7; };
     if (has("week_offset")) {
-      date += wd;
-    } else if (!has("month") && !has("day")) {
-      date = from + ((wd - weekday_of(from)) + 7) % 7;  // the next one, today included
+      date = today - weekday_of(today) + 7LL * get("week_offset");
+      finer(2);
     }
-    finer(3);
-  }
-  if (has("day_offset")) {
-    date += get("day_offset");
-    finer(3);
+    if (has("weekday")) {
+      const int wd = weekday_index(*field(attrs, prefix, "weekday"));
+      if (has("week_offset")) {
+        date += wd;
+      } else if (!has("month") && !has("day")) {
+        date = from + ((wd - weekday_of(from)) + 7) % 7;  // the next one, today included
+      }
+      finer(3);
+    }
+    if (has("day_offset")) {
+      date += get("day_offset");
+      finer(3);
+    }
   }
 
   DateTimeValue out{0, 0, 0, -1, -1};
