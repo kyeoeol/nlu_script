@@ -7,6 +7,10 @@
 #include <string>
 #include <vector>
 
+#if defined(_MSC_VER)
+#include <intrin.h>  // _BitScanForward64
+#endif
+
 namespace nlu {
 namespace detail {
 
@@ -184,13 +188,23 @@ struct Nfa {
   }
 };
 
+// Hashes a set of states, to index the sets of a subset construction.
+struct SetHash {
+  std::size_t operator()(const std::vector<int>& set) const {
+    std::size_t h = set.size();
+    for (int s : set) h = h * 1000003u ^ static_cast<std::size_t>(s);
+    return h;
+  }
+};
+
 // Epsilon closures for subset construction. A closure keeps only the states
 // that consume input or accept, so sets that behave alike compare equal.
 // Guard edges are followed if they hold for `prev`, the character just
 // consumed (0 at the start of the input).
 class Closure {
  public:
-  explicit Closure(const Nfa& nfa) : nfa_(nfa), mark_(nfa.states.size(), 0) {}
+  explicit Closure(const Nfa& nfa)
+      : nfa_(nfa), mark_(nfa.states.size(), 0), bits_(nfa.states.size() / 64 + 1, 0) {}
 
   // Returns the sorted closure of `stack`.
   std::vector<int> operator()(std::vector<int> stack, char32_t prev) {
@@ -207,11 +221,69 @@ class Closure {
     return close(c);
   }
 
+  // step(set, c) for each of `chars`, in their order, from one pass over the
+  // edges of `set`: a letter or space edge goes to the one character it
+  // takes, and only wildcard edges are tested against each.
+  std::vector<std::vector<int>> step_each(const std::vector<int>& set,
+                                          const std::vector<char32_t>& chars) {
+    sorted_.clear();
+    for (std::size_t k = 0; k < chars.size(); ++k) sorted_.emplace_back(chars[k], k);
+    std::sort(sorted_.begin(), sorted_.end());
+    // The targets of character c's edges, at the position of its first copy.
+    auto targets = [&](char32_t c) -> std::vector<int>* {
+      auto it = std::lower_bound(sorted_.begin(), sorted_.end(), std::make_pair(c, std::size_t{0}));
+      return it != sorted_.end() && it->first == c ? &targets_[it->second] : nullptr;
+    };
+    if (targets_.size() < chars.size()) targets_.resize(chars.size());
+    wildcards_.clear();
+    for (int s : set) {
+      for (const Edge& e : nfa_.states[s].edges) {
+        if (e.kind == Edge::Kind::Any) {
+          wildcards_.push_back(&e);
+        } else if (e.kind == Edge::Kind::Char || e.kind == Edge::Kind::Space) {
+          if (std::vector<int>* t = targets(e.kind == Edge::Kind::Space ? U' ' : e.ch))
+            t->push_back(e.to);
+        }
+      }
+    }
+    std::vector<std::vector<int>> out(chars.size());
+    for (std::size_t k = 0; k < chars.size(); ++k) {
+      const std::vector<int>& t = *targets(chars[k]);
+      stack_.assign(t.begin(), t.end());
+      for (const Edge* e : wildcards_)
+        if (nfa_.matches(*e, chars[k])) stack_.push_back(e->to);
+      out[k] = close(chars[k]);
+    }
+    for (std::size_t k = 0; k < chars.size(); ++k) targets_[k].clear();
+    return out;
+  }
+
  private:
   const Nfa& nfa_;
   std::vector<unsigned> mark_;
   unsigned generation_ = 0;
-  std::vector<int> stack_, out_;  // scratch, kept to save allocations
+  std::vector<int> stack_;  // scratch, kept to save allocations
+  // step_each()'s scratch: the characters in order with their positions,
+  // each one's targets, and the wildcard edges.
+  std::vector<std::pair<char32_t, std::size_t>> sorted_;
+  std::vector<std::vector<int>> targets_;
+  std::vector<const Edge*> wildcards_;
+  // The closure being built, one bit per NFA state, and the indexes of its
+  // nonzero words. Sorting the words and reading their bits in order lists
+  // the states sorted: a rule's states are numbered together, so there are
+  // far fewer words to sort than states.
+  std::vector<std::uint64_t> bits_;
+  std::vector<int> words_;
+
+  static int lowest_bit(std::uint64_t w) {
+#if defined(_MSC_VER)
+    unsigned long i;
+    _BitScanForward64(&i, w);
+    return static_cast<int>(i);
+#else
+    return __builtin_ctzll(w);
+#endif
+  }
 
   // The sorted closure of the states in stack_, sized exactly.
   std::vector<int> close(char32_t prev) {
@@ -219,7 +291,7 @@ class Closure {
       std::fill(mark_.begin(), mark_.end(), 0);
       generation_ = 1;
     }
-    out_.clear();
+    std::size_t count = 0;
     while (!stack_.empty()) {
       int s = stack_.back();
       stack_.pop_back();
@@ -234,10 +306,23 @@ class Closure {
           stack_.push_back(e.to);
         }
       }
-      if (important) out_.push_back(s);
+      if (important) {
+        std::uint64_t& word = bits_[static_cast<std::size_t>(s) / 64];
+        if (!word) words_.push_back(s / 64);
+        word |= std::uint64_t{1} << (s % 64);
+        ++count;
+      }
     }
-    std::sort(out_.begin(), out_.end());
-    return std::vector<int>(out_.begin(), out_.end());
+    std::sort(words_.begin(), words_.end());
+    std::vector<int> out;
+    out.reserve(count);
+    for (int k : words_) {
+      for (std::uint64_t word = bits_[k]; word; word &= word - 1)
+        out.push_back(k * 64 + lowest_bit(word));
+      bits_[k] = 0;
+    }
+    words_.clear();
+    return out;
   }
 };
 

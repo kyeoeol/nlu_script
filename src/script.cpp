@@ -388,6 +388,159 @@ class ScriptParser {
 
 // --- phase 1: lazy DFA ------------------------------------------------------
 
+// Computes the DFA's new transitions a rule at a time. Rules own consecutive
+// ranges of states and their edges stay within them, so each rule's part of
+// a set steps on its own. Parts repeat far more than whole sets: while a few
+// rules take an input, the others wait in one of a few places (at their
+// start, inside a wildcard). So the stepper keeps the parts it has seen, and
+// where each goes on each character, and mostly looks them up instead of
+// following their edges. Parts of a state or two step together directly,
+// which costs less than looking them up (in scripts of many short rules,
+// most parts are like that). One run() uses a stepper at a time.
+class PartStepper {
+ public:
+  // `rule_of` gives the rule of each state (-1 for the start state).
+  PartStepper(const Nfa& nfa, const std::vector<int>& rule_of) : closure_(nfa), rule_of_(rule_of) {}
+
+  std::vector<int> operator()(std::vector<int> stack, char32_t prev) {
+    return closure_(std::move(stack), prev);
+  }
+
+  // Closure::step(set, c).
+  std::vector<int> step(const std::vector<int>& set, char32_t c) {
+    if (states_.size() > kMaxStates || next_.size() > kMaxTransitions) forget();
+    // Usually `set` is what the last step returned, and its pieces are known.
+    if (set != last_) {
+      last_.clear();
+      last_pieces_.clear();
+      if (!worth_splitting(set)) return closure_.step(set, c);
+      last_pieces_ = pieces(set);
+      last_ = set;
+    }
+    // Kept parts are looked up; the states of the others step together.
+    std::vector<Piece> stepped;
+    std::vector<int> out;
+    direct_.clear();
+    std::size_t at = 0;  // where the piece's states are in last_
+    for (const Piece& p : last_pieces_) {
+      if (p.part < 0) {
+        direct_.insert(direct_.end(), last_.begin() + at, last_.begin() + at + p.size);
+      } else if (const int q = next(p.part, c); q >= 0) {
+        const auto from = states_.begin() + static_cast<std::ptrdiff_t>(parts_[q].begin);
+        out.insert(out.end(), from, from + static_cast<std::ptrdiff_t>(parts_[q].size));
+        stepped.push_back({q, *from, parts_[q].size});
+      }
+      at += p.size;
+    }
+    if (!direct_.empty()) {
+      // Both are sorted, and hold different rules' states.
+      const std::vector<int> direct = closure_.step(direct_, c);
+      std::vector<int> all(out.size() + direct.size());
+      std::merge(out.begin(), out.end(), direct.begin(), direct.end(), all.begin());
+      out = std::move(all);
+      const std::vector<Piece> more = pieces(direct);
+      std::vector<Piece> merged(stepped.size() + more.size());
+      std::merge(stepped.begin(), stepped.end(), more.begin(), more.end(), merged.begin(),
+                 [](const Piece& a, const Piece& b) { return a.first < b.first; });
+      stepped = std::move(merged);
+    }
+    last_ = out;
+    last_pieces_ = std::move(stepped);
+    return out;
+  }
+
+ private:
+  // Parts of fewer states step directly, and so do sets of fewer states.
+  static constexpr std::size_t kMinKept = 3;
+  static constexpr std::size_t kMinSplit = 32;
+  // Plenty for scripts of thousands of rules; past it, the stepper starts over.
+  static constexpr std::size_t kMaxStates = std::size_t{1} << 20;
+  static constexpr std::size_t kMaxTransitions = std::size_t{1} << 18;
+
+  struct Part {
+    std::size_t begin;  // its states are states_[begin, begin + size)
+    std::size_t size;
+  };
+  // A rule's part of a set: one that is kept, or (part -1) one that steps
+  // directly.
+  struct Piece {
+    int part;
+    int first;         // its first state
+    std::size_t size;  // its number of states
+  };
+
+  Closure closure_;
+  const std::vector<int>& rule_of_;
+  std::vector<int> states_;
+  std::vector<Part> parts_;
+  std::unordered_multimap<std::size_t, int> index_;  // hash of a part's states -> part
+  std::unordered_map<std::uint64_t, int> next_;     // part, character -> part, or -1 for none
+  std::vector<int> last_;           // the set step() returned last, if it has kept parts
+  std::vector<Piece> last_pieces_;  // its pieces, in order
+  std::vector<int> direct_;         // scratch
+
+  void forget() {
+    states_.clear();
+    parts_.clear();
+    index_.clear();
+    next_.clear();
+    last_.clear();
+    last_pieces_.clear();
+  }
+
+  // Whether `set` is large, and its rules' parts hold kMinKept states on
+  // average, at least: it has that many per rule from its first state's to
+  // its last's. Small sets, and sets of thousands of rules a state or two
+  // each (in scripts of many short rules), step faster directly.
+  bool worth_splitting(const std::vector<int>& set) const {
+    if (set.size() < kMinSplit) return false;
+    const auto rules = static_cast<std::size_t>(rule_of_[set.back()] - rule_of_[set.front()] + 1);
+    return set.size() >= kMinKept * rules;
+  }
+
+  // The rules' parts of `set`, in order.
+  std::vector<Piece> pieces(const std::vector<int>& set) {
+    std::vector<Piece> out;
+    for (std::size_t i = 0, j; i < set.size(); i = j) {
+      for (j = i + 1; j < set.size() && rule_of_[set[j]] == rule_of_[set[i]];) ++j;
+      const int part = j - i < kMinKept ? -1 : intern(set.data() + i, set.data() + j);
+      out.push_back({part, set[i], j - i});
+    }
+    return out;
+  }
+
+  // The part of the states [begin, end).
+  int intern(const int* begin, const int* end) {
+    const std::size_t size = static_cast<std::size_t>(end - begin);
+    std::size_t hash = size;
+    for (const int* s = begin; s != end; ++s) hash = hash * 1000003u ^ static_cast<std::size_t>(*s);
+    auto range = index_.equal_range(hash);
+    for (auto it = range.first; it != range.second; ++it) {
+      const Part& p = parts_[it->second];
+      if (p.size == size && std::equal(begin, end, states_.begin() + static_cast<std::ptrdiff_t>(p.begin)))
+        return it->second;
+    }
+    const int id = static_cast<int>(parts_.size());
+    parts_.push_back({states_.size(), size});
+    states_.insert(states_.end(), begin, end);
+    index_.emplace(hash, id);
+    return id;
+  }
+
+  // The part that part p goes to on c, or -1 if it goes nowhere.
+  int next(int p, char32_t c) {
+    const std::uint64_t key = static_cast<std::uint64_t>(p) << 32 | static_cast<std::uint32_t>(c);
+    auto it = next_.find(key);
+    if (it != next_.end()) return it->second;
+    const auto from = states_.begin() + static_cast<std::ptrdiff_t>(parts_[p].begin);
+    const std::vector<int> to =
+        closure_.step(std::vector<int>(from, from + static_cast<std::ptrdiff_t>(parts_[p].size)), c);
+    const int q = to.empty() ? -1 : intern(to.data(), to.data() + to.size());
+    next_.emplace(key, q);
+    return q;
+  }
+};
+
 // Threads share one cache. Following cached transitions takes a shared lock.
 // A thread that needs new transitions computes them without the lock and
 // takes the exclusive lock only to add them, then goes back to the shared
@@ -396,12 +549,14 @@ class ScriptParser {
 // every input passes through survive.
 class LazyDfa {
  public:
-  LazyDfa(const Nfa& nfa, int start, const CacheOptions& options)
+  // `rule_of` gives the rule of each state (-1 for the start state).
+  LazyDfa(const Nfa& nfa, const std::vector<int>& rule_of, int start, const CacheOptions& options)
       : nfa_(nfa),
+        rule_of_(rule_of),
         max_states_(std::max<std::size_t>(options.max_states, 2)),
         max_bytes_(options.max_bytes),
         mutex_(!options.per_thread) {
-    auto closure = std::make_unique<Closure>(nfa);
+    auto closure = std::make_unique<PartStepper>(nfa, rule_of_);
     start_ = intern(make_state((*closure)({start}, 0)));
     closures_.push_back(std::move(closure));
   }
@@ -494,9 +649,9 @@ class LazyDfa {
     std::unordered_map<char32_t, int> next;
   };
 
-  // A Closure lent to one run() while it computes transitions, taken from the
-  // pool on first use. Each needs scratch space the size of the NFA, so the
-  // pool holds as many as threads have computed transitions at once.
+  // A PartStepper lent to one run() while it computes transitions, taken
+  // from the pool on first use. Each needs scratch space the size of the NFA,
+  // so the pool holds as many as threads have computed transitions at once.
   class Borrowed {
    public:
     explicit Borrowed(LazyDfa& dfa) : dfa_(dfa) {}
@@ -505,7 +660,7 @@ class LazyDfa {
       std::lock_guard<std::mutex> lock(dfa_.closures_mutex_);
       dfa_.closures_.push_back(std::move(closure_));
     }
-    Closure& get() {
+    PartStepper& get() {
       if (closure_) return *closure_;
       {
         std::lock_guard<std::mutex> lock(dfa_.closures_mutex_);
@@ -514,13 +669,13 @@ class LazyDfa {
           dfa_.closures_.pop_back();
         }
       }
-      if (!closure_) closure_ = std::make_unique<Closure>(dfa_.nfa_);
+      if (!closure_) closure_ = std::make_unique<PartStepper>(dfa_.nfa_, dfa_.rule_of_);
       return *closure_;
     }
 
    private:
     LazyDfa& dfa_;
-    std::unique_ptr<Closure> closure_;
+    std::unique_ptr<PartStepper> closure_;
   };
 
   // A reader-writer lock for short exclusive sections. A thread waiting for
@@ -611,8 +766,9 @@ class LazyDfa {
   };
 
   const Nfa& nfa_;
+  const std::vector<int>& rule_of_;
   std::mutex closures_mutex_;
-  std::vector<std::unique_ptr<Closure>> closures_;  // guarded by closures_mutex_
+  std::vector<std::unique_ptr<PartStepper>> closures_;  // guarded by closures_mutex_
   // Everything below is guarded by mutex_, except that readers holding the
   // shared lock update used_.
   std::size_t max_states_, max_bytes_;
@@ -637,8 +793,7 @@ class LazyDfa {
 
   // Everything about a state that needs no lock to compute.
   NewState make_state(std::vector<int> set) const {
-    std::size_t h = set.size();
-    for (int s : set) h = h * 1000003u ^ static_cast<std::size_t>(s);
+    const std::size_t h = SetHash()(set);
     std::vector<int> accepts = nfa_.accepted_rules(set);
     return {std::move(set), h, std::move(accepts)};
   }
@@ -1144,6 +1299,7 @@ struct Script::Impl {
   Nfa nfa;
   bool fold_width = false;  // `option fold-width`: input is width-folded too
   std::vector<CompiledRule> rules;
+  std::vector<int> rule_of;  // the rule owning each state, -1 for the start state
   std::vector<UnusedDefinition> unused;
   std::deque<std::string> files;  // what lint_directives' positions point into
   std::vector<LintDirective> lint_directives;
@@ -1162,6 +1318,18 @@ struct Script::Impl {
     return ++counter;
   }
 
+  // A new DFA cache with these options.
+  std::unique_ptr<LazyDfa> make_dfa(const CacheOptions& options) const {
+    return std::make_unique<LazyDfa>(nfa, rule_of, start, options);
+  }
+
+  // Sets rule_of from the rules' state ranges, once they are all compiled.
+  void index_rules() {
+    rule_of.assign(nfa.states.size(), -1);
+    for (std::size_t r = 0; r < rules.size(); ++r)
+      std::fill(rule_of.begin() + rules[r].first, rule_of.begin() + rules[r].last, static_cast<int>(r));
+  }
+
   LazyDfa& cache() const {
     if (!cache_options.per_thread) return *dfa;
     struct ThreadCache {
@@ -1174,7 +1342,7 @@ struct Script::Impl {
     for (auto i = caches.begin(); i != caches.end();)  // drop caches of scripts that are gone
       i = i->second.alive.expired() ? caches.erase(i) : std::next(i);
     ThreadCache& c = caches[id];
-    c = {alive, std::make_unique<LazyDfa>(nfa, start, cache_options)};
+    c = {alive, make_dfa(cache_options)};
     return *c.dfa;
   }
 
@@ -1249,7 +1417,8 @@ std::unique_ptr<Script::Impl> compile_source(const std::string& source, const st
   // pointers stay valid.
   impl->files = std::move(parsed.files);
   impl->lint_directives = std::move(parsed.lint_directives);
-  impl->dfa = std::make_unique<LazyDfa>(impl->nfa, impl->start, impl->cache_options);
+  impl->index_rules();
+  impl->dfa = impl->make_dfa(impl->cache_options);
   return impl;
 }
 
@@ -1269,7 +1438,7 @@ CacheStats Script::cache_stats() const { return impl_->cache().stats(); }
 
 void Script::set_cache_options(const CacheOptions& options) {
   impl_->cache_options = options;
-  impl_->dfa = std::make_unique<LazyDfa>(impl_->nfa, impl_->start, options);
+  impl_->dfa = impl_->make_dfa(options);
   impl_->id = Impl::next_id();
   impl_->alive = std::make_shared<const int>(0);
 }
@@ -1808,7 +1977,8 @@ Script Script::load(const std::string& bytes) {
     if (!unqualified && (a.slot < 0 || a.slot >= static_cast<int>(nfa.slot_names.size())))
       Reader::fail("bad action");
   }
-  impl->dfa = std::make_unique<LazyDfa>(impl->nfa, impl->start, impl->cache_options);
+  impl->index_rules();
+  impl->dfa = impl->make_dfa(impl->cache_options);
   return Script(std::move(impl));
 }
 
