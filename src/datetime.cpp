@@ -543,9 +543,10 @@ DateTimeValue resolve_one(const Attributes& attrs, const std::string& prefix,
                                     static_cast<unsigned>(now.day));
   auto clamp_day = [&] { day = std::min(day, days_in_month(year, month)); };
   auto add_months = [&](int k) {
-    int total = year * 12 + (month - 1) + k;
-    year = total / 12;
-    month = total % 12 + 1;
+    const long long total = year * 12LL + (month - 1) + k;
+    const long long y = total >= 0 ? total / 12 : (total - 11) / 12;  // rounded down
+    year = static_cast<int>(y);
+    month = static_cast<int>(total - y * 12) + 1;
   };
 
   if (has("year_offset")) {
@@ -612,25 +613,35 @@ DateTimeValue resolve_one(const Attributes& attrs, const std::string& prefix,
     long long minutes = today * 1440 + std::max(now.hour, 0) * 60 + std::max(now.minute, 0) +
                         60LL * get("hour_offset") + get("minute_offset");
     long long days = minutes >= 0 ? minutes / 1440 : (minutes - 1439) / 1440;
-    civil_from_days(days + (date - today), out.year, out.month, out.day);
+    date += days - today;
     out.hour = static_cast<int>(minutes - days * 1440) / 60;
     out.minute = static_cast<int>(minutes - days * 1440) % 60;
     finer(5);
-    return out;
+  } else {
+    // 24시 is midnight at the end of the day.
+    if (has("hour") && get("hour") == 24) ++date;
+    if (has("hour")) {
+      out.hour = get("hour") % 24;
+      out.minute = has("minute") ? get("minute") : 0;
+      finer(has("minute") && get("minute") != 0 ? 5 : 4);
+    } else if (has("minute")) {
+      out.hour = std::max(now.hour, 0);
+      out.minute = get("minute");
+      finer(5);
+    }
+    if (!grain && !has("year") && !has("year_offset")) finer(3);  // nothing coarser was given
   }
-  // 24시 is midnight at the end of the day.
-  if (has("hour") && get("hour") == 24) ++date;
+  // Dates stay within years 1 to 9999, as `now` does: a date beyond either
+  // end is that end's first or last day, and minute.
+  static const long long first = days_from_civil(1, 1, 1), last = days_from_civil(9999, 12, 31);
+  if (date < first) {
+    date = first;
+    if (out.hour >= 0) out.hour = out.minute = 0;
+  } else if (date > last) {
+    date = last;
+    if (out.hour >= 0) out.hour = 23, out.minute = 59;
+  }
   civil_from_days(date, out.year, out.month, out.day);
-  if (has("hour")) {
-    out.hour = get("hour") % 24;
-    out.minute = has("minute") ? get("minute") : 0;
-    finer(has("minute") && get("minute") != 0 ? 5 : 4);
-  } else if (has("minute")) {
-    out.hour = std::max(now.hour, 0);
-    out.minute = get("minute");
-    finer(5);
-  }
-  if (!grain && !has("year") && !has("year_offset")) finer(3);  // nothing coarser was given
   return out;
 }
 
@@ -639,7 +650,7 @@ DateTimeValue resolve_one(const Attributes& attrs, const std::string& prefix,
 DateTimeRange resolve_datetime(const std::vector<std::pair<std::string, std::string>>& attributes,
                                const DateTimeValue& reference) {
   DateTimeValue now = reference;
-  now.year = std::min(std::max(now.year, 0), 9999);
+  now.year = std::min(std::max(now.year, 1), 9999);
   now.month = std::min(std::max(now.month, 1), 12);
   now.day = std::min(std::max(now.day, 1), days_in_month(now.year, now.month));
   now.hour = std::min(std::max(now.hour, -1), 23);

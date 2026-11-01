@@ -295,6 +295,35 @@ TEST(resolve_datetime_ignores_attributes_out_of_range) {
   CHECK_EQ(date({{"day_offset", "+1"}, {"month", "13"}}), std::string("2026-10-22"));
 }
 
+TEST(resolve_datetime_stays_within_years_1_to_9999) {
+  auto start = [](const std::vector<std::pair<std::string, std::string>>& attributes,
+                  const nlu::DateTimeValue& now) {
+    const nlu::DateTimeValue v = nlu::resolve_datetime(attributes, now).start;
+    char buffer[32];
+    std::snprintf(buffer, sizeof buffer, "%04d-%02d-%02d", v.year, v.month, v.day);
+    std::string out = buffer;
+    if (v.hour >= 0) {
+      std::snprintf(buffer, sizeof buffer, " %02d:%02d", v.hour, v.minute);
+      out += buffer;
+    }
+    return out;
+  };
+  const nlu::DateTimeValue now{2026, 10, 21, 14, 20};
+  // Offsets the README allows (up to 100,000 either way) reach past both ends.
+  CHECK_EQ(start({{"month_offset", "-30000"}}, now), std::string("0001-01-01"));
+  CHECK_EQ(start({{"month_offset", "+100000"}}, now), std::string("9999-12-31"));
+  CHECK_EQ(start({{"year_offset", "-100000"}}, now), std::string("0001-01-01"));
+  CHECK_EQ(start({{"day_offset", "-1"}}, {1, 1, 1, -1, -1}), std::string("0001-01-01"));
+  CHECK_EQ(start({{"day_offset", "+1"}}, {9999, 12, 31, -1, -1}), std::string("9999-12-31"));
+  // A time beyond either end is that end's first or last minute.
+  CHECK_EQ(start({{"day_offset", "-1"}, {"hour", "15"}}, {1, 1, 1, -1, -1}),
+           std::string("0001-01-01 00:00"));
+  CHECK_EQ(start({{"hour_offset", "+1"}}, {9999, 12, 31, 23, 30}),
+           std::string("9999-12-31 23:59"));
+  // The reference year is clamped into the same range.
+  CHECK_EQ(start({{"day_offset", "0"}}, {0, 5, 5, -1, -1}), std::string("0001-05-05"));
+}
+
 TEST(resolve_datetime_clamps_the_reference_time) {
   nlu::DateTimeValue v = nlu::resolve_datetime({{"day_offset", "+1"}},
                                                nlu::DateTimeValue{2026, 13, 40, 99, 99}).start;

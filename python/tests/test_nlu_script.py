@@ -112,6 +112,15 @@ class ScriptTest(unittest.TestCase):
         self.assertEqual((resolved.start, resolved.end),
                          (datetime.date(2026, 10, 22), datetime.date(2026, 10, 23)))
 
+    def test_resolve_datetime_stays_within_the_years_python_dates_have(self):
+        resolve = nlu_script.resolve_datetime
+        first, last = datetime.date(1, 1, 1), datetime.date(9999, 12, 31)
+        self.assertEqual(resolve({"day_offset": "-1"}, first).start, first)
+        self.assertEqual(resolve({"day_offset": "+1"}, last).start, last)
+        self.assertEqual(resolve({"month_offset": "-30000"}, first).start, first)
+        self.assertEqual(resolve({"hour_offset": "+1"}, datetime.datetime(9999, 12, 31, 23, 30)).start,
+                         datetime.datetime(9999, 12, 31, 23, 59))
+
     def test_search_finds_rules_in_free_text(self):
         text = "그럼 마일리지 잔액 알려주시고 신용카드 분실 신고도 할게요"
         found = self.script.search(text)
