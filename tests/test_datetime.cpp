@@ -74,6 +74,16 @@ TEST(datetime_dates_and_times_combine) {
   CHECK_EQ(attributes("다음"), std::string("<no match>"));
 }
 
+TEST(datetime_ending_in_a_part_of_the_day_is_not_a_duration) {
+  // 오후 ends in 후 (after) and 오전 in 전 (before), like 2시간 후 and 이틀 전.
+  CHECK_EQ(attributes("오후"), std::string("part_of_day=PM"));
+  CHECK_EQ(attributes("내일 오후"), std::string("day_offset=+1 part_of_day=PM"));
+  CHECK_EQ(attributes("일요일 오후"), std::string("weekday=SUN part_of_day=PM"));
+  CHECK_EQ(attributes("다음 주 월요일 오후"),
+           std::string("week_offset=+1 weekday=MON part_of_day=PM"));
+  CHECK_EQ(attributes("내일 오전"), std::string("day_offset=+1 part_of_day=AM"));
+}
+
 TEST(datetime_in_english) {
   CHECK_EQ(attributes("today"), std::string("day_offset=0"));
   CHECK_EQ(attributes("Tomorrow"), std::string("day_offset=+1"));

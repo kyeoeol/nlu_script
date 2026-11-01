@@ -273,8 +273,10 @@ const Units::value_type* duration_unit_at(const std::u32string& s, std::size_t a
 }
 
 // Whether `s` (without spaces) is a duration such as 2시간뒤 or in2hours.
+// 오후 and 오전 end in 후 (after) and 전 (before) but are parts of the day.
 bool is_duration(const std::u32string& s) {
-  if (ends_with(s, U"뒤") || ends_with(s, U"후") || (ends_with(s, U"전") && !ends_with(s, U"오전")))
+  if (ends_with(s, U"뒤") || (ends_with(s, U"후") && !ends_with(s, U"오후")) ||
+      (ends_with(s, U"전") && !ends_with(s, U"오전")))
     return true;
   if (ends_with(s, U"ago") || ends_with(s, U"later") || ends_with(s, U"fromnow")) return true;
   return starts_with(s, 0, U"in") && !starts_with(s, 0, U"inthe") && s.size() > 2;
