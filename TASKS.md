@@ -315,6 +315,45 @@
       random scripts gives the old results (3 tie on another input of the
       same cost). The fuzz target takes inputs up to 16 KiB, so the demo
       seed itself runs too
+- [x] Fixes from an audit of the system entities, each reproduced first
+      (on Wednesday 2026-10-21 14:20):
+      - `DATETIME` text ending in `오후` was read as a duration (`후`,
+        after) and lost every attribute; `내일 오후` gives `day_offset="+1"
+        part_of_day="PM"`, as `오전` already did
+      - range ends count from the start, not now: `between monday and
+        friday` was 10-26 ~ 10-23 and is 10-26 ~ 10-30, `3월 5일부터
+        10일까지` ended on 2026-11-10 and ends on 2027-03-10. An end still
+        before the start moves by the unit it left out, so `밤 11시부터
+        새벽 1시까지` ends at 01:00 the next day
+      - a range end earlier on the 12-hour clock is in the next half of the
+        day: `오전 11시부터 1시까지` ended at 1 and ends at 13
+      - English dates followed by a time: digits ran together once spaces
+        were removed, so `march 5 3pm` lost the day and hour (now `month=3
+        day=5 hour=15`), `dec 31 11:30` likewise, `5th of march at 3pm` read
+        3 as the day, and `5 of march` read 5 as an hour
+      - durations count from now, with a new `duration="true"` attribute:
+        `한 달 후` had `다음 달`'s attributes and resolved to 11-01, and is
+        11-21; `in 2 weeks` is 11-04, `1년 후` 2027-10-21. The demo's
+        `in an hour` test expects the attribute
+      - a day of the month alone skips months and years without it:
+        `31일` on 11-05 was 11-30 and is 12-31, `2월 29일` was 2027-02-28
+        and is 2028-02-29
+      - `새벽 12시` is hour 0 (was noon), and `오늘 24시` resolves to the next
+        day's 00:00 (was today's)
+      - `3월 이십일 일요일` gave `day=21` without the weekday; the numerals
+        stop where `일요일` starts (`day=20 weekday=SUN`)
+      - a zero before a unit counted as one: `0만` was 10000, `zero
+        thousand` 1000, `0 million` 1000000; each is 0
+      - `resolve_datetime` read out of bounds (undefined behavior) for a
+        `month_offset` taking the year below 0 (`-30000`, or `999개월 전`
+        in year 50): months are added with floor division, and results
+        stay within the years 1 to 9999, so Python no longer raises
+        ValueError for `day_offset="-1"` on `date(1, 1, 1)`
+      - `option ignore-trailing-punctuation` left out the full-width `；`
+        and `：`
+      - when NFC reordered combining marks, each kept its own byte span, so
+        a slot could end before it began and `tagged` repeated input; marks
+        of a reordered run now span the whole run
 
 ## Next
 

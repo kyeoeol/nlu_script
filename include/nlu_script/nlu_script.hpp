@@ -185,11 +185,17 @@ struct DateTimeRange {
 
 // Resolves the attributes of a DATETIME slot against `now`, the caller's
 // local date and time. Weeks start on Monday. A weekday, a month or a day of
-// the month given alone means the next one, today included (금요일, 3월 5일).
-// Fields the text leaves out come from the coarser ones: 다음 달 is the 1st
-// of next month, 다음 주 its Monday. The end of a range takes the start's date
-// when it gives none. Attributes whose values are out of range (month 13,
-// offsets beyond 100,000) are ignored, and `now` is clamped into range.
+// the month given alone means the next one, today included (금요일, 3월 5일),
+// in a month or year that has the day (31일, 2월 29일). Fields the text
+// leaves out come from the coarser ones: 다음 달 is the 1st of next month,
+// 다음 주 its Monday. Durations (duration="true") count from now: 한 달 후 is
+// the same day next month. The end of a range without a year or offsets of
+// its own counts from the start (between monday and friday ends on the
+// Friday after that Monday) and, if it still comes before the start, moves
+// forward by the unit it left out (밤 11시부터 새벽 1시까지 ends the next
+// day). Attributes whose values are out of range (month 13, offsets beyond
+// 100,000) are ignored, `now` is clamped into range, and results stay within
+// the years 1 to 9999.
 DateTimeRange resolve_datetime(const std::vector<std::pair<std::string, std::string>>& attributes,
                                const DateTimeValue& now);
 
