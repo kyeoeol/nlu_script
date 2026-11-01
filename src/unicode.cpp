@@ -131,6 +131,11 @@ void normalize_nfc(std::vector<DecodedChar>& chars) {
   out.reserve(chars.size());
   for (const DecodedChar& d : chars) decompose(d, out);
   // Canonical ordering: stable sort of each run of combining marks by class.
+  // Reordered marks no longer follow the bytes they came from, so each spans
+  // the bytes of the whole run, and offsets never go backwards.
+  const auto by_class = [](const DecodedChar& x, const DecodedChar& y) {
+    return combining_class(x.code) < combining_class(y.code);
+  };
   for (std::size_t i = 0; i < out.size();) {
     if (!combining_class(out[i].code)) {
       ++i;
@@ -138,9 +143,18 @@ void normalize_nfc(std::vector<DecodedChar>& chars) {
     }
     std::size_t j = i;
     while (j < out.size() && combining_class(out[j].code)) ++j;
-    std::stable_sort(out.begin() + i, out.begin() + j, [](const DecodedChar& x, const DecodedChar& y) {
-      return combining_class(x.code) < combining_class(y.code);
-    });
+    if (!std::is_sorted(out.begin() + i, out.begin() + j, by_class)) {
+      std::stable_sort(out.begin() + i, out.begin() + j, by_class);
+      std::size_t begin = out[i].begin, end = out[i].end;
+      for (std::size_t k = i; k < j; ++k) {
+        begin = std::min(begin, out[k].begin);
+        end = std::max(end, out[k].end);
+      }
+      for (std::size_t k = i; k < j; ++k) {
+        out[k].begin = begin;
+        out[k].end = end;
+      }
+    }
     i = j;
   }
   // Canonical composition: a character joins the last starter unless a
