@@ -139,7 +139,7 @@ const Unit* unit_at(const std::u32string& s, std::size_t at) {
 // The hour on a 24-hour clock, given the part of the day it falls in.
 long long to_24_hour(long long hour, const std::string& part) {
   auto between = [&](long long low, long long high) { return hour >= low && hour <= high; };
-  if (part == "AM") return hour == 12 ? 0 : hour;
+  if (part == "AM" || part == "DAWN") return hour == 12 ? 0 : hour;
   if (part == "PM" || part == "EVENING") return between(1, 11) ? hour + 12 : hour;
   if (part == "NIGHT") return between(6, 11) ? hour + 12 : hour == 12 ? 0 : hour;
   if (part == "DAY") return between(1, 6) ? hour + 12 : hour;
@@ -148,10 +148,19 @@ long long to_24_hour(long long hour, const std::string& part) {
 }
 
 
-// Reads one date or time (not a range or duration), from text without
-// spaces. Hours stay as written; adjust_hour() puts them on a 24-hour clock.
-Attributes scan_single(const std::u32string& s) {
+// Reads one date or time (not a range or duration). Words are matched
+// without spaces, but a number ends at one: march 5 3pm is the 5th at 15.
+// Hours stay as written; adjust_hour() puts them on a 24-hour clock.
+Attributes scan_single(std::u32string_view text) {
   static const std::vector<Word> words = make_words();
+
+  std::u32string s;
+  std::vector<bool> spaced;  // whether a space came before s[i]
+  for (std::size_t k = 0; k < text.size(); ++k) {
+    if (text[k] == U' ') continue;
+    spaced.push_back(k > 0 && text[k - 1] == U' ');
+    s += text[k];
+  }
 
   Attributes attrs;
   bool after_month_name = false;  // "march 5": a bare number is the day
@@ -160,7 +169,9 @@ Attributes scan_single(const std::u32string& s) {
     // A number in digits, maybe with minutes (3:30), then its unit.
     if (s[i] >= U'0' && s[i] <= U'9') {
       long long value = 0;
-      for (; i < s.size() && s[i] >= U'0' && s[i] <= U'9'; ++i) value = value * 10 + (s[i] - U'0');
+      for (const std::size_t start = i;
+           i < s.size() && s[i] >= U'0' && s[i] <= U'9' && (i == start || !spaced[i]); ++i)
+        value = value * 10 + (s[i] - U'0');
       long long minute = -1;
       if (i + 2 < s.size() && s[i] == U':') {
         minute = (s[i + 1] - U'0') * 10 + (s[i + 2] - U'0');
@@ -169,8 +180,8 @@ Attributes scan_single(const std::u32string& s) {
       if (const Unit* unit = unit_at(s, i)) {
         set_field(attrs, unit->field, value, unit->low, unit->high);
         i += std::char_traits<char32_t>::length(unit->text);
-      } else if (after_month_name) {
-        set_field(attrs, "day", value, 1, 31);
+      } else if ((after_month_name && !get(attrs, "day")) || starts_with(s, i, U"of")) {
+        set_field(attrs, "day", value, 1, 31);  // march 5, 5 of march
       } else {
         set_field(attrs, "hour", value, 0, 24);  // 15:30, or 3 before am/pm
       }
@@ -200,12 +211,15 @@ Attributes scan_single(const std::u32string& s) {
       i += word->text.size();
       continue;
     }
-    // Sino-Korean numerals with a unit (삼월, 십오일, 이십일일). The run may
-    // swallow the unit 일 (day), which is then given back.
+    // Sino-Korean numerals with a unit (삼월, 십오일, 이십일일). The run stops
+    // where 일요일 starts, whose 일 is not a numeral or the unit 일 (day), and
+    // may swallow the unit 일, which is then given back.
+    auto weekday_at = [&](std::size_t at) { return starts_with(s, at, U"일요일"); };
+    auto unit_after = [&](std::size_t at) { return weekday_at(at) ? nullptr : unit_at(s, at); };
     std::size_t end = i;
-    while (end < s.size() && is_sino(s[end])) ++end;
-    if (end > i + 1 && !unit_at(s, end) && s[end - 1] == U'일') --end;
-    const Unit* unit = end > i ? unit_at(s, end) : nullptr;
+    while (end < s.size() && is_sino(s[end]) && !weekday_at(end)) ++end;
+    if (end > i + 1 && !unit_after(end) && s[end - 1] == U'일') --end;
+    const Unit* unit = end > i ? unit_after(end) : nullptr;
     std::string value;
     if (unit && korean_number_value(to_utf8(s.substr(i, end - i)), value)) {
       set_field(attrs, unit->field, std::stoll(value), unit->low, unit->high);
@@ -214,6 +228,7 @@ Attributes scan_single(const std::u32string& s) {
       continue;
     }
     ++i;  // "of" and anything else the grammar allows around the fields
+    after_month_name = false;
   }
 
   return attrs;
@@ -273,15 +288,18 @@ const Units::value_type* duration_unit_at(const std::u32string& s, std::size_t a
 }
 
 // Whether `s` (without spaces) is a duration such as 2시간뒤 or in2hours.
+// 오후 and 오전 end in 후 (after) and 전 (before) but are parts of the day.
 bool is_duration(const std::u32string& s) {
-  if (ends_with(s, U"뒤") || ends_with(s, U"후") || (ends_with(s, U"전") && !ends_with(s, U"오전")))
+  if (ends_with(s, U"뒤") || (ends_with(s, U"후") && !ends_with(s, U"오후")) ||
+      (ends_with(s, U"전") && !ends_with(s, U"오전")))
     return true;
   if (ends_with(s, U"ago") || ends_with(s, U"later") || ends_with(s, U"fromnow")) return true;
   return starts_with(s, 0, U"in") && !starts_with(s, 0, U"inthe") && s.size() > 2;
 }
 
-// Reads a duration into signed offsets: 1시간30분후 gives hour_offset=+1 and
-// minute_offset=+30, 3daysago day_offset=-3.
+// Reads a duration into signed offsets and duration=true, as it counts from
+// now (the offsets of 다음 달 count calendar months): 1시간30분후 gives
+// hour_offset=+1 and minute_offset=+30, 3daysago day_offset=-3.
 Attributes scan_duration(const std::u32string& s) {
   const int sign = ends_with(s, U"전") || ends_with(s, U"ago") ? -1 : 1;
   static const char32_t* const kFiller[] = {U"fromnow", U"later", U"ago", U"in",
@@ -344,6 +362,7 @@ Attributes scan_duration(const std::u32string& s) {
     }
     if (!filler) ++i;
   }
+  set_attribute(attrs, "duration", "true");
   return attrs;
 }
 
@@ -402,23 +421,29 @@ Attributes datetime_attributes(const std::string& text) {
   if (!split_range(s, first, second)) {
     std::u32string compact = strip_spaces(s);
     if (is_duration(compact)) return scan_duration(compact);
-    Attributes attrs = scan_single(compact);
+    Attributes attrs = scan_single(s);
     adjust_hour(attrs);
     return attrs;
   }
-  Attributes start = scan_single(strip_spaces(first));
-  Attributes end = scan_single(strip_spaces(second));
+  Attributes start = scan_single(first);
+  Attributes end = scan_single(second);
   // One end's part of the day carries over to the other's hour: 오후 3시부터
   // 5시까지, from 3 to 5pm (but not 11 to 2pm, where 11 is in the morning).
+  // An end earlier on the 12-hour clock is in the next half of the day: in
+  // the afternoon after a morning start (오전 11시부터 1시까지 ends at 13), in
+  // the next day's morning after a later one (밤 11시부터 1시까지 ends at 1).
   const std::string* start_part = get(start, "part_of_day");
   const std::string* end_part = get(end, "part_of_day");
   const std::string* start_hour = get(start, "hour");
   const std::string* end_hour = get(end, "hour");
   if (start_hour && end_hour) {
-    if (!start_part && end_part && std::stoll(*start_hour) % 12 <= std::stoll(*end_hour) % 12)
+    const long long from = std::stoll(*start_hour), to = std::stoll(*end_hour);
+    const bool in_order = from % 12 <= to % 12;
+    if (!start_part && end_part && in_order)
       set_attribute(start, "part_of_day", *end_part);
     else if (start_part && !end_part)
-      set_attribute(end, "part_of_day", *start_part);
+      set_attribute(end, "part_of_day",
+                    in_order ? *start_part : (to_24_hour(from, *start_part) < 12 ? "PM" : "AM"));
   }
   adjust_hour(start);
   adjust_hour(end);
@@ -499,88 +524,142 @@ bool field_value(const std::string& key, const std::string& text, int& value) {
   return true;
 }
 
-// Resolves the fields under `prefix` ("" or "end_"). Dates start from `base`,
-// times and durations from `now`; `grain` (an index into kGrains) only gets finer.
+// Whether field `key` under `prefix` is given, with a value in range.
+bool has_field(const Attributes& attrs, const std::string& prefix, const std::string& key) {
+  const std::string* text = field(attrs, prefix, key);
+  int value;
+  return text && (key == "weekday" ? weekday_index(*text) >= 0 : field_value(key, *text, value));
+}
+
+// Whether the fields under `prefix` are a duration (2시간 뒤, 한 달 후).
+bool has_duration(const Attributes& attrs, const std::string& prefix) {
+  const std::string* text = field(attrs, prefix, "duration");
+  return text && *text == "true";
+}
+
+// Whether the fields under `prefix` give a year, an offset or a duration,
+// which count from now.
+bool counts_from_now(const Attributes& attrs, const std::string& prefix) {
+  for (const char* key : {"year", "year_offset", "month_offset", "week_offset", "day_offset",
+                          "hour_offset", "minute_offset"})
+    if (has_field(attrs, prefix, key)) return true;
+  return has_duration(attrs, prefix);
+}
+
+long long day_number(const DateTimeValue& v) {
+  return days_from_civil(v.year, static_cast<unsigned>(v.month), static_cast<unsigned>(v.day));
+}
+
+// Resolves the fields under `prefix` ("" or "end_"). A year, offsets and
+// durations count from `now`. Otherwise a weekday, day of the month or month given
+// alone is the next one on or after day `from` (as days_from_civil() counts
+// them), and a time alone falls on `from`. `grain` (an index into kGrains)
+// only gets finer.
 DateTimeValue resolve_one(const Attributes& attrs, const std::string& prefix,
-                          const DateTimeValue& now, const DateTimeValue& base, int& grain) {
+                          const DateTimeValue& now, long long from, int& grain) {
   auto get = [&](const char* key) {
     const std::string* text = field(attrs, prefix, key);
     int value = 0;
     return text && field_value(key, *text, value) ? value : 0;
   };
-  auto has = [&](const char* key) {
-    const std::string* text = field(attrs, prefix, key);
-    int value;
-    return text && (std::string(key) == "weekday" ? weekday_index(*text) >= 0
-                                                  : field_value(key, *text, value));
-  };
+  auto has = [&](const char* key) { return has_field(attrs, prefix, key); };
   auto finer = [&](int g) { grain = std::max(grain, g); };
-  int year = base.year, month = base.month, day = base.day;
-  long long today = days_from_civil(now.year, static_cast<unsigned>(now.month),
-                                    static_cast<unsigned>(now.day));
+  const long long today = day_number(now);
+  if (counts_from_now(attrs, prefix)) from = today;
+  int from_year, from_month, from_day;
+  civil_from_days(from, from_year, from_month, from_day);
+  int year = from_year, month = from_month, day = from_day;
   auto clamp_day = [&] { day = std::min(day, days_in_month(year, month)); };
   auto add_months = [&](int k) {
-    int total = year * 12 + (month - 1) + k;
-    year = total / 12;
-    month = total % 12 + 1;
+    const long long total = year * 12LL + (month - 1) + k;
+    const long long y = total >= 0 ? total / 12 : (total - 11) / 12;  // rounded down
+    year = static_cast<int>(y);
+    month = static_cast<int>(total - y * 12) + 1;
   };
 
-  if (has("year_offset")) {
-    year += get("year_offset");
-    month = day = 1;
-    finer(0);
-  }
-  if (has("year")) {
-    year = get("year");
-    if (year < 100) year += 2000;
-    month = day = 1;
-    finer(0);
-  }
-  if (has("month_offset")) {
-    add_months(get("month_offset"));
-    day = 1;
-    finer(1);
-  }
-  if (has("month")) {
-    month = get("month");
-    day = has("day") ? get("day") : 1;
-    finer(1);
-    // A month (and day) alone means the next one, this one included.
-    if (!has("year") && !has("year_offset") && !has("month_offset")) {
-      clamp_day();
-      const bool past = has("day") ? days_from_civil(year, static_cast<unsigned>(month),
-                                                     static_cast<unsigned>(day)) < today
-                                   : month < now.month;
-      if (past && year == now.year) ++year;
-    }
-  }
-  if (has("day")) {
-    day = get("day");
+  long long date;
+  if (has_duration(attrs, prefix)) {
+    // A duration counts from now: 한 달 후 is the same day next month (or its
+    // last day, if it is shorter), not the 1st as with 다음 달.
+    year = now.year;
+    month = now.month;
+    day = now.day;
+    add_months(12 * get("year_offset") + get("month_offset"));
+    clamp_day();
+    date = days_from_civil(year, static_cast<unsigned>(month), static_cast<unsigned>(day)) +
+           7LL * get("week_offset") + get("day_offset");
     finer(3);
-    if (!has("month") && !has("month_offset") && !has("year") && !has("year_offset") &&
-        year == now.year && month == now.month && day < now.day)
-      add_months(1);
-  }
-  clamp_day();
-  long long date = days_from_civil(year, static_cast<unsigned>(month), static_cast<unsigned>(day));
-  const long long today_weekday = ((today + 3) % 7 + 7) % 7;  // 1970-01-01 was a Thursday
-  const long long monday = today - today_weekday;
-  if (has("week_offset")) {
-    date = monday + 7LL * get("week_offset");
-    finer(2);
-  }
-  if (has("weekday")) {
-    const int wd = weekday_index(*field(attrs, prefix, "weekday"));
+  } else {
+    if (has("year_offset")) {
+      year += get("year_offset");
+      month = day = 1;
+      finer(0);
+    }
+    if (has("year")) {
+      year = get("year");
+      if (year < 100) year += 2000;
+      month = day = 1;
+      finer(0);
+    }
+    if (has("month_offset")) {
+      add_months(get("month_offset"));
+      day = 1;
+      finer(1);
+    }
+    if (has("month")) {
+      month = get("month");
+      day = has("day") ? get("day") : 1;
+      finer(1);
+      // A month (and day) alone means the next one, this one included, in a
+      // year that has the day (2월 29일). No year has 2월 30일, which is the
+      // month's last day.
+      if (!has("year") && !has("year_offset") && !has("month_offset")) {
+        const int wanted = day;
+        const bool ever = wanted <= (month == 2 ? 29 : days_in_month(1, month));
+        year = from_year;
+        for (int tries = 0; tries < 9; ++tries, ++year) {  // leap years are at most 8 apart
+          day = ever ? wanted : std::min(wanted, days_in_month(year, month));
+          if (day > days_in_month(year, month)) continue;
+          const bool ahead = has("day") ? days_from_civil(year, static_cast<unsigned>(month),
+                                                          static_cast<unsigned>(day)) >= from
+                                        : year > from_year || month >= from_month;
+          if (ahead) break;
+        }
+      }
+    }
+    if (has("day")) {
+      day = get("day");
+      finer(3);
+      // A day of the month alone means the next one, today included, in a
+      // month that has it (31일 skips November).
+      if (!has("month") && !has("month_offset") && !has("year") && !has("year_offset")) {
+        year = from_year;
+        month = from_month;
+        if (day < from_day) add_months(1);
+        if (day > days_in_month(year, month)) add_months(1);  // the next month has it
+      }
+    }
+    clamp_day();
+    date = days_from_civil(year, static_cast<unsigned>(month), static_cast<unsigned>(day));
+    // 1970-01-01 was a Thursday.
+    auto weekday_of = [](long long d) { return ((d + 3) % 7 + 7) % 7; };
     if (has("week_offset")) {
-      date += wd;
-    } else if (!has("month") && !has("day")) {
-      date = today + ((wd - today_weekday) + 7) % 7;  // the next one, today included
+      date = today - weekday_of(today) + 7LL * get("week_offset");
+      finer(2);
     }
-    finer(3);
-  }
-  if (has("day_offset")) {
-    date += get("day_offset");
-    finer(3);
+    if (has("weekday")) {
+      const int wd = weekday_index(*field(attrs, prefix, "weekday"));
+      if (has("week_offset")) {
+        date += wd;
+      } else if (!has("month") && !has("day")) {
+        date = from + ((wd - weekday_of(from)) + 7) % 7;  // the next one, today included
+      }
+      finer(3);
+    }
+    if (has("day_offset")) {
+      date += get("day_offset");
+      finer(3);
+    }
   }
 
   DateTimeValue out{0, 0, 0, -1, -1};
@@ -589,24 +668,46 @@ DateTimeValue resolve_one(const Attributes& attrs, const std::string& prefix,
     long long minutes = today * 1440 + std::max(now.hour, 0) * 60 + std::max(now.minute, 0) +
                         60LL * get("hour_offset") + get("minute_offset");
     long long days = minutes >= 0 ? minutes / 1440 : (minutes - 1439) / 1440;
-    civil_from_days(days + (date - today), out.year, out.month, out.day);
+    date += days - today;
     out.hour = static_cast<int>(minutes - days * 1440) / 60;
     out.minute = static_cast<int>(minutes - days * 1440) % 60;
     finer(5);
-    return out;
+  } else {
+    // 24시 is midnight at the end of the day.
+    if (has("hour") && get("hour") == 24) ++date;
+    if (has("hour")) {
+      out.hour = get("hour") % 24;
+      out.minute = has("minute") ? get("minute") : 0;
+      finer(has("minute") && get("minute") != 0 ? 5 : 4);
+    } else if (has("minute")) {
+      out.hour = std::max(now.hour, 0);
+      out.minute = get("minute");
+      finer(5);
+    }
+    if (!grain && !has("year") && !has("year_offset")) finer(3);  // nothing coarser was given
+  }
+  // Dates stay within years 1 to 9999, as `now` does: a date beyond either
+  // end is that end's first or last day, and minute.
+  static const long long first = days_from_civil(1, 1, 1), last = days_from_civil(9999, 12, 31);
+  if (date < first) {
+    date = first;
+    if (out.hour >= 0) out.hour = out.minute = 0;
+  } else if (date > last) {
+    date = last;
+    if (out.hour >= 0) out.hour = 23, out.minute = 59;
   }
   civil_from_days(date, out.year, out.month, out.day);
-  if (has("hour")) {
-    out.hour = get("hour") % 24;
-    out.minute = has("minute") ? get("minute") : 0;
-    finer(has("minute") && get("minute") != 0 ? 5 : 4);
-  } else if (has("minute")) {
-    out.hour = std::max(now.hour, 0);
-    out.minute = get("minute");
-    finer(5);
-  }
-  if (!grain && !has("year") && !has("year_offset")) finer(3);  // nothing coarser was given
   return out;
+}
+
+// Whether `end`, resolved to `grain`, comes before `start`. A month-grain
+// end includes the start's month.
+bool before(const DateTimeValue& end, int grain, const DateTimeValue& start) {
+  if (grain <= 1) return end.year * 12 + end.month < start.year * 12 + start.month;
+  const long long e = day_number(end), s = day_number(start);
+  if (e != s) return e < s;
+  return end.hour >= 0 && start.hour >= 0 &&
+         end.hour * 60 + end.minute < start.hour * 60 + start.minute;
 }
 
 }  // namespace
@@ -614,25 +715,42 @@ DateTimeValue resolve_one(const Attributes& attrs, const std::string& prefix,
 DateTimeRange resolve_datetime(const std::vector<std::pair<std::string, std::string>>& attributes,
                                const DateTimeValue& reference) {
   DateTimeValue now = reference;
-  now.year = std::min(std::max(now.year, 0), 9999);
+  now.year = std::min(std::max(now.year, 1), 9999);
   now.month = std::min(std::max(now.month, 1), 12);
   now.day = std::min(std::max(now.day, 1), days_in_month(now.year, now.month));
   now.hour = std::min(std::max(now.hour, -1), 23);
   now.minute = std::min(std::max(now.minute, -1), 59);
   DateTimeRange out;
   int grain = 0;
-  out.start = resolve_one(attributes, "", now, now, grain);
-  bool end_date = false, any_end = false;
-  for (const auto& kv : attributes) {
-    if (kv.first.compare(0, 4, "end_") != 0) continue;
-    any_end = true;
-    for (const char* key : {"end_year", "end_month", "end_day", "end_weekday", "end_day_offset",
-                            "end_week_offset", "end_month_offset", "end_year_offset"})
-      end_date = end_date || kv.first == key;
-  }
+  out.start = resolve_one(attributes, "", now, day_number(now), grain);
+  bool any_end = false;
+  for (const auto& kv : attributes) any_end = any_end || kv.first.compare(0, 4, "end_") == 0;
   if (any_end) {
+    // An end without a year or offsets of its own counts from the start: a
+    // weekday, day of the month or month alone is the next one on or after
+    // it (between monday and friday ends on the Friday after that Monday),
+    // and a time alone is on its day. One that still comes before the start
+    // is the next one after the start's day, so 밤 11시부터 새벽 1시까지
+    // ends at 01:00 the next day. A bare hour from 1 to 12 (no part of the
+    // day, its own or the start's) is 12 hours later on the same day first:
+    // 11시부터 1시까지 ends at 13:00.
+    const long long start = day_number(out.start);
     int end_grain = 0;
-    out.end = resolve_one(attributes, "end_", now, end_date ? now : out.start, end_grain);
+    out.end = resolve_one(attributes, "end_", now, start, end_grain);
+    if (!counts_from_now(attributes, "end_") && before(out.end, end_grain, out.start)) {
+      const std::string* hour = field(attributes, "end_", "hour");
+      int written = 0;
+      const bool bare = hour && field_value("hour", *hour, written) && written >= 1 &&
+                        written <= 12 && !field(attributes, "end_", "part_of_day");
+      DateTimeValue later = out.end;
+      later.hour += 12;
+      if (bare && later.hour < 24 && !before(later, end_grain, out.start)) {
+        out.end = later;
+      } else {
+        end_grain = 0;
+        out.end = resolve_one(attributes, "end_", now, start + 1, end_grain);
+      }
+    }
     out.has_end = true;
   }
   out.grain = kGrains[grain];

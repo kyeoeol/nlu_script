@@ -117,6 +117,31 @@ TEST(slot_spans_decomposed_hangul_in_the_original_input) {
   CHECK_EQ(found[0].tagged, "<card>" + card + "</card>" + input.substr(card.size()));
 }
 
+TEST(slot_spans_combining_marks_that_normalization_reorders) {
+  // BEH, SHADDA (class 33), FATHA (class 30): NFC puts FATHA first.
+  nlu::Script s = nlu::Script::compile("pay\n    pay <who><?>+?</who>\n");
+  const std::string beh = "بَّ";
+  std::vector<nlu::Match> found = s.match("pay " + beh);
+  CHECK_EQ(found.size(), 1u);
+  if (found.size() == 1) {
+    CHECK_EQ(found[0].slots[0].text, beh);
+    CHECK_EQ(found[0].slots[0].begin, 4u);
+    CHECK_EQ(found[0].slots[0].end, 4u + beh.size());
+    CHECK_EQ(found[0].tagged, "pay <who>" + beh + "</who>");
+  }
+  // Marks of classes 230, 232, 220, which NFC orders 220, 230, 232. The
+  // reordered marks can't be told apart in the original bytes, so a slot
+  // with some of them takes them all.
+  nlu::Script t = nlu::Script::compile("end\n    q<s><?>+?</s>̕\n");
+  const std::string marks = "̣̇̕";
+  found = t.match("q" + marks);
+  CHECK_EQ(found.size(), 1u);
+  if (found.size() == 1) {
+    CHECK_EQ(found[0].slots[0].text, marks);
+    CHECK_EQ(found[0].tagged, "q<s>" + marks + "</s>");
+  }
+}
+
 TEST(slot_ends_before_a_particle_pair) {
   nlu::Script s = nlu::Script::compile(
       "card:lost\n    <card>[신용|체크]카드</card>을/를 분실했어요\n");
@@ -487,7 +512,8 @@ TEST(option_ignore_trailing_punctuation) {
   CHECK(labels(strict, "are you there?").empty());
   nlu::Script lenient = nlu::Script::compile("option ignore-trailing-punctuation\n" + rules);
   for (const char* text : {"are you there", "are you there?", "are you there ?!", "are you there...",
-                           "거기 계세요？", "거기 계세요~~"})
+                           "거기 계세요？", "거기 계세요~~", "거기 계세요;", "거기 계세요；",
+                           "거기 계세요:", "거기 계세요："})
     CHECK_EQ(labels(lenient, text), (std::vector<std::string>{"agent:check"}));
   CHECK_EQ(labels(lenient, "is my card blocked?"), (std::vector<std::string>{"card:blocked"}));
   CHECK(labels(lenient, "are you? there").empty());

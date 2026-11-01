@@ -607,7 +607,7 @@ int compile_rule(Nfa& nfa, const Definitions& defs, const Node& pattern, int rul
   nfa.epsilon(f.out, accept);
   if (trailing_punctuation) {
     // [space] punctuation+ before the end: "are you there ?!", "거기 계세요~~".
-    static const char32_t kPunctuation[] = U".?!~,;:\u2026\uFF0E\uFF1F\uFF01\uFF5E\u3002\u3001\uFF0C";
+    static const char32_t kPunctuation[] = U".?!~,;:\u2026\uFF0E\uFF1F\uFF01\uFF5E\u3002\u3001\uFF0C\uFF1B\uFF1A";
     int before = nfa.add_state();
     int marks = nfa.add_state();
     nfa.add_edge(f.out, Edge::Kind::Space, before);

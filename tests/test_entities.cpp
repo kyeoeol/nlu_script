@@ -62,6 +62,18 @@ TEST(english_number_words) {
   CHECK_EQ(attributes("EN_NUMBER", "twenty twenty"), std::string("<no match>"));
 }
 
+TEST(a_zero_times_a_unit_is_zero) {
+  CHECK_EQ(attributes("KO_NUMBER", "0만"), std::string("value=0"));
+  CHECK_EQ(attributes("MONEY", "0만 원"), std::string("value=0 currency=KRW"));
+  CHECK_EQ(attributes("EN_NUMBER", "zero thousand"), std::string("value=0"));
+  CHECK_EQ(attributes("EN_NUMBER", "0 million"), std::string("value=0"));
+  // A unit with no number before it counts once.
+  CHECK_EQ(attributes("KO_NUMBER", "만"), std::string("value=10000"));
+  CHECK_EQ(attributes("KO_NUMBER", "천"), std::string("value=1000"));
+  CHECK_EQ(attributes("KO_NUMBER", "1억 만"), std::string("value=100010000"));
+  CHECK_EQ(attributes("EN_NUMBER", "a thousand"), std::string("value=1000"));
+}
+
 TEST(ordinals) {
   CHECK_EQ(attributes("ORDINAL", "첫 번째"), std::string("value=1"));
   CHECK_EQ(attributes("ORDINAL", "두번째"), std::string("value=2"));

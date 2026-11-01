@@ -496,16 +496,19 @@ call me back (at) `@{DATETIME}
 | 새벽, 아침, 오전, 낮, 점심, 오후, 저녁, 밤; morning, afternoon, evening, night, tonight, am, pm | `part_of_day` (`DAWN`, `MORNING`, `AM`, `DAY`, `NOON`, `PM`, `EVENING`, `NIGHT`) |
 | 3시, 세 시, 열두시, 15시, 30분, 반, 정오, 자정; 3pm, 3:30 pm, 15:30, 3 o'clock, noon, midnight | `hour`, `minute` |
 | 3시부터 5시까지, 내일부터 모레까지, 3시~5시, 3~5시; from 3 to 5pm, between monday and friday, 3-5pm | the start's attributes, and the end's with an `end_` prefix |
-| 2시간 뒤, 1시간 30분 후, 이틀 전, 한 달 후; in 2 hours, in an hour, 3 days ago, 2 weeks from now | `minute_offset`, `hour_offset`, `day_offset`, ... (`+2`, `-3`) |
+| 2시간 뒤, 1시간 30분 후, 이틀 전, 한 달 후; in 2 hours, in an hour, 3 days ago, 2 weeks from now | `minute_offset`, `hour_offset`, `day_offset`, ... (`+2`, `-3`), and `duration` (`true`), as they count from now |
 
 A date usually comes before a time (`다음 주 월요일 저녁 7시 반`, `tomorrow
-at 3pm`), but English also takes `3pm tomorrow` and `noon on friday`, and a
-weekday may follow a date (`3월 5일 월요일`). In a range, an end without a
-part of the day takes the other end's (`오후 3시부터 5시까지` ends at 17,
-`from 3 to 5pm` starts at 15), and an English range may start with a bare
-hour.
+at 3pm`, `march 5 3pm`), but English also takes `3pm tomorrow` and `noon on
+friday`, and a weekday may follow a date (`3월 5일 월요일`). In a range, an
+end without a part of the day takes the other end's (`오후 3시부터 5시까지`
+ends at 17, `from 3 to 5pm` starts at 15), unless the end's hour comes
+earlier on a 12-hour clock: then the end is in the next half of the day,
+the afternoon after a start before noon (`오전 11시부터 1시까지` ends at 13)
+and the next morning after a later one (`밤 11시부터 1시까지` ends at 1). An
+English range may start with a bare hour.
 `hour` is on a 24-hour clock when the part of the day settles it (오후 3시
-gives 15, 밤 11시 23, 밤 1시 1, 12am 0); otherwise it is the hour as
+gives 15, 밤 11시 23, 밤 1시 1, 새벽 12시 0, 12am 0); otherwise it is the hour as
 written (세 시 gives 3). Digits are checked against the calendar and clock
 (13월, 32일, 25시 and 3시 60분 don't match); numerals out of range (십삼월)
 match without that attribute. Prepositions and particles around the entity
@@ -519,14 +522,32 @@ nlu::DateTimeRange r = nlu::resolve_datetime(slot.attributes, {2026, 10, 21, 14,
 // "내일 오후 3시"    -> 2026-10-22 15:00, grain "hour"
 // "다음 주 월요일"  -> 2026-10-26, grain "day"
 // "3시부터 5시까지" -> 2026-10-21 03:00 to 05:00 (r.has_end)
+// "한 달 후"        -> 2026-11-21, grain "day"
 ```
 
 Weeks start on Monday. A weekday, a month or a day of the month given alone
 means the next one, today included (on 2026-10-21, `3월 5일` is 2027-03-05),
-and a coarse date starts at its beginning (`다음 달` is the 1st). Durations
-count from `now`. Attributes whose values are out of range (month 13, an
-offset beyond 100,000) are ignored, and `now` is clamped into range. The C
-API has `nlu_resolve_datetime`, and Python
+in a month or year that has the day (on 2026-11-05, `31일` is 12-31; `2월
+29일` is 2028-02-29), and a coarse date starts at its beginning (`다음 달` is
+the 1st). `24시` is 00:00 the next day. Durations (`duration="true"`) count
+from `now`: their offsets are added to now's date and time, so `한 달 후` is
+2026-11-21 where `다음 달` is 11-01, and a month too short for the day ends
+the count on its last day (`한 달 후` on 01-31 is 02-28).
+
+The end of a range counts from the start unless it gives a year or offsets
+of its own: a weekday, a day of the month or a month alone is the next one
+on or after the start (`between monday and friday` is 10-26 to 10-30, `3월
+5일부터 10일까지` 2027-03-05 to 03-10), and a time alone falls on the start's
+day. An end that still comes before the start moves forward by the unit its
+text left out, so `밤 11시부터 새벽 1시까지` ends at 01:00 the next day. A
+bare hour, with no part of the day of its own or the start's, is first 12
+hours later on the start's day: `11시부터 1시까지` ends at 13:00 (its
+`end_hour` stays `1`) and `10시부터 9시까지` at 21:00.
+
+Attributes whose values are out of range (month 13, an offset beyond
+100,000) are ignored, `now` is clamped into range, and results stay within
+the years 1 to 9999 (a date beyond either end is that end's first or last
+day). The C API has `nlu_resolve_datetime`, and Python
 `nlu_script.resolve_datetime(slot.attributes, now)`, which returns `date` or
 `datetime` objects.
 
