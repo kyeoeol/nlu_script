@@ -105,6 +105,19 @@ TEST(datetime_in_english) {
   CHECK_EQ(attributes("13pm"), std::string("<no match>"));
 }
 
+TEST(datetime_english_date_then_time) {
+  // The day and the hour are separate numbers, though spaces are ignored.
+  CHECK_EQ(attributes("march 5 3pm"), std::string("month=3 day=5 hour=15 part_of_day=PM"));
+  CHECK_EQ(attributes("dec 31 11:30"), std::string("month=12 day=31 hour=11 minute=30"));
+  CHECK_EQ(attributes("march 5 at 3pm"), std::string("month=3 day=5 hour=15 part_of_day=PM"));
+  // A number after the month is its day, unless the day came first.
+  CHECK_EQ(attributes("5th of march at 3pm"),
+           std::string("day=5 month=3 hour=15 part_of_day=PM"));
+  CHECK_EQ(attributes("5th of march 3pm"), std::string("day=5 month=3 hour=15 part_of_day=PM"));
+  // A number before `of` is the day.
+  CHECK_EQ(attributes("5 of march"), std::string("day=5 month=3"));
+}
+
 TEST(datetime_months_and_days_of_the_month_in_english) {
   CHECK_EQ(attributes("this month"), std::string("month_offset=0"));
   CHECK_EQ(attributes("next month"), std::string("month_offset=+1"));

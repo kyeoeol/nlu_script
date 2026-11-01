@@ -148,10 +148,19 @@ long long to_24_hour(long long hour, const std::string& part) {
 }
 
 
-// Reads one date or time (not a range or duration), from text without
-// spaces. Hours stay as written; adjust_hour() puts them on a 24-hour clock.
-Attributes scan_single(const std::u32string& s) {
+// Reads one date or time (not a range or duration). Words are matched
+// without spaces, but a number ends at one: march 5 3pm is the 5th at 15.
+// Hours stay as written; adjust_hour() puts them on a 24-hour clock.
+Attributes scan_single(std::u32string_view text) {
   static const std::vector<Word> words = make_words();
+
+  std::u32string s;
+  std::vector<bool> spaced;  // whether a space came before s[i]
+  for (std::size_t k = 0; k < text.size(); ++k) {
+    if (text[k] == U' ') continue;
+    spaced.push_back(k > 0 && text[k - 1] == U' ');
+    s += text[k];
+  }
 
   Attributes attrs;
   bool after_month_name = false;  // "march 5": a bare number is the day
@@ -160,7 +169,9 @@ Attributes scan_single(const std::u32string& s) {
     // A number in digits, maybe with minutes (3:30), then its unit.
     if (s[i] >= U'0' && s[i] <= U'9') {
       long long value = 0;
-      for (; i < s.size() && s[i] >= U'0' && s[i] <= U'9'; ++i) value = value * 10 + (s[i] - U'0');
+      for (const std::size_t start = i;
+           i < s.size() && s[i] >= U'0' && s[i] <= U'9' && (i == start || !spaced[i]); ++i)
+        value = value * 10 + (s[i] - U'0');
       long long minute = -1;
       if (i + 2 < s.size() && s[i] == U':') {
         minute = (s[i + 1] - U'0') * 10 + (s[i + 2] - U'0');
@@ -169,8 +180,8 @@ Attributes scan_single(const std::u32string& s) {
       if (const Unit* unit = unit_at(s, i)) {
         set_field(attrs, unit->field, value, unit->low, unit->high);
         i += std::char_traits<char32_t>::length(unit->text);
-      } else if (after_month_name) {
-        set_field(attrs, "day", value, 1, 31);
+      } else if ((after_month_name && !get(attrs, "day")) || starts_with(s, i, U"of")) {
+        set_field(attrs, "day", value, 1, 31);  // march 5, 5 of march
       } else {
         set_field(attrs, "hour", value, 0, 24);  // 15:30, or 3 before am/pm
       }
@@ -217,6 +228,7 @@ Attributes scan_single(const std::u32string& s) {
       continue;
     }
     ++i;  // "of" and anything else the grammar allows around the fields
+    after_month_name = false;
   }
 
   return attrs;
@@ -407,12 +419,12 @@ Attributes datetime_attributes(const std::string& text) {
   if (!split_range(s, first, second)) {
     std::u32string compact = strip_spaces(s);
     if (is_duration(compact)) return scan_duration(compact);
-    Attributes attrs = scan_single(compact);
+    Attributes attrs = scan_single(s);
     adjust_hour(attrs);
     return attrs;
   }
-  Attributes start = scan_single(strip_spaces(first));
-  Attributes end = scan_single(strip_spaces(second));
+  Attributes start = scan_single(first);
+  Attributes end = scan_single(second);
   // One end's part of the day carries over to the other's hour: 오후 3시부터
   // 5시까지, from 3 to 5pm (but not 11 to 2pm, where 11 is in the morning).
   // An end earlier on the 12-hour clock is in the next half of the day: in
