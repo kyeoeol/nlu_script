@@ -104,9 +104,7 @@ class Compiler {
       : nfa_(nfa), defs_(defs), with_actions_(with_actions), first_state_(nfa.states.size()) {}
 
   Frag compile(const Node& n) {
-    if (nfa_.states.size() - first_state_ > kMaxRuleStates)
-      throw_at(n.pos, "rule is too large to compile (over " + std::to_string(kMaxRuleStates) +
-                      " automaton states); lower its repetition counts");
+    check_size(n.pos);
     Frag f = compile_body(n);
     if (!with_actions_) return f;
     for (const Assignment& a : n.assignments) {
@@ -144,6 +142,14 @@ class Compiler {
   int slot_depth_ = 0;
   std::set<std::string> slots_seen_;
   std::vector<Assignment> qualified_;
+
+  // Throws if the rule has more than kMaxRuleStates states once `more` are
+  // added.
+  void check_size(const SourcePos& pos, std::size_t more = 0) const {
+    if (nfa_.states.size() + more - first_state_ > kMaxRuleStates)
+      throw_at(pos, "rule is too large to compile (over " + std::to_string(kMaxRuleStates) +
+                    " automaton states); lower its repetition counts or typo group nesting");
+  }
 
   void enter(const SourcePos& pos, const std::string& ref) {
     if (std::find(ref_stack_.begin(), ref_stack_.end(), ref) != ref_stack_.end())
@@ -273,6 +279,9 @@ class Compiler {
     Frag f = compile(*n.children[0]);
     const int hi = static_cast<int>(nfa_.states.size());
     const int offset = hi - lo;
+    // compile() doesn't see the copy, and nested groups double the
+    // automaton at each level.
+    check_size(n.pos, static_cast<std::size_t>(offset));
     for (int s = lo; s < hi; ++s) nfa_.add_state();
     for (int s = lo; s < hi; ++s) {
       for (Edge e : nfa_.states[s].edges) {

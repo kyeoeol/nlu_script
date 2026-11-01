@@ -209,6 +209,12 @@ TEST(oversized_rules_are_errors) {
   // error instead of running out of memory.
   CHECK_THROWS(nlu::CompileError, rule("[[[[a]^(1,100)]^(1,100)]^(1,100)]^(1,100)"));
   CHECK(matches("[[a]^(1,100)]^(1,100)", "aaaa"));
+  // A typo group copies its automaton, so each level of nesting doubles it
+  // (18 levels of [abc]& took 951 MB). A long text reaches the cap in few
+  // levels, which keeps this test's memory small.
+  const std::string text(130000, 'a');
+  CHECK_THROWS(nlu::CompileError, rule("[[" + text + "]&]&"));
+  CHECK(matches("[[" + text.substr(0, 1000) + "]&]&", text.substr(0, 998)));
 }
 
 TEST(repetition_rejects_empty_ranges) {
