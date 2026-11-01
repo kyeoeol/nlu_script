@@ -99,6 +99,11 @@ class ScriptTest(unittest.TestCase):
         self.assertEqual(report.allowed, 1)
         self.assertTrue(report.complete)
 
+    def test_lint_with_a_small_state_limit_is_incomplete(self):
+        script = nlu_script.Script("a\n    one\nb\n    two\n")
+        self.assertFalse(script.lint(max_states=2).complete)
+        self.assertTrue(script.lint().complete)
+
     def test_resolve_datetime(self):
         script = nlu_script.Script("t\n    `@{DATETIME}\n")
         now = datetime.datetime(2026, 10, 21, 14, 20)

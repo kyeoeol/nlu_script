@@ -348,9 +348,13 @@ const char* nlu_explanation_expected(const nlu_explanation* e, size_t i, size_t 
 }
 
 nlu_lint* nlu_script_lint(const nlu_script* script, int best) {
+  return nlu_script_lint_limited(script, best, 1000000);
+}
+
+nlu_lint* nlu_script_lint_limited(const nlu_script* script, int best, size_t max_states) {
   if (!script) return nullptr;
   try {
-    nlu::LintReport report = script->script.lint();
+    nlu::LintReport report = script->script.lint(max_states);
     return new nlu_lint{report.findings(best != 0), report.allowed_overlaps.size(),
                         report.complete};
   } catch (const std::exception&) {

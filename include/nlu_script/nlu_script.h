@@ -148,6 +148,11 @@ NLU_SCRIPT_API const char* nlu_explanation_expected(const nlu_explanation* expla
  * `complete` is 0 if the search stopped at its state limit. Returns NULL if
  * `script` is NULL or on allocation failure. */
 NLU_SCRIPT_API nlu_lint* nlu_script_lint(const nlu_script* script, int best);
+/* Like nlu_script_lint, with the search limited to `max_states` states in all
+ * (nlu_script_lint uses 1000000). A small limit stops the search early and
+ * makes nlu_lint_complete return 0. */
+NLU_SCRIPT_API nlu_lint* nlu_script_lint_limited(const nlu_script* script, int best,
+                                                 size_t max_states);
 NLU_SCRIPT_API void nlu_lint_free(nlu_lint* lint);
 NLU_SCRIPT_API size_t nlu_lint_count(const nlu_lint* lint);
 NLU_SCRIPT_API const char* nlu_lint_kind(const nlu_lint* lint, size_t i);

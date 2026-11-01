@@ -108,7 +108,7 @@ _explanation_complete = _declare("nlu_explanation_complete", ctypes.c_int, _ptr,
 _explanation_expected_count = _declare("nlu_explanation_expected_count", _size, _ptr, _size)
 _explanation_expected = _declare("nlu_explanation_expected", ctypes.c_char_p, _ptr, _size,
                                  _size)
-_lint = _declare("nlu_script_lint", _ptr, _ptr, ctypes.c_int)
+_lint = _declare("nlu_script_lint_limited", _ptr, _ptr, ctypes.c_int, _size)
 _lint_free = _declare("nlu_lint_free", None, _ptr)
 _lint_count = _declare("nlu_lint_count", _size, _ptr)
 _lint_kind = _declare("nlu_lint_kind", ctypes.c_char_p, _ptr, _size)
@@ -358,13 +358,15 @@ class Script:
         finally:
             _explanation_free(result)
 
-    def lint(self, best=False):
+    def lint(self, best=False, max_states=1000000):
         """Lints the script (as `nlu_script_cli --lint`) and returns a
         LintReport: `findings` (LintFinding(kind, file, line, message), kind one
         of "overlap", "dead-rule", "unused", "directive"), how many overlaps
         `# lint: allow-overlap` comments allow, and whether the search was
-        complete. With `best`, overlaps that match_best() resolves are left out."""
-        result = _lint(self._checked(), 1 if best else 0)
+        complete. With `best`, overlaps that match_best() resolves are left out.
+        The search uses up to `max_states` states; a smaller limit can stop it
+        early, which makes `complete` False."""
+        result = _lint(self._checked(), 1 if best else 0, max_states)
         if not result:
             raise MemoryError("nlu_script_lint failed")
         try:

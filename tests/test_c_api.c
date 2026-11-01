@@ -120,6 +120,20 @@ static void test_lint(void) {
   nlu_script_free(script);
 }
 
+static void test_lint_state_limit(void) {
+  nlu_script* script = nlu_script_compile("a\n    one\nb\n    two\n", NULL, NULL, NULL);
+  nlu_lint* lint;
+  CHECK(script != NULL);
+  if (!script) return;
+  lint = nlu_script_lint_limited(script, 0, 2);
+  CHECK(lint != NULL && nlu_lint_complete(lint) == 0);
+  nlu_lint_free(lint);
+  lint = nlu_script_lint_limited(script, 0, 1000000);
+  CHECK(lint != NULL && nlu_lint_complete(lint) == 1);
+  nlu_lint_free(lint);
+  nlu_script_free(script);
+}
+
 static void test_resolve_datetime(void) {
   const char* keys[] = {"day_offset", "part_of_day", "hour"};
   const char* values[] = {"+1", "PM", "15"};
@@ -301,6 +315,7 @@ int main(void) {
   test_match_best();
   test_explain();
   test_lint();
+  test_lint_state_limit();
   test_resolve_datetime();
   test_search();
   test_save_and_load();

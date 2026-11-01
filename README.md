@@ -214,7 +214,7 @@ resolved overlaps.
 The exit status is 1 when there are findings, so `--lint` can run in CI.
 In code, `Script::lint()` returns an `nlu::LintReport`, and
 `LintReport::findings(best)` the lines `--lint` prints. The C API has
-`nlu_script_lint` and Python `Script.lint(best=False)`, both returning those
+`nlu_script_lint` (`nlu_script_lint_limited` also takes a state limit) and Python `Script.lint(best=False, max_states=1000000)`, both returning those
 findings.
 
 ## Script files
