@@ -470,13 +470,14 @@
       offsets still on the original bytes. `one hundred and twenty` already
       matched. First compile of a script using every entity: 25.2 to 26.7
       ms; saved demo: 3,908,283 to 3,973,871 bytes (+1.7%)
+- [x] The library compiles free of `-Wshadow` warnings with clang: the
+      Korean number reader's two unit variables (`small_unit`, `large_unit`
+      branches) no longer share a name. CI doesn't add `-Wshadow`, since
+      gcc's version also warns about constructor parameters named like
+      members and hasn't been tried
 
 ## Next
 
-- [ ] `-Wshadow` warns in `src/numbers.cpp:109`: the `unit` of the
-      `large_unit` branch shadows the one of the `small_unit` branch before
-      it. Renaming it leaves the library free of `-Wshadow` warnings, which
-      CI could then turn on
 - [ ] Warm matching is still about 80% Pike VM (7.7 us for a cached demo
       sentence): per input character it visits about 20 states and tests
       about 39 consuming edges, 57% of them in runs of more than 8 edges of

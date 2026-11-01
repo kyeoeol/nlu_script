@@ -101,15 +101,15 @@ bool korean_number_value(const std::string& text, std::string& value) {
     if (int digit = sino_digit(c); digit > 0) {
       pending = static_cast<Value>(digit);
       has_pending = any = true;
-    } else if (Value unit = small_unit(c)) {
-      if (!mul_add(has_pending ? pending : 1, unit, section, section)) return false;
+    } else if (Value small = small_unit(c)) {
+      if (!mul_add(has_pending ? pending : 1, small, section, section)) return false;
       pending = 0;
       has_pending = false;
       has_section = any = true;
-    } else if (Value unit = large_unit(c)) {
+    } else if (Value large = large_unit(c)) {
       // A unit alone counts once (만 is 10000), but 0만 is 0.
       const bool counted = has_pending || has_section;
-      if (!mul_add(counted ? section + pending : 1, unit, total, total)) return false;
+      if (!mul_add(counted ? section + pending : 1, large, total, total)) return false;
       section = pending = 0;
       has_pending = has_section = false;
       any = true;
