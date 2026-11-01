@@ -9,10 +9,14 @@
 #include <map>
 #include <memory>
 #include <queue>
+#include <set>
+#include <string>
 #include <unordered_map>
 #include <utility>
 
 #include "compiler.hpp"
+#include "script_impl.hpp"
+#include "script_source.hpp"
 #include "unicode.hpp"
 
 namespace nlu {
@@ -654,4 +658,94 @@ RuleAnalysis analyze_rules(const Nfa& script, const std::vector<RuleSource>& rul
 }
 
 }  // namespace detail
+
+// --- Script::lint() and LintReport ------------------------------------------
+
+using namespace detail;
+
+LintReport Script::lint(std::size_t max_states) const {
+  const Impl& impl = *impl_;
+  std::vector<RuleSource> sources;
+  for (const CompiledRule& rule : impl.rules)
+    sources.push_back({rule.label, rule.line, rule.file, rule.start, rule.first, rule.last});
+  RuleAnalysis search = analyze_rules(impl.nfa, sources, max_states);
+
+  LintReport report;
+  report.unused = impl.unused;
+  report.dead_rules = std::move(search.dead_rules);
+  report.complete = search.complete;
+  report.files.assign(impl.files.begin(), impl.files.end());
+
+  // `# lint: allow-overlap A B ...` allows overlaps among its labels; `*`
+  // stands for every label.
+  std::set<std::string> known;
+  for (const RuleSource& r : sources) known.insert(r.label);
+  std::vector<std::set<std::string>> allowed;
+  for (const LintDirective& d : impl_->lint_directives) {
+    auto error = [&](const std::string& message) {
+      report.directive_errors.push_back({d.pos.line, message, file_name(d.pos)});
+    };
+    if (d.command != "allow-overlap") {
+      error("unknown lint command '" + d.command + "'; expected allow-overlap");
+      continue;
+    }
+    if (d.args.size() < 2) {
+      error("allow-overlap needs two or more labels, or a label and *");
+      continue;
+    }
+    bool valid = true;
+    for (const std::string& label : d.args) {
+      if (label != "*" && !known.count(label)) {
+        error("allow-overlap names unknown label '" + label + "'");
+        valid = false;
+      }
+    }
+    if (valid) allowed.emplace_back(d.args.begin(), d.args.end());
+  }
+  auto is_allowed = [&](const Overlap& o) {
+    for (const std::set<std::string>& group : allowed) {
+      const bool star = group.count("*") > 0;
+      const bool a = group.count(o.label) > 0, b = group.count(o.other_label) > 0;
+      if ((a && b) || (star && (a || b))) return true;
+    }
+    return false;
+  };
+  for (Overlap& o : search.overlaps)
+    (is_allowed(o) ? report.allowed_overlaps : report.overlaps).push_back(std::move(o));
+  return report;
+}
+
+std::vector<LintFinding> LintReport::findings(bool best) const {
+  std::vector<LintFinding> out;
+  auto where = [](const std::string& file, int line, const std::string& from) {
+    return file == from ? "line " + std::to_string(line) : file + ":" + std::to_string(line);
+  };
+  for (const Overlap& o : overlaps) {
+    if (best && !o.best_label.empty()) continue;
+    out.push_back({"overlap", o.file, o.line,
+                   o.label + " and " + o.other_label + " (" + where(o.other_file, o.other_line, o.file) +
+                       ") both match \"" + o.example + "\""});
+  }
+  for (const DeadRule& d : dead_rules) {
+    std::string why = d.matches_nothing ? "it matches no input"
+                      : d.covered_by_line
+                          ? where(d.covered_by_file, d.covered_by_line, d.file) +
+                                " matches everything it does first"
+                          : "earlier rules of the label match everything it does first";
+    out.push_back({"dead-rule", d.file, d.line,
+                   "this rule of " + d.label + " is never used by match(): " + why});
+  }
+  for (const UnusedDefinition& d : unused)
+    out.push_back({"unused", d.file, d.line, d.name + " is never used"});
+  for (const LintDirectiveError& e : directive_errors)
+    out.push_back({"directive", e.file, e.line, e.message});
+  auto file_index = [&](const std::string& file) {
+    return std::find(files.begin(), files.end(), file) - files.begin();
+  };
+  std::stable_sort(out.begin(), out.end(), [&](const LintFinding& a, const LintFinding& b) {
+    return std::make_pair(file_index(a.file), a.line) < std::make_pair(file_index(b.file), b.line);
+  });
+  return out;
+}
+
 }  // namespace nlu
