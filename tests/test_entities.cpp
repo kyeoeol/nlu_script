@@ -70,6 +70,17 @@ TEST(english_numbers_take_and_before_their_last_part) {
   CHECK_EQ(attributes("EN_NUMBER", "two thousand and"), std::string("<no match>"));
 }
 
+TEST(english_numbers_count_hundreds_past_ten) {
+  CHECK_EQ(attributes("EN_NUMBER", "twelve hundred"), std::string("value=1200"));
+  CHECK_EQ(attributes("EN_NUMBER", "nineteen hundred and ninety"), std::string("value=1990"));
+  CHECK_EQ(attributes("EN_NUMBER", "twenty-five hundred"), std::string("value=2500"));
+  CHECK_EQ(attributes("EN_NUMBER", "fifteen hundred fifty"), std::string("value=1550"));
+  CHECK_EQ(attributes("MONEY", "twelve hundred dollars"), std::string("value=1200 currency=USD"));
+  // Past ten, hundreds make the whole number.
+  CHECK_EQ(attributes("EN_NUMBER", "two thousand twelve hundred"), std::string("<no match>"));
+  CHECK_EQ(attributes("EN_NUMBER", "twelve hundred thousand"), std::string("<no match>"));
+}
+
 TEST(and_between_two_english_numbers_is_left_to_the_pattern) {
   nlu::Script s = nlu::Script::compile("t\n    `@{EN_NUMBER} and `@{EN_NUMBER}\n");
   for (const auto& c : {std::pair<std::string, std::string>{"two and three", "2 3"},
@@ -150,7 +161,7 @@ TEST(system_entities_take_their_longest_form_before_a_wildcard) {
       {"DATETIME", "3 days ago"}, {"KO_NUMBER", "일곱"},             {"KO_NUMBER", "일흔일곱"},
       {"KO_NUMBER", "3만 5천"},
       {"EN_NUMBER", "seventeen"}, {"EN_NUMBER", "two thousand and five"},
-      {"ORDINAL", "twenty-first"}};
+      {"EN_NUMBER", "nineteen hundred and ninety"}, {"ORDINAL", "twenty-first"}};
   for (const auto& c : cases) {
     nlu::Script s = nlu::Script::compile(std::string("t\n    `@{") + c.first + "} <?>*?\n");
     std::vector<nlu::Match> found = s.match(c.second);

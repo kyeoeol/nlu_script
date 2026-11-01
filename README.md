@@ -449,7 +449,7 @@ System entities:
 | `NUMBER` | digits | |
 | `TELNUM` | phone numbers: Korean (`010-9876-5432`, `031-765-4321`, `01098765432`), international (`+1 555-123-4567`, `+44 20 7946 0958`), North American (`(555) 123-4567`, `555.123.4567`) | |
 | `KO_NUMBER` | numbers in digits and Korean numerals (`3만 5천`, `삼만오천`), native ones (`스물셋`) | `value` |
-| `EN_NUMBER` | numbers in English words or digits (`twenty-one`, `two hundred and five`, `two thousand and five`, `3 million`) | `value` |
+| `EN_NUMBER` | numbers in English words or digits (`twenty-one`, `two hundred and five`, `two thousand and five`, `nineteen hundred and ninety`, `3 million`) | `value` |
 | `ORDINAL` | `첫 번째`, `두번째`, `3번째`, `셋째`, `first`, `twelfth`, `twenty-first`, `21st` | `value` |
 | `MONEY` | `3만 원`, `5,000원`, `50달러`, `$12.50`, `€10`, `fifty dollars`, `20 bucks`, `USD 50`, `30k won`, `$2.8 million` | `value`, `currency` (`KRW`, `USD`, `EUR`, `JPY`, `GBP`, `CNY`) |
 | `DATETIME` | dates, times, ranges and durations | described below |
@@ -478,7 +478,10 @@ counter (`한`, `두`, `세`, `네`, `스무`). `MONEY` keeps decimals as writte
 last part below 100 that follows `hundred` or a scale (`two hundred and
 five`, `two thousand and five` gives 2005, `a thousand and one`); anywhere
 else `and` is left to the pattern, so `` `@{EN_NUMBER} and `@{EN_NUMBER} ``
-reads `two and three` as 2 and 3.
+reads `two and three` as 2 and 3. Hundreds may be counted past ten
+(`twelve hundred` gives 1200, `nineteen hundred and ninety` 1990,
+`twenty-five hundred` 2500; not `ten` or `twenty hundred`) when they make
+the whole number, with no scale before or after them.
 
 `DATETIME` matches dates and times in Korean and English and describes them
 with attributes relative to now, which the caller resolves against its own

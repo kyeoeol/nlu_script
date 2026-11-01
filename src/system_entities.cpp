@@ -169,28 +169,33 @@ NodePtr korean_number() {
 // --- ORDINAL, EN_NUMBER, MONEY ---------------------------------------------------
 
 // One to 999,999,999,999 in English words, or in digits: twenty-one, two
-// hundred and five, three thousand five hundred, two thousand and five, 3
-// million, 1,250.
+// hundred and five, three thousand five hundred, two thousand and five,
+// nineteen hundred and ninety, 3 million, 1,250.
 NodePtr english_number() {
   NodePtr units = literals(kEnglishSmall, 1, 9);
   NodePtr tens = literals(kEnglishTens);
-  NodePtr below_100 = choice({glued({tens, literal(U"-"), units}), spaced({tens, units}), tens,
-                              literals(kEnglishSmall, 10, 19), units,
+  NodePtr compound_tens = choice({glued({tens, literal(U"-"), units}), spaced({tens, units})});
+  NodePtr below_100 = choice({compound_tens, tens, literals(kEnglishSmall, 10, 19), units,
                               literal(word_for(kEnglishSmall, 0))});
   // `and` may come before the last part, when it is below 100 and follows
   // hundred or a scale: two hundred and five, a thousand and one. Elsewhere
   // (two and three) it is not part of the number.
-  auto then_below_100 = [&](NodePtr head) {
-    return choice({spaced({head, literal(U"and"), below_100}), spaced({head, below_100})});
+  auto hundreds = [&](NodePtr count) {
+    NodePtr head = spaced({count, literal(U"hundred")});
+    return choice({spaced({head, literal(U"and"), below_100}), spaced({head, below_100}), head});
   };
-  NodePtr hundreds_of = spaced({choice({units, literal(U"a")}), literal(U"hundred")});
-  NodePtr below_1000 = choice({then_below_100(hundreds_of), hundreds_of, below_100});
+  NodePtr below_1000 = choice({hundreds(choice({units, literal(U"a")})), below_100});
   auto scale = [&](const char32_t* word) {
     return spaced({choice({below_1000, arabic_number(), literal(U"a")}), literal(word)});
   };
   NodePtr scales = in_order({scale(U"billion"), scale(U"million"), scale(U"thousand")});
+  // Hundreds counted past ten (twelve hundred, twenty-five hundred, but not
+  // ten or twenty hundred) make the whole number: no scale comes before or
+  // after them.
+  NodePtr past_ten = choice({literals(kEnglishSmall, 11, 19), compound_tens});
   return choice({in_order({scale(U"billion"), scale(U"million"), scale(U"thousand"), below_1000}),
-                 spaced({scales, literal(U"and"), below_100}), arabic_number()});
+                 spaced({scales, literal(U"and"), below_100}), hundreds(past_ten),
+                 arabic_number()});
 }
 
 // 첫 번째, 두번째, 3번째, 셋째; first, twelfth, twenty-first, 21st.
