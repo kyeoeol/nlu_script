@@ -315,6 +315,16 @@
       random scripts gives the old results (3 tie on another input of the
       same cost). The fuzz target takes inputs up to 16 KiB, so the demo
       seed itself runs too
+- [x] API boundary, CI and test-coverage fixes from an audit: the Python
+      package runs on 3.5 (no `accumulate(initial=)`) and raises `ValueError`
+      for text with an embedded NUL instead of cutting it there;
+      `nlu_resolve_datetime` catches C++ exceptions like the other entry
+      points (grain stays NULL on failure); CI runs the tests under
+      ThreadSanitizer and under AddressSanitizer + UBSan (both gate `CI
+      passed`); `fuzz_match` also runs `search` and `explain`; the save/load
+      test compares everything a script reports (fold-width, includes,
+      slots, offsets, explain, search, lint) and the saved demo passes
+      `demo.test` through the CLI; public struct fields have defaults.
 
 ## Next
 
