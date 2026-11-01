@@ -547,6 +547,9 @@ TEST(typo_tolerant_groups_allow_one_edit) {
   CHECK(matches(s, "I lost my card"));
   CHECK(matches(s, "I lost my crd"));     // a letter left out
   CHECK(matches(s, "I lost my caard"));   // a letter added
+  CHECK(matches(s, "I lost my cards"));   // ... at the end
+  CHECK(matches(s, "I losts my card"));   // ... at the end of a word
+  CHECK(!matches(s, "I lost my card s"));  // a space is not a letter
   CHECK(matches(s, "I lost my cord"));    // a letter changed
   CHECK(!matches(s, "I lsot my card"));   // a swap is two edits
   CHECK(!matches(s, "I lst my crd"));
@@ -554,6 +557,7 @@ TEST(typo_tolerant_groups_allow_one_edit) {
 
   nlu::Script ko = rule("[분실 신고]& (할게요)");
   CHECK(matches(ko, "분실 신구 할게요"));
+  CHECK(matches(ko, "분실 신고요 할게요"));
   CHECK(matches(ko, "분실신고할게요"));
   CHECK(!matches(ko, "분실 신구 할께요"));  // the edit is used up inside the group
 }

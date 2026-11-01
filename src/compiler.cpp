@@ -293,7 +293,9 @@ class Compiler {
   // [body]&: the body's automaton, then a copy of it for after the one edit.
   // From each state that takes a letter, the edit leads into the copy: any
   // letter in its place (changed), nothing (left out), or any letter before
-  // it (added). Exact paths come first, so they win when both match.
+  // it (added). A letter may also be added after one, which matters at the
+  // end of a word or of the group. Exact paths come first, so they win when
+  // both match.
   Frag compile_typo(const Node& n) {
     const int lo = static_cast<int>(nfa_.states.size());
     Frag f = compile(*n.children[0]);
@@ -309,16 +311,20 @@ class Compiler {
         nfa_.states[s + offset].edges.push_back(e);
       }
     }
+    // The states before or after a letter, where one may be added.
+    std::vector<bool> beside_letter(static_cast<std::size_t>(offset), false);
+    for (int s = lo; s < hi; ++s)
+      for (const Edge& e : nfa_.states[s].edges)
+        if (e.kind == Edge::Kind::Char) beside_letter[s - lo] = beside_letter[e.to - lo] = true;
     for (int s = lo; s < hi; ++s) {
       std::vector<int> letters;  // targets of the state's letter edges
       for (const Edge& e : nfa_.states[s].edges)
         if (e.kind == Edge::Kind::Char) letters.push_back(e.to);
-      if (letters.empty()) continue;
       for (int to : letters) {
         nfa_.add_edge(s, Edge::Kind::Any, to + offset);
         nfa_.epsilon(s, to + offset);
       }
-      nfa_.add_edge(s, Edge::Kind::Any, s + offset);
+      if (beside_letter[s - lo]) nfa_.add_edge(s, Edge::Kind::Any, s + offset);
     }
     int out = nfa_.add_state();
     nfa_.epsilon(f.out, out);
