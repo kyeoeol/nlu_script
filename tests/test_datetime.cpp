@@ -280,6 +280,41 @@ TEST(datetime_resolves_against_a_reference_time) {
            std::string("2027-01-01 00:30 (minute)"));
 }
 
+TEST(resolve_datetime_takes_a_range_end_given_alone_from_the_start) {
+  const nlu::DateTimeValue now{2026, 10, 21, 14, 20};  // a Wednesday
+  // A weekday, day of the month or month alone is the next one on or after
+  // the start, not after now.
+  CHECK_EQ(resolved("between monday and friday", now),
+           std::string("2026-10-26 ~ 2026-10-30 (day)"));
+  CHECK_EQ(resolved("다음 주 월요일부터 금요일까지", now),
+           std::string("2026-10-26 ~ 2026-10-30 (day)"));
+  CHECK_EQ(resolved("금요일부터 월요일까지", now), std::string("2026-10-23 ~ 2026-10-26 (day)"));
+  CHECK_EQ(resolved("3월 5일부터 10일까지", now), std::string("2027-03-05 ~ 2027-03-10 (day)"));
+  CHECK_EQ(resolved("12월 25일부터 1월 5일까지", now),
+           std::string("2026-12-25 ~ 2027-01-05 (day)"));
+  CHECK_EQ(resolved("3월부터 11월까지", now), std::string("2027-03-01 ~ 2027-11-01 (month)"));
+  // An end with offsets of its own counts from now.
+  CHECK_EQ(resolved("오늘부터 다음 주 금요일까지", now),
+           std::string("2026-10-21 ~ 2026-10-30 (day)"));
+  // A time alone before the start's is on the next day.
+  CHECK_EQ(resolved("밤 11시부터 새벽 1시까지", now),
+           std::string("2026-10-21 23:00 ~ 2026-10-22 01:00 (hour)"));
+  CHECK_EQ(resolved("밤 11시부터 1시까지", now),
+           std::string("2026-10-21 23:00 ~ 2026-10-22 01:00 (hour)"));
+  CHECK_EQ(resolved("밤 11시부터 12시까지", now),
+           std::string("2026-10-21 23:00 ~ 2026-10-22 00:00 (hour)"));
+  CHECK_EQ(resolved("내일 밤 11시부터 새벽 1시까지", now),
+           std::string("2026-10-22 23:00 ~ 2026-10-23 01:00 (hour)"));
+  CHECK_EQ(resolved("오전 11시부터 1시까지", now),
+           std::string("2026-10-21 11:00 ~ 2026-10-21 13:00 (hour)"));
+  CHECK_EQ(resolved("오늘 밤 11시부터 내일 새벽 1시까지", now),
+           std::string("2026-10-21 23:00 ~ 2026-10-22 01:00 (hour)"));
+  // An end with a date, earlier on the start's day, moves by the unit it
+  // left out.
+  CHECK_EQ(resolved("금요일 오후 3시부터 금요일 오후 1시까지", now),
+           std::string("2026-10-23 15:00 ~ 2026-10-30 13:00 (hour)"));
+}
+
 TEST(resolve_datetime_takes_the_next_month_or_year_with_the_day_given_alone) {
   // A day of the month alone is the next one, today included, in a month
   // that has it.
