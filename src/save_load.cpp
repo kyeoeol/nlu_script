@@ -20,8 +20,8 @@ namespace {
 // a saved script and a saved script is never read by another format version.
 const char kMagic[] = "\x89NLU\r\n\x1a\n";
 constexpr std::uint32_t kFormatVersion = 2;  // 2: Edge::wildcard
-static_assert(static_cast<unsigned>(Edge::Kind::Any) < 8, "edge kinds fit in 3 bits");
-static_assert(static_cast<unsigned>(Guard::AfterNoFinalOrRieul) < 8, "guards fit in 3 bits");
+static_assert(static_cast<unsigned>(Edge::kLastKind) < 8, "edge kinds fit in 3 bits");
+static_assert(static_cast<unsigned>(kLastGuard) < 8, "guards fit in 3 bits");
 
 // Numbers are LEB128 varints; signed ones are zigzag-encoded first, so small
 // magnitudes (and -1) take one byte.
@@ -182,9 +182,8 @@ Script Script::load(const std::string& bytes) {
       Edge e;
       const unsigned head = r.u8(), cls = r.u8();
       const unsigned kind = head & 7, guard = head >> 3 & 7, wildcard = head >> 6;
-      if (kind > static_cast<unsigned>(Edge::Kind::Any) || wildcard > 1 ||
-          guard > static_cast<unsigned>(Guard::AfterNoFinalOrRieul) ||
-          cls > static_cast<unsigned>(CharClass::SyllableOtherFinal))
+      if (kind > static_cast<unsigned>(Edge::kLastKind) || wildcard > 1 ||
+          guard > static_cast<unsigned>(kLastGuard) || cls > static_cast<unsigned>(kLastCharClass))
         Reader::fail("bad edge");
       e.kind = static_cast<Edge::Kind>(kind);
       e.guard = static_cast<Guard>(guard);
@@ -206,13 +205,13 @@ Script Script::load(const std::string& bytes) {
   impl->nfa.actions.resize(r.count(5));
   for (Action& a : impl->nfa.actions) {
     const unsigned kind = r.u8();
-    if (kind > static_cast<unsigned>(Action::Kind::Assign)) Reader::fail("bad action");
+    if (kind > static_cast<unsigned>(Action::kLastKind)) Reader::fail("bad action");
     a.kind = static_cast<Action::Kind>(kind);
     a.slot = r.i32();
     a.key = r.str();
     a.value = r.str();
     const unsigned normalizer = r.u8();
-    if (normalizer > static_cast<unsigned>(Normalizer::Money)) Reader::fail("bad action");
+    if (normalizer > static_cast<unsigned>(kLastNormalizer)) Reader::fail("bad action");
     a.normalizer = static_cast<Normalizer>(normalizer);
   }
   impl->nfa.slot_names.resize(r.count(1));

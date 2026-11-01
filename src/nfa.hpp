@@ -24,6 +24,9 @@ enum class Guard : std::uint8_t {
   AfterFinalExceptRieul,  // a final consonant other than ㄹ
   AfterNoFinalOrRieul,   // no final consonant, or ㄹ
 };
+// The last Guard: loading a saved script rejects values past it, so it must
+// name the last one.
+inline constexpr Guard kLastGuard = Guard::AfterNoFinalOrRieul;
 
 // Characters as guards see them: what a syllable ends in, or not a syllable.
 enum class CharClass : std::uint8_t {
@@ -33,6 +36,7 @@ enum class CharClass : std::uint8_t {
   SyllableRieul,  // final ㄹ
   SyllableOtherFinal,
 };
+inline constexpr CharClass kLastCharClass = CharClass::SyllableOtherFinal;  // see kLastGuard
 
 inline CharClass char_class(char32_t c) {
   if (c < 0xAC00 || c > 0xD7A3) return CharClass::NotSyllable;
@@ -88,6 +92,7 @@ struct Edge {
     Space,    // consumes the (normalized) space
     Any,      // consumes any non-space character not in sets[set]
   };
+  static constexpr Kind kLastKind = Kind::Any;  // see kLastGuard
   Kind kind;
   char32_t ch;
   int set;     // Any: index into Nfa::sets, or -1 for no exceptions
@@ -115,9 +120,11 @@ enum class Normalizer : std::uint8_t {
   Ordinal,        // value: the position (첫 번째, 21st)
   Money,          // value and currency (KRW, USD, ...)
 };
+inline constexpr Normalizer kLastNormalizer = Normalizer::Money;  // see kLastGuard
 
 struct Action {
   enum class Kind : std::uint8_t { Open, Close, Assign };
+  static constexpr Kind kLastKind = Kind::Assign;  // see kLastGuard
   Kind kind;
   int slot;  // slot name id; for Assign, -1 targets the innermost open slot
   std::string key;
