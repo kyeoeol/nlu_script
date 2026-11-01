@@ -42,10 +42,14 @@ set(NLU_SCRIPT_SOURCES
   src/c_api.cpp
   src/compiler.cpp
   src/datetime.cpp
+  src/lazy_dfa.cpp
   src/lint.cpp
   src/numbers.cpp
   src/parser.cpp
+  src/replay.cpp
+  src/save_load.cpp
   src/script.cpp
+  src/script_source.cpp
   src/script_tests.cpp
   src/system_entities.cpp
   src/unicode.cpp)

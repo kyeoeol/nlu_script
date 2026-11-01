@@ -623,11 +623,12 @@ A compiled script can be saved and loaded again without parsing or
 compiling: `Script::save()` / `Script::load(bytes)` (and `save_file`,
 `load_file`), `nlu_script_save` / `nlu_script_load` in C, `Script.save()` /
 `Script.load(data)` in Python, and `nlu_script_cli --save rules.nlu
-rules.nlub`; the CLI accepts a saved file wherever it takes a script. The
-format is versioned, and loading checks every count and index, so other or
-corrupt data is rejected with an error; scripts saved by a version with an
-older format must be saved again. At 50,000 rules, loading takes
-about half as long as compiling, and the saved file is about 20 MiB.
+rules.nlub`; the CLI accepts a saved file wherever it takes a script
+(`Script::is_saved(bytes)` tells the two apart). The format is versioned,
+and loading checks every count and index, so other or corrupt data is
+rejected with an error; scripts saved by a version with an older format
+must be saved again. At 50,000 rules, loading takes about half as long as
+compiling, and the saved file is about 20 MiB.
 
 `nlu_script_bench` times matching against generated scripts. On an Apple
 silicon Mac, a warm `match()` takes about 2 µs up to 10,000 rules, 4 µs at

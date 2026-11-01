@@ -1,9 +1,9 @@
 // Script test files: Script::run_tests and output_lines.
-#include <fstream>
 #include <sstream>
 #include <stdexcept>
 
 #include "nlu_script/nlu_script.hpp"
+#include "script_source.hpp"
 
 namespace nlu {
 
@@ -80,11 +80,9 @@ TestReport Script::run_tests(const std::string& tests, const std::string& name, 
 }
 
 TestReport Script::run_tests_file(const std::string& path, bool best) const {
-  std::ifstream in(path, std::ios::binary);
-  if (!in) throw std::runtime_error("cannot open " + path);
-  std::ostringstream tests;
-  tests << in.rdbuf();
-  return run_tests(tests.str(), path, best);
+  std::string tests;
+  if (!detail::read_file(path, tests)) throw std::runtime_error("cannot open " + path);
+  return run_tests(tests, path, best);
 }
 
 }  // namespace nlu
