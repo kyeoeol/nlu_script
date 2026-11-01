@@ -419,6 +419,21 @@
       `--search` and `--explain` modes is byte-identical on the demo inputs
       with upper-cased, halved, joined and double-spaced variants (3,912
       lines) and on 6,036 inputs to the fuzz script that uses every feature
+- [x] Wider system entities and whitespace, from an audit of forms that
+      didn't match: `EN_NUMBER` takes `and` before a last part below 100
+      after a scale (`two thousand and five` 2005, `a thousand and one`),
+      still leaving it to the pattern elsewhere (`two and three`), and
+      hundreds counted past ten as a whole number (`twelve hundred` 1200,
+      `nineteen hundred and ninety` 1990, `twenty-five hundred`);
+      `KO_NUMBER` lets a space follow 천, 백 and 십 as it did 만, 억 and 조
+      (`5천 3백` 5300, `1만 5천 3백` 15300, `삼천 오백`, `3천 5백만`), with
+      the ones digit kept on its unit (`백 일` is not 101); `TELNUM` takes
+      dots in Korean numbers (`010.9876.5432`) with the same group lengths;
+      and whitespace is exactly Unicode's White_Space (thin space U+2009,
+      narrow no-break space U+202F and nine others were letters), with slot
+      offsets still on the original bytes. `one hundred and twenty` already
+      matched. First compile of a script using every entity: 25.2 to 26.7
+      ms; saved demo: 3,908,283 to 3,973,871 bytes (+1.7%)
 
 ## Next
 
