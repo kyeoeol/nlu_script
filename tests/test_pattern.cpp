@@ -214,6 +214,7 @@ TEST(oversized_rules_are_errors) {
 TEST(repetition_rejects_empty_ranges) {
   CHECK_THROWS(nlu::CompileError, rule("[a]^(3,2)"));
   CHECK_THROWS(nlu::CompileError, rule("[a]^<1"));
+  CHECK_THROWS(nlu::CompileError, rule("[a]^<0"));  // not "1 or more"
 }
 
 TEST(single_wildcard_matches_one_character) {

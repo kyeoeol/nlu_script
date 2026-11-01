@@ -329,6 +329,7 @@ class Parser {
     auto rep = make(Node::Kind::Repeat, start);
     rep->children.push_back(body);
     std::size_t spec = i_;
+    bool unbounded = false;
     if (peek() == U'(') {
       ++i_;
       rep->min = read_int();
@@ -345,10 +346,12 @@ class Parser {
       int n = read_int();
       rep->min = n + 1;
       rep->max = -1;
+      unbounded = true;
     } else {
       error("expected '(min,max)', '<n' or '>n' after '^'");
     }
-    if (rep->max != -1 && (rep->max < 1 || rep->max < rep->min))
+    // ^<0 gives a max of -1 too, which must not read as unbounded.
+    if (!unbounded && (rep->max < 1 || rep->max < rep->min))
       error_at(spec, "repetition range matches nothing");
     if (rep->min > kMaxRepeat || rep->max > kMaxRepeat)
       error_at(spec, "repetition count above " + std::to_string(kMaxRepeat));
