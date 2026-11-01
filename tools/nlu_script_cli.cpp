@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <fstream>
 #include <iostream>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -22,9 +23,10 @@ namespace {
 // A script file, or a compiled one saved with --save.
 nlu::Script open_script(const std::string& path) {
   std::ifstream in(path, std::ios::binary);
-  char head[4] = {};
-  in.read(head, 4);
-  if (in.gcount() == 4 && std::string(head, 4) == "\x89NLU") return nlu::Script::load_file(path);
+  std::ostringstream contents;
+  contents << in.rdbuf();
+  const std::string bytes = contents.str();
+  if (nlu::Script::is_saved(bytes)) return nlu::Script::load(bytes);
   return nlu::Script::compile_file(path);
 }
 

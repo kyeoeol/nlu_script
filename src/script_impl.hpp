@@ -30,10 +30,10 @@ struct Script::Impl {
 
   // The DFA cache: one shared, or one per thread (see cache()).
   CacheOptions cache_options;
-  mutable std::unique_ptr<detail::LazyDfa> dfa;
-  // Per-thread caches are keyed by `id` and dropped once `alive` expires;
+  mutable std::unique_ptr<detail::LazyDfa> shared_dfa;
+  // Per-thread caches are keyed by `cache_id` and dropped once `alive` expires;
   // set_cache_options() replaces both, retiring the caches built before.
-  std::uint64_t id = next_id();
+  std::uint64_t cache_id = next_id();
   std::shared_ptr<const int> alive = std::make_shared<const int>(0);
 
   static std::uint64_t next_id() {
@@ -50,17 +50,17 @@ struct Script::Impl {
   void index_rules() { rule_of = detail::rule_owners(nfa.states.size(), rules); }
 
   detail::LazyDfa& cache() const {
-    if (!cache_options.per_thread) return *dfa;
+    if (!cache_options.per_thread) return *shared_dfa;
     struct ThreadCache {
       std::weak_ptr<const int> alive;
       std::unique_ptr<detail::LazyDfa> dfa;
     };
     thread_local std::unordered_map<std::uint64_t, ThreadCache> caches;
-    auto it = caches.find(id);
+    auto it = caches.find(cache_id);
     if (it != caches.end()) return *it->second.dfa;
     for (auto i = caches.begin(); i != caches.end();)  // drop caches of scripts that are gone
       i = i->second.alive.expired() ? caches.erase(i) : std::next(i);
-    ThreadCache& c = caches[id];
+    ThreadCache& c = caches[cache_id];
     c = {alive, make_dfa(cache_options)};
     return *c.dfa;
   }

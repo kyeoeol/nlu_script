@@ -114,7 +114,7 @@ std::unique_ptr<Script::Impl> compile_source(const std::string& source, const st
   impl->files.assign(parsed.files.begin(), parsed.files.end());
   impl->lint_directives = std::move(parsed.lint_directives);
   impl->index_rules();
-  impl->dfa = impl->make_dfa(impl->cache_options);
+  impl->shared_dfa = impl->make_dfa(impl->cache_options);
   return impl;
 }
 
@@ -134,8 +134,8 @@ CacheStats Script::cache_stats() const { return impl_->cache().stats(); }
 
 void Script::set_cache_options(const CacheOptions& options) {
   impl_->cache_options = options;
-  impl_->dfa = impl_->make_dfa(options);
-  impl_->id = Impl::next_id();
+  impl_->shared_dfa = impl_->make_dfa(options);
+  impl_->cache_id = Impl::next_id();
   impl_->alive = std::make_shared<const int>(0);
 }
 

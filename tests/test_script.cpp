@@ -961,6 +961,13 @@ TEST(loading_rejects_anything_but_a_saved_script) {
   CHECK(rejected > 0);
 }
 
+TEST(saved_scripts_are_told_apart_from_script_source) {
+  const std::string source = "card:lost\n    I lost my card\n";
+  CHECK(nlu::Script::is_saved(nlu::Script::compile(source).save()));
+  CHECK(!nlu::Script::is_saved(source));
+  CHECK(!nlu::Script::is_saved(""));
+}
+
 TEST(exclusion_reaches_the_wildcard_starting_a_slot) {
   nlu::Script s = nlu::Script::compile(
       "card:cancel\n"

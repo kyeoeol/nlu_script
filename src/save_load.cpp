@@ -1,5 +1,6 @@
 // Saving compiled scripts as bytes and loading them again.
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <fstream>
 #include <stdexcept>
@@ -18,7 +19,10 @@ namespace {
 
 // "\x89NLU" then a line ending and a format version, so text never looks like
 // a saved script and a saved script is never read by another format version.
+// is_saved() looks at the first four bytes only: a saved script whose line
+// ending was converted still goes to load(), which says what is wrong.
 const char kMagic[] = "\x89NLU\r\n\x1a\n";
+constexpr std::size_t kSignature = 4;  // "\x89NLU"
 constexpr std::uint32_t kFormatVersion = 2;  // 2: Edge::wildcard
 static_assert(static_cast<unsigned>(Edge::kLastKind) < 8, "edge kinds fit in 3 bits");
 static_assert(static_cast<unsigned>(kLastGuard) < 8, "guards fit in 3 bits");
@@ -94,6 +98,10 @@ class Reader {
 };
 
 }  // namespace
+
+bool Script::is_saved(const std::string& bytes) {
+  return bytes.compare(0, kSignature, kMagic, kSignature) == 0;
+}
 
 std::string Script::save() const {
   const Impl& impl = *impl_;
@@ -283,7 +291,7 @@ Script Script::load(const std::string& bytes) {
       Reader::fail("bad action");
   }
   impl->index_rules();
-  impl->dfa = impl->make_dfa(impl->cache_options);
+  impl->shared_dfa = impl->make_dfa(impl->cache_options);
   return Script(std::move(impl));
 }
 
