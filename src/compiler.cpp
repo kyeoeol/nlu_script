@@ -6,6 +6,7 @@
 #include <mutex>
 #include <set>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -65,7 +66,7 @@ Dfa determinize(const Nfa& nfa, int start, const std::vector<char32_t>& reps,
   const std::size_t classes = reps.size();
   Closure closure(nfa);
   Dfa dfa;
-  std::map<std::vector<int>, int> index;
+  std::unordered_map<std::vector<int>, int, SetHash> index;
   std::vector<std::vector<int>> sets;
   auto intern = [&](std::vector<int> set) {
     auto it = index.find(set);
@@ -81,10 +82,10 @@ Dfa determinize(const Nfa& nfa, int start, const std::vector<char32_t>& reps,
   };
   intern(closure({start}, 0));
   for (std::size_t d = 0; d < sets.size(); ++d) {
+    std::vector<std::vector<int>> next = closure.step_each(sets[d], reps);
     for (std::size_t cls = 0; cls < classes; ++cls) {
-      std::vector<int> set = closure.step(sets[d], reps[cls]);
-      if (set.empty()) continue;
-      const int target = intern(std::move(set));  // may grow dfa.next
+      if (next[cls].empty()) continue;
+      const int target = intern(std::move(next[cls]));  // may grow dfa.next
       dfa.next[d][cls] = target;
     }
   }
@@ -596,7 +597,7 @@ const EntityAutomaton& entity_automaton(const std::string& name, const Node& bod
 
   EntityAutomaton a;
   Closure closure(grammar);
-  std::map<std::vector<int>, int> index;
+  std::unordered_map<std::vector<int>, int, SetHash> index;
   std::vector<std::vector<int>> sets;
   auto intern = [&](std::vector<int> set) {
     auto it = index.find(set);
@@ -616,8 +617,10 @@ const EntityAutomaton& entity_automaton(const std::string& name, const Node& bod
         if (e.kind != Edge::Kind::Epsilon) chars.push_back(e.kind == Edge::Kind::Space ? U' ' : e.ch);
     std::sort(chars.begin(), chars.end());
     chars.erase(std::unique(chars.begin(), chars.end()), chars.end());
-    for (char32_t c : chars) {
-      const int to = intern(closure.step(sets[d], c));
+    std::vector<std::vector<int>> next = closure.step_each(sets[d], chars);
+    for (std::size_t k = 0; k < chars.size(); ++k) {
+      const int to = intern(std::move(next[k]));
+      const char32_t c = chars[k];
       a.nfa.add_edge(static_cast<int>(d), c == U' ' ? Edge::Kind::Space : Edge::Kind::Char, to, c);
     }
   }

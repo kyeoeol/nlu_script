@@ -315,6 +315,24 @@
       random scripts gives the old results (3 tie on another input of the
       same cost). The fuzz target takes inputs up to 16 KiB, so the demo
       seed itself runs too
+- [x] New DFA states are computed faster, with identical output. Profiling
+      showed that a sentence the cache hasn't seen spends 85% of its time on
+      subset construction (sets of about 760 NFA states on the demo), so a
+      novel sentence took 340 us and a cached one 16 us. Three changes:
+      closures come out sorted from a bitmap instead of `std::sort`; the
+      lazy DFA steps each rule's part of a set through a memo of the parts
+      it has seen (while a few rules take an input, the others wait in the
+      same few places); and entity grammars, exclusions and lint step a set
+      over all its characters in one pass over its edges, indexed by hash
+      instead of `std::map`. Parts of one or two states step directly, and
+      so do sets under 32 states or under 3 per rule they span: memoizing
+      every part made `nlu_script_bench` (many one-line rules, sets of
+      thousands of rules a state or two each) 17% slower at 50,000 rules.
+      Matching the 652 demo and persona sentences on a fresh cache went
+      from 222 to 90 ms, `--test` on the personas from 267 to 132 ms, the
+      first compile (entity grammars) from 42 to 30 ms and lint from 193 to
+      162 ms; `nlu_script_bench` is unchanged or a little faster (100,000
+      rules: 7.3 to 6.8 us per match)
 - [x] Fixes in the parser, compiler and slot matcher: nested typo groups
       stop at the 500,000-state rule cap (the copy each makes went
       unchecked; 18 levels of `[abc]&` took 951 MB); nested exclusions
@@ -334,6 +352,13 @@
 
 ## Next
 
+- [ ] Warm matching is about 75% Pike VM (`PikeVm::add`): 15 us for a
+      cached demo sentence. A fresh `PikeVm` per rule allocates scratch the
+      size of the rule (DATETIME rules: 11,000+ states)
+- [ ] `explain()` computes every closure again (0.8 ms per sentence on the
+      demo); it could read the sets of the lazy DFA's states instead
+- [ ] Compiling 50,000 rules: parsing is about half (an AST node per token),
+      and every NFA state allocates its own edge vector
 - [ ] Publish wheels to PyPI (e.g. on a version tag)
 - [ ] If GitHub retires the Intel macOS runner (`macos-15-intel`), build the
       x86_64 wheel on the arm64 runner instead: cross-compile (pass
