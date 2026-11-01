@@ -419,6 +419,13 @@
       `--search` and `--explain` modes is byte-identical on the demo inputs
       with upper-cased, halved, joined and double-spaced variants (3,912
       lines) and on 6,036 inputs to the fuzz script that uses every feature
+- [x] Lint's state limit (`nlu_script_lint_limited`, Python
+      `lint(max_states=)`), DFA cache options and statistics
+      (`nlu_script_set_cache_options`, `nlu_script_cache_options`,
+      `nlu_script_cache_stats`; Python `set_cache_options`, `cache_options`,
+      `cache_stats`) reach the C API and Python; every target builds with
+      warnings, and `NLU_SCRIPT_WARNINGS_AS_ERRORS` (ON in the gcc/clang CI
+      jobs, off for MSVC) fails the build on them
 - [x] `src/script.cpp` (2,058 lines) split along its seams and the
       duplication between the pieces removed, with CLI output and saved
       bytes unchanged and `nlu_script_bench` and cold and warm demo matching
@@ -464,11 +471,6 @@
       demo); it could read the sets of the lazy DFA's states instead
 - [ ] Compiling 50,000 rules: parsing is about half (an AST node per token),
       and every NFA state allocates its own edge vector
-- [ ] Publish wheels to PyPI (e.g. on a version tag)
-- [ ] If GitHub retires the Intel macOS runner (`macos-15-intel`), build the
-      x86_64 wheel on the arm64 runner instead: cross-compile (pass
-      `ARCHFLAGS` to CMake as `CMAKE_OSX_ARCHITECTURES`) and test under
-      Rosetta 2
 
 ## Open questions
 
