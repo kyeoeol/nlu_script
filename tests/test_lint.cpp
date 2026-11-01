@@ -231,6 +231,14 @@ TEST(lint_tells_which_overlaps_match_best_resolves) {
   CHECK_EQ(report.overlaps.size(), 1u);
   if (report.overlaps.size() == 1) CHECK_EQ(report.overlaps[0].best_label, std::string());
   CHECK_EQ(report.findings(true).size(), 1u);
+
+  // A typo, a left-out letter too, is wildcard text, so the exact rule wins.
+  report = nlu::Script::compile(
+               "card:lost:typo\n    [I lost my cards]&\ncard:lost:exact\n    I lost my card\n")
+               .lint();
+  CHECK_EQ(report.overlaps.size(), 1u);
+  if (report.overlaps.size() == 1)
+    CHECK_EQ(report.overlaps[0].best_label, std::string("card:lost:exact"));
 }
 
 TEST(lint_findings_read_like_the_cli) {

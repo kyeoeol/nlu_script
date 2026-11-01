@@ -12,7 +12,8 @@ namespace {
 
 constexpr int kMaxRepeat = 100;
 constexpr std::size_t kMaxPermuteTokens = 5;
-// Groups nest by recursion, so their depth is bounded to keep the stack safe.
+// Groups and exclusions nest by recursion, so their depth is bounded to keep
+// the stack safe.
 constexpr int kMaxDepth = 100;
 
 std::string utf8(char32_t c) {
@@ -134,6 +135,24 @@ class Parser {
     return node;
   }
 
+  // One level of nesting, held while a group or an exclusion is parsed;
+  // each recurses into the items it contains.
+  class Level {
+   public:
+    explicit Level(Parser& parser) : depth_(parser.depth_) {
+      if (depth_ == kMaxDepth)
+        parser.error("groups are nested too deeply (over " + std::to_string(kMaxDepth) +
+                     " levels)");
+      ++depth_;
+    }
+    ~Level() { --depth_; }
+    Level(const Level&) = delete;
+    Level& operator=(const Level&) = delete;
+
+   private:
+    int& depth_;
+  };
+
   // A sequence or alternation stops before one of these.
   bool at_stop(bool in_permute) const {
     char32_t c = peek();
@@ -145,12 +164,7 @@ class Parser {
 
   // alternation := sequence ('|' sequence)*
   std::shared_ptr<Node> parse_alternation(bool in_permute) {
-    struct Depth {
-      int& depth;
-      ~Depth() { --depth; }
-    } depth{++depth_};
-    if (depth_ > kMaxDepth)
-      error("groups are nested too deeply (over " + std::to_string(kMaxDepth) + " levels)");
+    const Level level(*this);
     std::size_t start = i_;
     std::vector<std::shared_ptr<Node>> options;
     options.push_back(parse_sequence(in_permute));
@@ -164,14 +178,19 @@ class Parser {
     return choice;
   }
 
-  // sequence := item ((space | '::' | nothing) item)*
+  // sequence := item ((space | '::' | nothing) item)*, with assignments
+  // after any item. Assignments don't change how the items join.
   std::shared_ptr<Node> parse_sequence(bool in_permute) {
     auto seq = make(Node::Kind::Sequence, i_);
     std::vector<std::shared_ptr<Node>> items;
-    bool saw_space = false;
+    bool saw_space = false;  // since the last item or assignment
+    bool spaced = false;     // since the last item
     bool hard = false;
+    bool assigned = false;   // an assignment since the last item
+    bool leading = false;    // items[0] is the empty literal of a leading assignment
+    bool text = false;       // the last item is literal text, not a group
     for (;;) {
-      saw_space = skip_spaces() || saw_space;
+      if (skip_spaces()) saw_space = spaced = true;
       if (at_stop(in_permute)) break;
       if (looking_at(U"::")) {
         if (items.empty()) error("'::' must join two tokens");
@@ -185,16 +204,25 @@ class Parser {
       if (peek() == U'{') {
         std::size_t at = i_;
         std::vector<Assignment> assignments = parse_assignments();
-        if (items.empty()) items.push_back(make(Node::Kind::Literal, at));
+        if (items.empty()) {
+          items.push_back(make(Node::Kind::Literal, at));
+          leading = true;
+        }
         for (Assignment& a : assignments) items.back()->assignments.push_back(std::move(a));
+        assigned = true;
         saw_space = false;
         continue;
       }
+      // Literal text that an assignment splits stays one word (ab{k=v}cd is
+      // abcd), and no space may follow the empty literal that carries a
+      // leading assignment.
+      const bool next_text = peek() == U'"' || literal_char(peek(), in_permute);
+      const bool word = assigned && !spaced && text && next_text;
       std::shared_ptr<Node> item = parse_item(in_permute);
-      if (!items.empty()) seq->hard_joins.push_back(hard);
+      if (!items.empty()) seq->hard_joins.push_back(hard || leading || word);
       items.push_back(item);
-      hard = false;
-      saw_space = false;
+      text = next_text;
+      hard = saw_space = spaced = assigned = leading = false;
     }
     if (hard) error("'::' must be directly followed by a token");
     if (items.size() == 1) return items[0];
@@ -252,7 +280,21 @@ class Parser {
     unexpected();
   }
 
-  char32_t fold(char32_t c) const { return fold_case(width_folding_ ? fold_width(c) : c); }
+  // Literal text is normalized as input is: width folding (with the option)
+  // as it is read, then NFC and case folding once the literal ends. The line
+  // is in NFC already, but width folding can make a combining mark that
+  // composes with the character before it (ｶﾞ -> カ U+3099 -> ガ).
+  char32_t fold(char32_t c) const { return width_folding_ ? fold_width(c) : c; }
+  void finish(std::u32string& text) const {
+    if (width_folding_) {
+      std::vector<DecodedChar> chars;
+      for (char32_t c : text) chars.push_back({c, 0, 0});
+      normalize_nfc(chars);
+      text.clear();
+      for (const DecodedChar& d : chars) text += d.code;
+    }
+    for (char32_t& c : text) c = fold_case(c);
+  }
 
   bool literal_char(char32_t c, bool in_permute) const {
     return !is_special(c) && !is_space(c) && !(in_permute && c == U',');
@@ -263,7 +305,10 @@ class Parser {
     auto lit = make(Node::Kind::Literal, start);
     while (!at_end()) {
       char32_t c = peek();
-      if (c == U'/' && !lit->text.empty()) return parse_particle(lit, start, in_permute);
+      if (c == U'/' && !lit->text.empty()) {
+        finish(lit->text);
+        return parse_particle(lit, start, in_permute);
+      }
       if (c == U'"') {
         std::size_t open = i_++;
         while (!at_end() && peek() != U'"') {
@@ -284,6 +329,7 @@ class Parser {
         break;
       }
     }
+    finish(lit->text);
     return lit;
   }
 
@@ -329,6 +375,7 @@ class Parser {
     auto rep = make(Node::Kind::Repeat, start);
     rep->children.push_back(body);
     std::size_t spec = i_;
+    bool unbounded = false;
     if (peek() == U'(') {
       ++i_;
       rep->min = read_int();
@@ -345,10 +392,12 @@ class Parser {
       int n = read_int();
       rep->min = n + 1;
       rep->max = -1;
+      unbounded = true;
     } else {
       error("expected '(min,max)', '<n' or '>n' after '^'");
     }
-    if (rep->max != -1 && (rep->max < 1 || rep->max < rep->min))
+    // ^<0 gives a max of -1 too, which must not read as unbounded.
+    if (!unbounded && (rep->max < 1 || rep->max < rep->min))
       error_at(spec, "repetition range matches nothing");
     if (rep->min > kMaxRepeat || rep->max > kMaxRepeat)
       error_at(spec, "repetition count above " + std::to_string(kMaxRepeat));
@@ -419,6 +468,7 @@ class Parser {
   // \X <?>*? : the wildcard must not match X in full. Several exclusions may
   // precede one wildcard.
   std::shared_ptr<Node> parse_exclusion() {
+    const Level level(*this);  // \\X nests one exclusion in another
     std::size_t start = i_;
     auto excluded = make(Node::Kind::Choice, start);
     while (peek() == U'\\') {

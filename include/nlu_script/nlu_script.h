@@ -103,7 +103,8 @@ NLU_SCRIPT_API const char* nlu_result_file(const nlu_result* result, size_t matc
 NLU_SCRIPT_API size_t nlu_result_begin(const nlu_result* result, size_t match);
 NLU_SCRIPT_API size_t nlu_result_end(const nlu_result* result, size_t match);
 /* Input characters, not counting spaces, that the rule matched with pattern
- * text rather than wildcards. */
+ * text rather than wildcards or typos, less one for each letter a typo left
+ * out. */
 NLU_SCRIPT_API int nlu_result_specificity(const nlu_result* result, size_t match);
 
 NLU_SCRIPT_API size_t nlu_result_slot_count(const nlu_result* result, size_t match);

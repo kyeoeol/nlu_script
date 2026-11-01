@@ -1,4 +1,6 @@
 // Behavior of the pattern language, checked with Korean and English input.
+#include <string>
+
 #include "harness.hpp"
 #include "nlu_script/nlu_script.hpp"
 
@@ -209,11 +211,18 @@ TEST(oversized_rules_are_errors) {
   // error instead of running out of memory.
   CHECK_THROWS(nlu::CompileError, rule("[[[[a]^(1,100)]^(1,100)]^(1,100)]^(1,100)"));
   CHECK(matches("[[a]^(1,100)]^(1,100)", "aaaa"));
+  // A typo group copies its automaton, so each level of nesting doubles it
+  // (18 levels of [abc]& took 951 MB). A long text reaches the cap in few
+  // levels, which keeps this test's memory small.
+  const std::string text(130000, 'a');
+  CHECK_THROWS(nlu::CompileError, rule("[[" + text + "]&]&"));
+  CHECK(matches("[[" + text.substr(0, 1000) + "]&]&", text.substr(0, 998)));
 }
 
 TEST(repetition_rejects_empty_ranges) {
   CHECK_THROWS(nlu::CompileError, rule("[a]^(3,2)"));
   CHECK_THROWS(nlu::CompileError, rule("[a]^<1"));
+  CHECK_THROWS(nlu::CompileError, rule("[a]^<0"));  // not "1 or more"
 }
 
 TEST(single_wildcard_matches_one_character) {
@@ -383,6 +392,42 @@ TEST(deeply_nested_groups_are_errors) {
   CHECK(matches(std::string(50, '(') + "a" + std::string(50, ')'), "a"));
 }
 
+TEST(deeply_nested_definitions_are_errors) {
+  // @var.v0: @var.{v1}, @var.v1: @var.{v2}, ..., each reference inside
+  // `groups` optional groups, and the last variable is `a`.
+  auto chain = [](int length, int groups) {
+    const std::size_t g = static_cast<std::size_t>(groups);
+    std::string defs;
+    for (int i = 0; i < length; ++i)
+      defs += "@var.v" + std::to_string(i) + ": " + std::string(g, '(') + "@var.{v" +
+              std::to_string(i + 1) + "}" + std::string(g, ')') + "\n";
+    return defs + "@var.v" + std::to_string(length) + ": a\n";
+  };
+  // 100 definitions deep (the rule's reference to v0 is the first level).
+  CHECK(matches(rule("@var.{v0}", chain(99, 0)), "a"));
+  CHECK_THROWS(nlu::CompileError, rule("@var.{v0}", chain(100, 0)));
+  // Groups count too, with those of the definitions around them: each
+  // pattern here nests 50 deep, but the rule 500.
+  CHECK_THROWS(nlu::CompileError, rule("@var.{v0}", chain(10, 50)));
+  CHECK(matches(rule("@var.{v0}", chain(3, 50)), "a"));
+  CHECK(matches(rule("@var.{v0}", chain(99, 2)), "a"));
+}
+
+TEST(deeply_nested_exclusions_are_errors) {
+  // \\\<?> <?> <?> <?>: each exclusion excludes the next wildcard and its
+  // own exclusions. 10,000 levels used to overflow the stack.
+  auto nested = [](int levels) {
+    std::string pattern = std::string(static_cast<std::size_t>(levels), '\\') + "<?>";
+    for (int i = 0; i < levels; ++i) pattern += " <?>";
+    return pattern;
+  };
+  CHECK_THROWS(nlu::CompileError, rule(nested(300)));
+  // One character, unless it is one character.
+  CHECK(!matches(nested(1), "a"));
+  // One character, unless it is (one character, unless it is one character).
+  CHECK(matches(nested(2), "a"));
+}
+
 TEST(ascii_letters_match_case_insensitively) {
   CHECK(matches("reset (my) PIN", "Reset my pin"));
   CHECK(matches("Check My Balance", "check my balance"));
@@ -502,6 +547,9 @@ TEST(typo_tolerant_groups_allow_one_edit) {
   CHECK(matches(s, "I lost my card"));
   CHECK(matches(s, "I lost my crd"));     // a letter left out
   CHECK(matches(s, "I lost my caard"));   // a letter added
+  CHECK(matches(s, "I lost my cards"));   // ... at the end
+  CHECK(matches(s, "I losts my card"));   // ... at the end of a word
+  CHECK(!matches(s, "I lost my card s"));  // a space is not a letter
   CHECK(matches(s, "I lost my cord"));    // a letter changed
   CHECK(!matches(s, "I lsot my card"));   // a swap is two edits
   CHECK(!matches(s, "I lst my crd"));
@@ -509,6 +557,7 @@ TEST(typo_tolerant_groups_allow_one_edit) {
 
   nlu::Script ko = rule("[분실 신고]& (할게요)");
   CHECK(matches(ko, "분실 신구 할게요"));
+  CHECK(matches(ko, "분실 신고요 할게요"));
   CHECK(matches(ko, "분실신고할게요"));
   CHECK(!matches(ko, "분실 신구 할께요"));  // the edit is used up inside the group
 }
@@ -521,4 +570,13 @@ TEST(typo_matches_rank_below_exact_ones) {
   if (best.size() == 1) CHECK_EQ(best[0].label, std::string("card:lost"));
   for (const nlu::Match& m : s.match("I lost my cord"))
     if (m.label == "card:lost") CHECK(m.specificity < 11);
+
+  // A left-out letter counts as one wildcard character too.
+  nlu::Script left_out = nlu::Script::compile(
+      "card:lost:typo\n    [I lost my cards]&\ncard:lost:exact\n    I lost my card\n");
+  best = left_out.match_best("I lost my card");
+  CHECK_EQ(best.size(), 1u);
+  if (best.size() == 1) CHECK_EQ(best[0].label, std::string("card:lost:exact"));
+  for (const nlu::Match& m : left_out.match("I lost my card"))
+    CHECK_EQ(m.specificity, m.label == "card:lost:exact" ? 11 : 10);
 }

@@ -27,6 +27,14 @@ constexpr std::size_t kMaxEntityStates = 100000;
 // stops with an error once a rule passes this many states.
 constexpr std::size_t kMaxRuleStates = 500000;
 
+// Compiling recurses through a rule's groups and the definitions they refer
+// to, so both are bounded to keep the stack safe. At the limits an optimized
+// build needs under 384 KiB, within a thread's 512 KiB on macOS. A pattern
+// alone nests groups at most 100 deep (see the parser), which takes up to
+// about 300 compile() levels; the demo needs 13 levels and 3 definitions.
+constexpr std::size_t kMaxDefinitionDepth = 100;
+constexpr int kMaxNesting = 400;
+
 // --- determinization, used to compile exclusions ----------------------------
 
 // Input characters are partitioned into classes, each standing for the
@@ -105,9 +113,15 @@ class Compiler {
       : nfa_(nfa), defs_(defs), with_actions_(with_actions), first_state_(nfa.states.size()) {}
 
   Frag compile(const Node& n) {
-    if (nfa_.states.size() - first_state_ > kMaxRuleStates)
-      throw_at(n.pos, "rule is too large to compile (over " + std::to_string(kMaxRuleStates) +
-                      " automaton states); lower its repetition counts");
+    if (depth_ == kMaxNesting)
+      throw_at(n.pos, "groups are nested too deeply (over " + std::to_string(kMaxNesting) +
+                      " levels with the definitions around them)" +
+                      (ref_stack_.empty() ? "" : " in " + ref_stack_.back()));
+    struct Level {
+      int& depth;
+      ~Level() { --depth; }
+    } level{++depth_};
+    check_size(n.pos);
     Frag f = compile_body(n);
     if (!with_actions_) return f;
     for (const Assignment& a : n.assignments) {
@@ -142,13 +156,25 @@ class Compiler {
   // The entities and variables being expanded, innermost last. A definition
   // that refers back to itself would expand forever.
   std::vector<std::string> ref_stack_;
+  int depth_ = 0;  // compile() calls under way, through definitions too
   int slot_depth_ = 0;
   std::set<std::string> slots_seen_;
   std::vector<Assignment> qualified_;
 
+  // Throws if the rule has more than kMaxRuleStates states once `more` are
+  // added.
+  void check_size(const SourcePos& pos, std::size_t more = 0) const {
+    if (nfa_.states.size() + more - first_state_ > kMaxRuleStates)
+      throw_at(pos, "rule is too large to compile (over " + std::to_string(kMaxRuleStates) +
+                    " automaton states); lower its repetition counts or typo group nesting");
+  }
+
   void enter(const SourcePos& pos, const std::string& ref) {
     if (std::find(ref_stack_.begin(), ref_stack_.end(), ref) != ref_stack_.end())
       throw_at(pos, ref + " refers to itself");
+    if (ref_stack_.size() == kMaxDefinitionDepth)
+      throw_at(pos, "definitions are nested too deeply (over " +
+                        std::to_string(kMaxDefinitionDepth) + " levels) at " + ref);
     ref_stack_.push_back(ref);
   }
 
@@ -268,12 +294,17 @@ class Compiler {
   // [body]&: the body's automaton, then a copy of it for after the one edit.
   // From each state that takes a letter, the edit leads into the copy: any
   // letter in its place (changed), nothing (left out), or any letter before
-  // it (added). Exact paths come first, so they win when both match.
+  // it (added). A letter may also be added after one, which matters at the
+  // end of a word or of the group. Exact paths come first, so they win when
+  // both match.
   Frag compile_typo(const Node& n) {
     const int lo = static_cast<int>(nfa_.states.size());
     Frag f = compile(*n.children[0]);
     const int hi = static_cast<int>(nfa_.states.size());
     const int offset = hi - lo;
+    // compile() doesn't see the copy, and nested groups double the
+    // automaton at each level.
+    check_size(n.pos, static_cast<std::size_t>(offset));
     for (int s = lo; s < hi; ++s) nfa_.add_state();
     for (int s = lo; s < hi; ++s) {
       for (Edge e : nfa_.states[s].edges) {
@@ -281,16 +312,21 @@ class Compiler {
         nfa_.states[s + offset].edges.push_back(e);
       }
     }
+    // The states before or after a letter, where one may be added.
+    std::vector<bool> beside_letter(static_cast<std::size_t>(offset), false);
+    for (int s = lo; s < hi; ++s)
+      for (const Edge& e : nfa_.states[s].edges)
+        if (e.kind == Edge::Kind::Char) beside_letter[s - lo] = beside_letter[e.to - lo] = true;
     for (int s = lo; s < hi; ++s) {
       std::vector<int> letters;  // targets of the state's letter edges
       for (const Edge& e : nfa_.states[s].edges)
         if (e.kind == Edge::Kind::Char) letters.push_back(e.to);
-      if (letters.empty()) continue;
       for (int to : letters) {
         nfa_.add_edge(s, Edge::Kind::Any, to + offset);
         nfa_.epsilon(s, to + offset);
+        nfa_.states[s].edges.back().wildcard = true;  // a left-out letter counts as one
       }
-      nfa_.add_edge(s, Edge::Kind::Any, s + offset);
+      if (beside_letter[s - lo]) nfa_.add_edge(s, Edge::Kind::Any, s + offset);
     }
     int out = nfa_.add_state();
     nfa_.epsilon(f.out, out);
@@ -421,6 +457,7 @@ class Compiler {
     Nfa scratch;
     Compiler sub(scratch, defs_, false);
     sub.ref_stack_ = ref_stack_;
+    sub.depth_ = depth_;
     Frag x = sub.compile(*n.exclusion);
     Frag w = sub.compile_wildcard(n.wild);
     scratch.states[x.out].accept_rule = 0;

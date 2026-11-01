@@ -224,6 +224,21 @@ TEST(later_assignment_overrides_earlier_one) {
   CHECK_EQ(attribute(s.match("a b")[0].slots[0], "v"), std::string("2"));
 }
 
+TEST(attributes_leave_spaces_as_they_are) {
+  // Text that an attribute splits is still one word.
+  nlu::Script word = nlu::Script::compile("t\n    <s>ab{k=v}cd</s>\n");
+  CHECK_EQ(tagged(word, "abcd"), std::string("t:<s k=\"v\">abcd</s>"));
+  CHECK_EQ(tagged(word, "ab cd"), std::string("<no match>"));
+  // An attribute at the start of a group keeps the '::' before the group.
+  nlu::Script hard = nlu::Script::compile("t\n    <s>x</s>::[{s.k=v}ab|cd]\n");
+  CHECK_EQ(tagged(hard, "xab"), std::string("t:<s k=\"v\">x</s>ab"));
+  CHECK_EQ(tagged(hard, "x ab"), std::string("<no match>"));
+  // A space beside the attribute, or a group next to it, still lets a space in.
+  nlu::Script soft = nlu::Script::compile("t\n    <s>ab {k=v}cd [ef]{k=w}gh ij{k=x}[kl]</s>\n");
+  CHECK_EQ(tagged(soft, "ab cd ef gh ij kl"), std::string("t:<s k=\"x\">ab cd ef gh ij kl</s>"));
+  CHECK_EQ(tagged(soft, "abcdefghijkl"), std::string("t:<s k=\"x\">abcdefghijkl</s>"));
+}
+
 TEST(repeated_slot_yields_one_slot_per_occurrence) {
   nlu::Script s = nlu::Script::compile("t\n    [<n>@var.{d}</n>]^(1,3)\n@var.d: [1|2|3]\n");
   std::vector<nlu::Match> found = s.match("1 2 3");
@@ -535,6 +550,15 @@ TEST(option_fold_width) {
   std::vector<nlu::Match> found = wide.match("otp １２개");
   CHECK_EQ(found.size(), 1u);
   if (found.size() == 1) CHECK_EQ(found[0].slots[0].text, std::string("１２"));
+  // A half-width voicing mark folds to a combining one, which NFC then
+  // composes with the kana before it, in patterns as in the input.
+  for (const char* pattern : {"ｶﾞｲﾄﾞ", "ガイド"}) {
+    nlu::Script kana = nlu::Script::compile("option fold-width\nguide\n    " +
+                                            std::string(pattern) + "\n");
+    CHECK_EQ(labels(kana, "ｶﾞｲﾄﾞ"), (std::vector<std::string>{"guide"}));
+    CHECK_EQ(labels(kana, "ガイド"), (std::vector<std::string>{"guide"}));
+    CHECK(labels(kana, "カイト").empty());
+  }
 }
 
 TEST(option_lines_take_any_space_after_option) {
@@ -760,7 +784,9 @@ const char* kSaveScript =
     "agent:callback\n"
     "    `@{DATETIME}::(에) 전화 주세요\n"
     "report:any\n"
-    "    I <?>+?\n";
+    "    I <?>+?\n"
+    "card:found\n"
+    "    [I found my cards]&\n";
 
 }  // namespace
 
@@ -769,13 +795,14 @@ TEST(saved_scripts_load_and_match_the_same) {
   nlu::Script loaded = nlu::Script::load(original.save());
   CHECK_EQ(loaded.rule_count(), original.rule_count());
   for (const char* text : {"체크카드를 분실했어요!", "I lost my debit card", "내일 오후 3시에 전화 주세요",
-                           "I found it", "thank you"}) {
+                           "I found it", "thank you", "I found my card"}) {
     std::vector<nlu::Match> a = original.match(text), b = loaded.match(text);
     CHECK_EQ(a.size(), b.size());
     for (std::size_t i = 0; i < a.size() && i < b.size(); ++i) {
       CHECK_EQ(b[i].label, a[i].label);
       CHECK_EQ(b[i].tagged, a[i].tagged);
       CHECK_EQ(b[i].line, a[i].line);
+      CHECK_EQ(b[i].specificity, a[i].specificity);  // a left-out letter too
     }
   }
   CHECK_EQ(loaded.lint().findings().size(), original.lint().findings().size());

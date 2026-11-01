@@ -33,7 +33,8 @@ struct Match {
   std::string tagged;       // original input with slot tags inserted
   int line = 0;             // 1-based script line of the rule that matched
   // Input characters, not counting spaces, that the rule matched with
-  // pattern text (literals and entities) rather than wildcards.
+  // pattern text (literals and entities) rather than wildcards or typos,
+  // less one for each letter a typo left out.
   int specificity = 0;
   // Script file of the rule: the path given to compile_file, or an included
   // file's path; empty for a script compiled from a string.
