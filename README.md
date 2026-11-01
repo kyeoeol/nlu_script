@@ -448,7 +448,7 @@ System entities:
 |---|---|---|
 | `NUMBER` | digits | |
 | `TELNUM` | phone numbers: Korean (`010-9876-5432`, `031-765-4321`, `01098765432`), international (`+1 555-123-4567`, `+44 20 7946 0958`), North American (`(555) 123-4567`, `555.123.4567`) | |
-| `KO_NUMBER` | numbers in digits and Korean numerals (`3만 5천`, `삼만오천`), native ones (`스물셋`) | `value` |
+| `KO_NUMBER` | numbers in digits and Korean numerals (`3만 5천`, `5천 3백`, `삼만오천`), native ones (`스물셋`) | `value` |
 | `EN_NUMBER` | numbers in English words or digits (`twenty-one`, `two hundred and five`, `two thousand and five`, `nineteen hundred and ninety`, `3 million`) | `value` |
 | `ORDINAL` | `첫 번째`, `두번째`, `3번째`, `셋째`, `first`, `twelfth`, `twenty-first`, `21st` | `value` |
 | `MONEY` | `3만 원`, `5,000원`, `50달러`, `$12.50`, `€10`, `fifty dollars`, `20 bucks`, `USD 50`, `30k won`, `$2.8 million` | `value`, `currency` (`KRW`, `USD`, `EUR`, `JPY`, `GBP`, `CNY`) |
@@ -460,9 +460,12 @@ follows: `` `@{MONEY} <?>*? `` tags `50 dollars` in `50 dollars`, not
 `50 dollar` with the `s` left to the wildcard.
 
 `KO_NUMBER` matches `35000`, `35,000`, `3만 5천`, `3만5천`, `삼만오천`,
-`2,500만`, `1억 2천만` and the like (units 십, 백, 천, 만, 억, 조, with
-sino-Korean digits 일 to 구 or Arabic digits). Its slot gets the number as a
-`value` attribute:
+`5천 3백`, `2,500만`, `1억 2천만` and the like (units 십, 백, 천, 만, 억, 조,
+with sino-Korean digits 일 to 구 or Arabic digits). A space may follow a
+unit (`1만 5천 3백`, `삼천 오백`, `3천 5백만`) but never comes between a
+digit and its unit (`5 천`), and below 만 the ones digit stays on its unit
+(`삼백 이십오`; in `백 일`, `일` is a word of its own). Its slot gets the
+number as a `value` attribute:
 
 ```
 <amount>`@{KO_NUMBER}</amount> 원 보내줘

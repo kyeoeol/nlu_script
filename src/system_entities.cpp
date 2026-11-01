@@ -145,20 +145,21 @@ NodePtr native_korean_number() {
 }
 
 // Numbers written with digits and Korean numerals: 35000, 35,000, 3만 5천,
-// 삼만오천, 2,500만, 1억 2천만. Below 만 a number is either digits or
-// numerals (with single digits allowed for numerals: 3천5백); 만, 억 and 조
-// groups may be separated by spaces. A space only ever separates two parts,
-// so the entity never ends in one.
+// 삼만오천, 5천 3백, 2,500만, 1억 2천만. Below 만 a number is either digits
+// or numerals (with single digits allowed for numerals: 3천5백). A space may
+// follow a unit: 만, 억 and 조 groups may be separated by spaces, and so may
+// the 천, 백 and 십 parts, though the ones digit stays on the last of them
+// (삼백 이십오; in 백 일, the 일 is a word of its own). A space only ever
+// separates two parts, so the entity never ends in one.
 NodePtr korean_number() {
   NodePtr sino = characters(kSinoDigits);
   NodePtr d = choice({sino, range(U'1', U'9')});
   NodePtr arabic = arabic_number();
 
   // Below 10,000 in numerals: [d]천 [d]백 [d]십 [d], highest unit first.
-  NodePtr ten = glued({optional(d), literal(U"십"), optional(d)});
-  NodePtr hundred = glued({optional(d), literal(U"백"), optional(choice({ten, d}))});
-  NodePtr thousand = glued({optional(d), literal(U"천"), optional(choice({hundred, ten, d}))});
-  NodePtr small = choice({thousand, hundred, ten, arabic, sino});
+  auto part = [&](const char32_t* unit) { return glued({optional(d), literal(unit)}); };
+  NodePtr numerals = glued({in_order({part(U"천"), part(U"백"), part(U"십")}), optional(d)});
+  NodePtr small = choice({numerals, arabic, sino});
 
   // [small]조 [small]억 [small]만 [small], highest unit first, any of them.
   auto group = [&](const char32_t* unit) { return glued({optional(small), literal(unit)}); };

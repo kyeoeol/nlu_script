@@ -49,6 +49,18 @@ TEST(korean_numbers_include_native_numbers) {
   CHECK_EQ(attributes("KO_NUMBER", "하나둘"), std::string("<no match>"));
 }
 
+TEST(korean_numbers_below_10000_may_space_their_units) {
+  CHECK_EQ(attributes("KO_NUMBER", "5천 3백"), std::string("value=5300"));
+  CHECK_EQ(attributes("KO_NUMBER", "1만 5천 3백"), std::string("value=15300"));
+  CHECK_EQ(attributes("KO_NUMBER", "삼천 오백"), std::string("value=3500"));
+  CHECK_EQ(attributes("KO_NUMBER", "3백 2십5"), std::string("value=325"));
+  CHECK_EQ(attributes("KO_NUMBER", "3천 5백만"), std::string("value=35000000"));
+  CHECK_EQ(attributes("MONEY", "5천 3백 원"), std::string("value=5300 currency=KRW"));
+  // A space follows a unit, and the ones digit stays on its unit.
+  CHECK_EQ(attributes("KO_NUMBER", "5 천"), std::string("<no match>"));
+  CHECK_EQ(attributes("KO_NUMBER", "백 일"), std::string("<no match>"));
+}
+
 TEST(english_number_words) {
   CHECK_EQ(attributes("EN_NUMBER", "seven"), std::string("value=7"));
   CHECK_EQ(attributes("EN_NUMBER", "Nineteen"), std::string("value=19"));
@@ -159,7 +171,7 @@ TEST(system_entities_take_their_longest_form_before_a_wildcard) {
       {"MONEY", "10 euros"},     {"MONEY", "3 pounds"},            {"MONEY", "$30k"},
       {"DATETIME", "in 2 hours"}, {"DATETIME", "in 1 hour 30 minutes"},
       {"DATETIME", "3 days ago"}, {"KO_NUMBER", "일곱"},             {"KO_NUMBER", "일흔일곱"},
-      {"KO_NUMBER", "3만 5천"},
+      {"KO_NUMBER", "3만 5천"}, {"KO_NUMBER", "1만 5천 3백"},
       {"EN_NUMBER", "seventeen"}, {"EN_NUMBER", "two thousand and five"},
       {"EN_NUMBER", "nineteen hundred and ninety"}, {"ORDINAL", "twenty-first"}};
   for (const auto& c : cases) {
