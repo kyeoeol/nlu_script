@@ -104,6 +104,37 @@ class ScriptTest(unittest.TestCase):
         self.assertFalse(script.lint(max_states=2).complete)
         self.assertTrue(script.lint().complete)
 
+    def test_cache_stats_grow_with_matching(self):
+        script = nlu_script.Script(SCRIPT)
+        before = script.cache_stats()
+        script.match("report a lost debit card")
+        after = script.cache_stats()
+        self.assertGreater(after.states, before.states)
+        self.assertGreater(after.transitions, before.transitions)
+        self.assertGreater(after.bytes, 0)
+        self.assertEqual(after.evictions, 0)
+
+    def test_a_tiny_cache_evicts(self):
+        source = "".join("label%d\n    order %d for customer %d\n" % (i, i * 7919, i)
+                         for i in range(40))
+        script = nlu_script.Script(source)
+        script.set_cache_options(max_states=20, per_thread=True)
+        self.assertEqual(script.cache_options().max_states, 20)
+        self.assertTrue(script.cache_options().per_thread)
+        for i in range(40):
+            matches = script.match("order %d for customer %d" % (i * 7919, i))
+            self.assertEqual([m.label for m in matches], ["label%d" % i])
+        stats = script.cache_stats()
+        self.assertGreater(stats.evictions, 0)
+        self.assertLessEqual(stats.states, 20)
+
+    def test_set_cache_options_keeps_options_left_out(self):
+        script = nlu_script.Script(SCRIPT)
+        default = script.cache_options()
+        script.set_cache_options(max_bytes=1 << 20)
+        self.assertEqual(script.cache_options(),
+                         default._replace(max_bytes=1 << 20))
+
     def test_resolve_datetime(self):
         script = nlu_script.Script("t\n    `@{DATETIME}\n")
         now = datetime.datetime(2026, 10, 21, 14, 20)
