@@ -26,6 +26,14 @@ constexpr std::size_t kMaxEntityStates = 100000;
 // stops with an error once a rule passes this many states.
 constexpr std::size_t kMaxRuleStates = 500000;
 
+// Compiling recurses through a rule's groups and the definitions they refer
+// to, so both are bounded to keep the stack safe. At the limits an optimized
+// build needs under 384 KiB, within a thread's 512 KiB on macOS. A pattern
+// alone nests groups at most 100 deep (see the parser), which takes up to
+// about 300 compile() levels; the demo needs 13 levels and 3 definitions.
+constexpr std::size_t kMaxDefinitionDepth = 100;
+constexpr int kMaxNesting = 400;
+
 // --- determinization, used to compile exclusions ----------------------------
 
 // Input characters are partitioned into classes, each standing for the
@@ -104,6 +112,14 @@ class Compiler {
       : nfa_(nfa), defs_(defs), with_actions_(with_actions), first_state_(nfa.states.size()) {}
 
   Frag compile(const Node& n) {
+    if (depth_ == kMaxNesting)
+      throw_at(n.pos, "groups are nested too deeply (over " + std::to_string(kMaxNesting) +
+                      " levels with the definitions around them)" +
+                      (ref_stack_.empty() ? "" : " in " + ref_stack_.back()));
+    struct Level {
+      int& depth;
+      ~Level() { --depth; }
+    } level{++depth_};
     check_size(n.pos);
     Frag f = compile_body(n);
     if (!with_actions_) return f;
@@ -139,6 +155,7 @@ class Compiler {
   // The entities and variables being expanded, innermost last. A definition
   // that refers back to itself would expand forever.
   std::vector<std::string> ref_stack_;
+  int depth_ = 0;  // compile() calls under way, through definitions too
   int slot_depth_ = 0;
   std::set<std::string> slots_seen_;
   std::vector<Assignment> qualified_;
@@ -154,6 +171,9 @@ class Compiler {
   void enter(const SourcePos& pos, const std::string& ref) {
     if (std::find(ref_stack_.begin(), ref_stack_.end(), ref) != ref_stack_.end())
       throw_at(pos, ref + " refers to itself");
+    if (ref_stack_.size() == kMaxDefinitionDepth)
+      throw_at(pos, "definitions are nested too deeply (over " +
+                        std::to_string(kMaxDefinitionDepth) + " levels) at " + ref);
     ref_stack_.push_back(ref);
   }
 
@@ -429,6 +449,7 @@ class Compiler {
     Nfa scratch;
     Compiler sub(scratch, defs_, false);
     sub.ref_stack_ = ref_stack_;
+    sub.depth_ = depth_;
     Frag x = sub.compile(*n.exclusion);
     Frag w = sub.compile_wildcard(n.wild);
     scratch.states[x.out].accept_rule = 0;

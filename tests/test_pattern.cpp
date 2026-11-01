@@ -1,4 +1,6 @@
 // Behavior of the pattern language, checked with Korean and English input.
+#include <string>
+
 #include "harness.hpp"
 #include "nlu_script/nlu_script.hpp"
 
@@ -388,6 +390,27 @@ TEST(recursive_entities_are_errors) {
 TEST(deeply_nested_groups_are_errors) {
   CHECK_THROWS(nlu::CompileError, rule(std::string(300, '[') + "a" + std::string(300, ']')));
   CHECK(matches(std::string(50, '(') + "a" + std::string(50, ')'), "a"));
+}
+
+TEST(deeply_nested_definitions_are_errors) {
+  // @var.v0: @var.{v1}, @var.v1: @var.{v2}, ..., each reference inside
+  // `groups` optional groups, and the last variable is `a`.
+  auto chain = [](int length, int groups) {
+    const std::size_t g = static_cast<std::size_t>(groups);
+    std::string defs;
+    for (int i = 0; i < length; ++i)
+      defs += "@var.v" + std::to_string(i) + ": " + std::string(g, '(') + "@var.{v" +
+              std::to_string(i + 1) + "}" + std::string(g, ')') + "\n";
+    return defs + "@var.v" + std::to_string(length) + ": a\n";
+  };
+  // 100 definitions deep (the rule's reference to v0 is the first level).
+  CHECK(matches(rule("@var.{v0}", chain(99, 0)), "a"));
+  CHECK_THROWS(nlu::CompileError, rule("@var.{v0}", chain(100, 0)));
+  // Groups count too, with those of the definitions around them: each
+  // pattern here nests 50 deep, but the rule 500.
+  CHECK_THROWS(nlu::CompileError, rule("@var.{v0}", chain(10, 50)));
+  CHECK(matches(rule("@var.{v0}", chain(3, 50)), "a"));
+  CHECK(matches(rule("@var.{v0}", chain(99, 2)), "a"));
 }
 
 TEST(deeply_nested_exclusions_are_errors) {
