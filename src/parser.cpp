@@ -280,7 +280,21 @@ class Parser {
     unexpected();
   }
 
-  char32_t fold(char32_t c) const { return fold_case(width_folding_ ? fold_width(c) : c); }
+  // Literal text is normalized as input is: width folding (with the option)
+  // as it is read, then NFC and case folding once the literal ends. The line
+  // is in NFC already, but width folding can make a combining mark that
+  // composes with the character before it (ｶﾞ -> カ U+3099 -> ガ).
+  char32_t fold(char32_t c) const { return width_folding_ ? fold_width(c) : c; }
+  void finish(std::u32string& text) const {
+    if (width_folding_) {
+      std::vector<DecodedChar> chars;
+      for (char32_t c : text) chars.push_back({c, 0, 0});
+      normalize_nfc(chars);
+      text.clear();
+      for (const DecodedChar& d : chars) text += d.code;
+    }
+    for (char32_t& c : text) c = fold_case(c);
+  }
 
   bool literal_char(char32_t c, bool in_permute) const {
     return !is_special(c) && !is_space(c) && !(in_permute && c == U',');
@@ -291,7 +305,10 @@ class Parser {
     auto lit = make(Node::Kind::Literal, start);
     while (!at_end()) {
       char32_t c = peek();
-      if (c == U'/' && !lit->text.empty()) return parse_particle(lit, start, in_permute);
+      if (c == U'/' && !lit->text.empty()) {
+        finish(lit->text);
+        return parse_particle(lit, start, in_permute);
+      }
       if (c == U'"') {
         std::size_t open = i_++;
         while (!at_end() && peek() != U'"') {
@@ -312,6 +329,7 @@ class Parser {
         break;
       }
     }
+    finish(lit->text);
     return lit;
   }
 

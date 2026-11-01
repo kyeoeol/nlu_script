@@ -520,6 +520,15 @@ TEST(option_fold_width) {
   std::vector<nlu::Match> found = wide.match("otp １２개");
   CHECK_EQ(found.size(), 1u);
   if (found.size() == 1) CHECK_EQ(found[0].slots[0].text, std::string("１２"));
+  // A half-width voicing mark folds to a combining one, which NFC then
+  // composes with the kana before it, in patterns as in the input.
+  for (const char* pattern : {"ｶﾞｲﾄﾞ", "ガイド"}) {
+    nlu::Script kana = nlu::Script::compile("option fold-width\nguide\n    " +
+                                            std::string(pattern) + "\n");
+    CHECK_EQ(labels(kana, "ｶﾞｲﾄﾞ"), (std::vector<std::string>{"guide"}));
+    CHECK_EQ(labels(kana, "ガイド"), (std::vector<std::string>{"guide"}));
+    CHECK(labels(kana, "カイト").empty());
+  }
 }
 
 TEST(option_lines_take_any_space_after_option) {
