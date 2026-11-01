@@ -563,6 +563,41 @@ TEST(option_ignore_trailing_punctuation) {
   CHECK_EQ(tagged(slots, "call mom!"), std::string("call:call <who>mom</who>!"));
 }
 
+TEST(trailing_punctuation_does_not_count_towards_specificity) {
+  const std::string rules =
+      "greet\n"
+      "    hello\n"
+      "ask\n"
+      "    hello \"?\" there\n"
+      "shout\n"
+      "    hello \"?!\"\n"
+      "any\n"
+      "    <?>+?\n";
+  auto scores = [](const std::vector<nlu::Match>& found) {
+    std::string out;
+    for (const nlu::Match& m : found)
+      out += (out.empty() ? "" : " ") + m.label + "=" + std::to_string(m.specificity);
+    return out;
+  };
+  // With the option, the punctuation at the end of the input never counts,
+  // whatever matched it; punctuation elsewhere still does.
+  nlu::Script lenient = nlu::Script::compile("option ignore-trailing-punctuation\n" + rules);
+  CHECK_EQ(scores(lenient.match("hello?!")), std::string("greet=5 shout=5 any=0"));
+  CHECK_EQ(scores(lenient.match("hello")), std::string("greet=5 any=0"));
+  CHECK_EQ(scores(lenient.match("hello ? !")), std::string("any=0"));
+  CHECK_EQ(scores(lenient.match("hello? there!")), std::string("ask=11 any=0"));
+  // In search(), at the end of the span found.
+  nlu::Script words = nlu::Script::compile(
+      "option ignore-trailing-punctuation\ngreet\n    hello\nshout\n    hello \"?!\"\n");
+  CHECK_EQ(scores(words.search("well, hello?! bye")), std::string("greet=5 shout=5"));
+  // A saved script keeps the option.
+  CHECK_EQ(scores(nlu::Script::load(lenient.save()).match("hello?!")),
+           std::string("greet=5 shout=5 any=0"));
+  // Without it, punctuation is pattern text like any other.
+  nlu::Script strict = nlu::Script::compile(rules);
+  CHECK_EQ(scores(strict.match("hello?!")), std::string("shout=7 any=0"));
+}
+
 TEST(option_fold_width) {
   const std::string rules = "card:reissue\n    [OTP|ATM 카드] 재발급\n";
   CHECK(labels(nlu::Script::compile(rules), "ＯＴＰ 재발급").empty());

@@ -288,7 +288,8 @@ definitions:
 - `ignore-trailing-punctuation` lets every rule end with punctuation
   (`. ? ! ~ , ; : …` and their full-width forms, any number of them, after an
   optional space): `are you there` matches `are you there?!` and
-  `거기 계세요~~`. The punctuation stays outside slots.
+  `거기 계세요~~`. The punctuation stays outside slots and doesn't count
+  towards `specificity` (below).
 - `fold-width` reads full-width and half-width forms as their usual ones, in
   the input and in patterns: `ＯＴＰ` matches `OTP`, `１２` is digits, and
   half-width katakana and Hangul become full-width.
@@ -300,8 +301,11 @@ line of that rule, so you can tell which pattern produced it.
 Each result also has a **specificity**: the number of input characters, not
 counting spaces, that the rule matched with pattern text (literals, entities,
 system entities) rather than wildcards (text an excluded wildcard `\X <?>`
-takes is wildcard text too, whatever the exclusion mentions). When several
-labels match,
+takes is wildcard text too, whatever the exclusion mentions). With
+`option ignore-trailing-punctuation`, the punctuation at the end of the input
+(of the text found, for `search()`), with any spaces between, never counts,
+whatever matched it: on `hello?!`, `hello` scores 5 and `<?>+?` 0, as they do
+on `hello`. When several labels match,
 `match_best()` keeps only the labels whose most specific rule scores
 highest, and each of those results comes from that rule. Ties keep every
 such label, in script order.

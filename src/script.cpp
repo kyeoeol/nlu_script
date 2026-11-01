@@ -110,6 +110,7 @@ std::unique_ptr<Script::Impl> compile_source(const std::string& source, const st
     throw CompileError(std::move(errors));
   }
   impl->fold_width = parsed.options.fold_width;
+  impl->trailing_punctuation = parsed.options.ignore_trailing_punctuation;
   impl->unused = unused_definitions(parsed);
   impl->files.assign(parsed.files.begin(), parsed.files.end());
   impl->lint_directives = std::move(parsed.lint_directives);
@@ -209,6 +210,10 @@ std::vector<Match> Script::match_best(const std::string& text) const {
   return impl_->match(text, true);
 }
 
+std::size_t Script::Impl::counted_length(const std::u32string& text) const {
+  return trailing_punctuation ? before_trailing_punctuation(text) : text.size();
+}
+
 // Picks one rule per matching label: its first matching rule, or with `best`
 // its most specific one. Labels keep the order of their first matching rule.
 std::vector<Match> Script::Impl::match(const std::string& text, bool best) const {
@@ -222,12 +227,13 @@ std::vector<Match> Script::Impl::match(const std::string& text, bool best) const
   };
   std::vector<Found> found;
   std::map<std::string, std::size_t> label_index;
+  const std::size_t counted = counted_length(norm.text);
   Replay replayed;
   for (int id : accepted) {
     const CompiledRule& r = rules[id];
     auto it = label_index.find(r.label);
     if (it != label_index.end() && !best) continue;
-    if (!replay(nfa, r, norm.text, replayed)) continue;
+    if (!replay(nfa, r, norm.text, counted, replayed)) continue;
     Found f{id, std::move(replayed)};
     if (it == label_index.end()) {
       label_index.emplace(r.label, found.size());
@@ -284,11 +290,12 @@ std::vector<Match> Script::Impl::search(const std::string& text) const {
       continue;
     }
     const std::u32string span = t.substr(i, end - i);
+    const std::size_t counted = counted_length(span);
     std::set<std::string> seen;
     for (int id : accepts) {
       const CompiledRule& r = rules[id];
       if (seen.count(r.label)) continue;
-      if (!replay(nfa, r, span, replayed)) continue;
+      if (!replay(nfa, r, span, counted, replayed)) continue;
       seen.insert(r.label);
       for (Event& e : replayed.events) e.pos += static_cast<int>(i);
       out.push_back(build_match(nfa, r, replayed, text, norm, norm.begin[i], norm.end[end - 1]));

@@ -21,6 +21,9 @@ namespace nlu {
 struct Script::Impl {
   detail::Nfa nfa;
   bool fold_width = false;  // `option fold-width`: input is width-folded too
+  // `option ignore-trailing-punctuation`: rules may end with punctuation,
+  // which doesn't count towards specificity.
+  bool trailing_punctuation = false;
   std::vector<detail::CompiledRule> rules;
   std::vector<int> rule_of;  // the rule owning each state, -1 for the start state
   std::vector<UnusedDefinition> unused;
@@ -64,6 +67,10 @@ struct Script::Impl {
     c = {alive, make_dfa(cache_options)};
     return *c.dfa;
   }
+
+  // How much of `text` (normalized) counts towards specificity: all of it,
+  // or with trailing_punctuation, what comes before the punctuation at its end.
+  std::size_t counted_length(const std::u32string& text) const;
 
   std::vector<Match> match(const std::string& text, bool best) const;
   std::vector<Match> search(const std::string& text) const;

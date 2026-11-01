@@ -471,6 +471,14 @@
       demo); it could read the sets of the lazy DFA's states instead
 - [ ] Compiling 50,000 rules: parsing is about half (an AST node per token),
       and every NFA state allocates its own edge vector
+- [ ] With `option ignore-trailing-punctuation`, lint's `best_label` can
+      claim a win that `match_best()` ties: since trailing punctuation no
+      longer counts towards specificity, a rule that needs a wildcard only
+      for it (`hello <?>`) scores as high as a wildcard-free one
+      (`hello "?"`) on `hello?`, yet `--lint --best` reports the overlap as
+      resolved. The wildcard-free copies would need a second copy that
+      follows every edge, wildcards too, but only on punctuation and spaces,
+      entered on punctuation
 
 ## Open questions
 
