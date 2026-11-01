@@ -143,6 +143,14 @@ _resolve = _declare("nlu_resolve_datetime", ctypes.c_int, ctypes.POINTER(ctypes.
 _string_free = _declare("nlu_string_free", None, _ptr)
 
 
+def _encode(text):
+    """UTF-8 bytes of `text`; like CPython's own APIs, rejects an embedded NUL,
+    which the C API would read as the end of the string."""
+    if "\0" in text:
+        raise ValueError("embedded null character")
+    return text.encode("utf-8")
+
+
 def _decode(data):
     return data.decode("utf-8")
 
@@ -150,7 +158,8 @@ def _decode(data):
 def _char_offsets(data):
     """For each byte offset into UTF-8 `data`, the number of characters before it."""
     starts = (int((byte & 0xC0) != 0x80) for byte in data)  # not a continuation byte
-    return list(itertools.accumulate(starts, initial=0))
+    # Not accumulate(initial=0): that needs Python 3.8.
+    return [0] + list(itertools.accumulate(starts))
 
 
 Diagnostic = collections.namedtuple("Diagnostic", "line column message file")
@@ -219,9 +228,9 @@ def resolve_datetime(attributes, now):
     DateTimeRange whose `start` and `end` (None unless the slot is a range) are
     datetimes when the text gives a time and dates otherwise; `grain` is the
     finest unit the text gave ("year" ... "minute")."""
-    keys = (ctypes.c_char_p * len(attributes))(*[k.encode("utf-8") for k in attributes])
+    keys = (ctypes.c_char_p * len(attributes))(*[_encode(k) for k in attributes])
     values = (ctypes.c_char_p * len(attributes))(
-        *[v.encode("utf-8") for v in attributes.values()])
+        *[_encode(v) for v in attributes.values()])
     hour = getattr(now, "hour", -1)
     minute = getattr(now, "minute", -1)
     reference = _DateTime(now.year, now.month, now.day, hour, minute)
@@ -229,6 +238,8 @@ def resolve_datetime(attributes, now):
     grain = ctypes.c_char_p()
     has_end = _resolve(keys, values, len(attributes), ctypes.byref(reference), ctypes.byref(start),
                        ctypes.byref(end), ctypes.byref(grain))
+    if not grain.value:
+        raise MemoryError("nlu_resolve_datetime failed")
 
     def convert(value):
         if value.hour < 0:
@@ -264,7 +275,7 @@ class Script:
     """A compiled script. Matching is thread-safe."""
 
     def __init__(self, source):
-        self._handle = _compile_with(_compile, source.encode("utf-8"))
+        self._handle = _compile_with(_compile, _encode(source))
 
     @classmethod
     def from_file(cls, path):
@@ -316,7 +327,7 @@ class Script:
         return self._run(_match_best, text)
 
     def _run(self, function, text):
-        data = text.encode("utf-8")
+        data = _encode(text)
         result = function(self._checked(), data)
         if not result:
             raise MemoryError("nlu_script_match failed")
@@ -329,7 +340,7 @@ class Script:
     def explain(self, text, limit=3):
         """For debugging rules: the `limit` rules that got furthest into `text`,
         as a list of Explanation, longest match first."""
-        data = text.encode("utf-8")
+        data = _encode(text)
         result = _explain(self._checked(), data, limit)
         if not result:
             raise MemoryError("nlu_script_explain failed")

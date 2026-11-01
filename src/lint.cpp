@@ -254,10 +254,13 @@ class Determinizer {
     }
     std::sort(m.chars.begin(), m.chars.end());
     m.chars.erase(std::unique(m.chars.begin(), m.chars.end()), m.chars.end());
-    for (char32_t c : m.chars) m.to.push_back(intern(closure_.step(sets_[d], c)));
-    if (m.any)
-      for (int k = 0; k < (by_class() ? 4 : 1); ++k)
-        m.other[k] = intern(closure_.step(sets_[d], unmentioned(m.chars, kOtherClasses[k])));
+    // Each mentioned character, then one standing for each class of others.
+    std::vector<char32_t> chars = m.chars;
+    const int others = m.any ? (by_class() ? 4 : 1) : 0;
+    for (int k = 0; k < others; ++k) chars.push_back(unmentioned(m.chars, kOtherClasses[k]));
+    std::vector<std::vector<int>> next = closure_.step_each(sets_[d], chars);
+    for (std::size_t k = 0; k < m.chars.size(); ++k) m.to.push_back(intern(std::move(next[k])));
+    for (int k = 0; k < others; ++k) m.other[k] = intern(std::move(next[m.chars.size() + k]));
     moves_[d] = std::move(m);
     return moves_[d];
   }
@@ -286,7 +289,7 @@ class Determinizer {
   Covers& covers_;
   std::size_t& budget_;
   int start_;
-  std::map<std::vector<int>, int> index_;
+  std::unordered_map<std::vector<int>, int, SetHash> index_;
   std::vector<std::vector<int>> sets_;
   std::vector<std::vector<int>> accepts_;
   std::vector<Moves> moves_;

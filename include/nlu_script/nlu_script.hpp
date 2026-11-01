@@ -21,8 +21,8 @@ namespace nlu {
 struct Slot {
   std::string name;
   std::string text;    // original input text covered by the slot
-  std::size_t begin;   // byte offset into the original input
-  std::size_t end;     // byte offset one past the last byte of the slot
+  std::size_t begin = 0;  // byte offset into the original input
+  std::size_t end = 0;    // byte offset one past the last byte of the slot
   // Attributes in the order they were first assigned.
   std::vector<std::pair<std::string, std::string>> attributes;
 };
@@ -31,10 +31,10 @@ struct Match {
   std::string label;
   std::vector<Slot> slots;  // ordered by the position of their opening tag
   std::string tagged;       // original input with slot tags inserted
-  int line;                 // 1-based script line of the rule that matched
+  int line = 0;             // 1-based script line of the rule that matched
   // Input characters, not counting spaces, that the rule matched with
   // pattern text (literals and entities) rather than wildcards.
-  int specificity;
+  int specificity = 0;
   // Script file of the rule: the path given to compile_file, or an included
   // file's path; empty for a script compiled from a string.
   std::string file;
@@ -47,10 +47,10 @@ struct Match {
 // How far one rule got into an input, from Script::explain().
 struct Explanation {
   std::string label;
-  int line;
+  int line = 0;
   std::string file;     // see Match::file
-  std::size_t matched;  // bytes of the input the rule matched before it stopped
-  bool complete;        // the rule matches the whole input
+  std::size_t matched = 0;  // bytes of the input the rule matched before it stopped
+  bool complete = false;  // the rule matches the whole input
   // What the rule could have taken next where it stopped, sorted: characters
   // (lowercase), "space" or "any character".
   std::vector<std::string> expected;
@@ -59,9 +59,9 @@ struct Explanation {
 // Two labels that both match some input, found by Script::lint().
 struct Overlap {
   std::string label;        // the label whose rule comes first in the script
-  int line;                 // script line of its first rule that matches `example`
+  int line = 0;             // script line of its first rule that matches `example`
   std::string other_label;
-  int other_line;
+  int other_line = 0;
   std::string example;      // a shortest normalized input that both labels match
   std::string file;         // script files of the two rules (see Match::file)
   std::string other_file;
@@ -75,12 +75,12 @@ struct Overlap {
 // rule of the same label first, or it matches nothing at all.
 struct DeadRule {
   std::string label;
-  int line;
+  int line = 0;
   std::string file;
-  bool matches_nothing;
+  bool matches_nothing = false;
   // The earlier rule that matches everything this one does; 0 when it takes
   // several earlier rules together (or matches_nothing).
-  int covered_by_line;
+  int covered_by_line = 0;
   std::string covered_by_file;
 };
 
@@ -88,7 +88,7 @@ struct DeadRule {
 struct LintFinding {
   std::string kind;  // "overlap", "dead-rule", "unused" or "directive"
   std::string file;
-  int line;
+  int line = 0;
   std::string message;
 };
 
@@ -96,13 +96,13 @@ struct LintFinding {
 // definitions.
 struct UnusedDefinition {
   std::string name;  // as written in the script: "@card" or "@var.digit"
-  int line;
+  int line = 0;
   std::string file;  // see Match::file
 };
 
 // A `# lint:` comment that lint() could not apply.
 struct LintDirectiveError {
-  int line;
+  int line = 0;
   std::string message;
   std::string file;  // see Match::file
 };
@@ -115,7 +115,7 @@ struct LintReport {
   std::vector<DeadRule> dead_rules;       // in script order
   std::vector<UnusedDefinition> unused;   // ordered by file and line
   std::vector<LintDirectiveError> directive_errors;  // ordered by file and line
-  bool complete;  // false if the search stopped at its state limit
+  bool complete = false;  // false if the search stopped at its state limit
   std::vector<std::string> files;  // script files: the main one, then included ones
 
   // Every finding, ordered by file and line. With `best`, overlaps that
@@ -159,8 +159,8 @@ struct TestReport {
 
 // One error in a script.
 struct Diagnostic {
-  int line;    // 1-based, 0 if unknown
-  int column;  // 1-based, in code points
+  int line = 0;    // 1-based, 0 if unknown
+  int column = 0;  // 1-based, in code points
   std::string message;
   std::string file;  // see Match::file
 };

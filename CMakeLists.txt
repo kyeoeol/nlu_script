@@ -102,6 +102,17 @@ if(NLU_SCRIPT_BUILD_TESTS)
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
   set_tests_properties(nlu_script_cli_test_failure PROPERTIES WILL_FAIL TRUE)
 
+  # A saved script must pass the same test file as its source: save the demo,
+  # then run the demo's tests against the saved file.
+  add_test(NAME nlu_script_cli_save_demo
+    COMMAND nlu_script_cli --save examples/demo.nlu ${CMAKE_CURRENT_BINARY_DIR}/demo.nlub
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+  add_test(NAME nlu_script_cli_saved_demo_test
+    COMMAND nlu_script_cli --test ${CMAKE_CURRENT_BINARY_DIR}/demo.nlub examples/demo.test
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+  set_tests_properties(nlu_script_cli_save_demo PROPERTIES FIXTURES_SETUP saved_demo)
+  set_tests_properties(nlu_script_cli_saved_demo_test PROPERTIES FIXTURES_REQUIRED saved_demo)
+
   add_executable(nlu_script_c_api_test tests/test_c_api.c)
   target_link_libraries(nlu_script_c_api_test PRIVATE nlu_script)
   add_test(NAME nlu_script_c_api_test COMMAND nlu_script_c_api_test)

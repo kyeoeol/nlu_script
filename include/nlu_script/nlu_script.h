@@ -191,7 +191,7 @@ NLU_SCRIPT_API const char* nlu_test_report_actual_file(const nlu_test_report* re
  * against `now`, as nlu::resolve_datetime in C++. Fills `start`, and `end`
  * when the slot is a range, and returns 1 if it is, 0 otherwise. `grain` (if
  * not NULL) receives "year", "month", "week", "day", "hour" or "minute",
- * a static string. */
+ * a static string; it is NULL if resolving failed (out of memory). */
 NLU_SCRIPT_API int nlu_resolve_datetime(const char* const* keys, const char* const* values,
                                         size_t count, const nlu_datetime* now,
                                         nlu_datetime* start, nlu_datetime* end,
