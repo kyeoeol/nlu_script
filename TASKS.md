@@ -519,20 +519,6 @@
 
 ## Next
 
-- [ ] Warm matching is still mostly the Pike VM's `add()` (about 80% of
-      samples; 7.0 us for a cached demo sentence): per input character it
-      reaches about 21 states and follows about 17 edges that consume
-      nothing. Measured so far: binary search over sorted Char edges saved
-      1%; testing edges against the next character in `add()` 5%, and with
-      hashed Char runs 11% (both kept); the hashed runs' minimum length (2,
-      4, 8 or 16 edges) makes no difference; repeating each sentence 5 times
-      in a row, so its rule's states stay in cache, is only 12% faster, so
-      cache misses between sentences aren't the main cost. Not tried yet:
-      one flat array of smaller edges, collapsing chains of edges that
-      consume nothing when compiling, skipping the VM where the DFA alone
-      decides
-- [ ] Compiling 50,000 rules: parsing is about half (an AST node per token),
-      and every NFA state allocates its own edge vector
 - [ ] With `option ignore-trailing-punctuation`, lint's `best_label` can
       claim a win that `match_best()` ties: since trailing punctuation no
       longer counts towards specificity, a rule that needs a wildcard only
