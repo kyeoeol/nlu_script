@@ -241,6 +241,55 @@ TEST(lint_tells_which_overlaps_match_best_resolves) {
     CHECK_EQ(report.overlaps[0].best_label, std::string("card:lost:exact"));
 }
 
+namespace {
+
+std::vector<std::string> best_labels(const nlu::Script& script, const std::string& text) {
+  std::vector<std::string> out;
+  for (const nlu::Match& m : script.match_best(text)) out.push_back(m.label);
+  return out;
+}
+
+// The best_label of the one overlap of `script`'s two labels, or "?" if lint
+// doesn't report exactly one.
+std::string best_label(const nlu::Script& script) {
+  nlu::LintReport report = script.lint();
+  return report.overlaps.size() == 1 ? report.overlaps[0].best_label : "?";
+}
+
+}  // namespace
+
+TEST(lint_best_label_lets_trailing_punctuation_go_to_a_wildcard) {
+  // `?` at the end doesn't count, whatever takes it: both score 5, a tie.
+  const std::string rules = "a\n    hello \"?\"\nb\n    hello <?>\n";
+  nlu::Script s = nlu::Script::compile("option ignore-trailing-punctuation\n" + rules);
+  CHECK_EQ(best_label(s), std::string());
+  CHECK_EQ(best_labels(s, "hello?"), (std::vector<std::string>{"a", "b"}));
+
+  // Without the option the wildcard's `?` counts against it: 6 against 5.
+  s = nlu::Script::compile(rules);
+  CHECK_EQ(best_label(s), std::string("a"));
+  CHECK_EQ(best_labels(s, "hello?"), (std::vector<std::string>{"a"}));
+}
+
+TEST(lint_best_label_with_trailing_punctuation_still_counts_wildcards_before_it) {
+  const std::string option = "option ignore-trailing-punctuation\n";
+  // Only the punctuation is left out: `<?>+?` takes `hello`, 0 against 5.
+  nlu::Script s = nlu::Script::compile(option + "a\n    hello\nb\n    <?>+?\n");
+  CHECK_EQ(best_label(s), std::string("a"));
+  CHECK_EQ(best_labels(s, "hello?"), (std::vector<std::string>{"a"}));
+
+  // Punctuation inside the text isn't at the end: the wildcard's `?` counts.
+  s = nlu::Script::compile(option + "a\n    hello \"?\" there\nb\n    hello <?> there\n");
+  CHECK_EQ(best_label(s), std::string("a"));
+  CHECK_EQ(best_labels(s, "hello? there?"), (std::vector<std::string>{"a"}));
+
+  // A left-out letter counts even among the trailing punctuation: b takes
+  // `~` with its wildcard for free, then has to leave out the `x` of `?x`.
+  s = nlu::Script::compile(option + "a\n    hi \"~?!?\"\nb\n    hi <?> [\"?x\"]& \"!?\"\n");
+  CHECK_EQ(best_label(s), std::string("a"));
+  CHECK_EQ(best_labels(s, "hi~?!?"), (std::vector<std::string>{"a"}));
+}
+
 TEST(lint_findings_read_like_the_cli) {
   nlu::Script s = nlu::Script::compile(
       "card:lost\n    I lost my <?>+?\n    I lost my card\n@unused: x\n");

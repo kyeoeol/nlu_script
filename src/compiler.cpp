@@ -652,12 +652,8 @@ const EntityAutomaton& entity_automaton(const std::string& name, const Node& bod
   return cache.emplace(&body, std::move(a)).first->second;
 }
 
-// What `option ignore-trailing-punctuation` lets a rule end with.
-constexpr char32_t kPunctuation[] =
-    U".?!~,;:\u2026\uFF0E\uFF1F\uFF01\uFF5E\u3002\u3001\uFF0C\uFF1B\uFF1A";
-
 bool is_punctuation(char32_t c) {
-  for (const char32_t* p = kPunctuation; *p; ++p)
+  for (const char32_t* p = kTrailingPunctuation; *p; ++p)
     if (*p == c) return true;
   return false;
 }
@@ -684,7 +680,7 @@ int compile_rule(Nfa& nfa, const Definitions& defs, const Node& pattern, int rul
     int marks = nfa.add_state();
     nfa.add_edge(f.out, Edge::Kind::Space, before);
     nfa.epsilon(f.out, before);
-    for (const char32_t* p = kPunctuation; *p; ++p) {
+    for (const char32_t* p = kTrailingPunctuation; *p; ++p) {
       nfa.add_edge(before, Edge::Kind::Char, marks, *p);
       nfa.add_edge(marks, Edge::Kind::Char, marks, *p);
     }
