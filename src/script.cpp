@@ -237,7 +237,7 @@ std::vector<Match> Script::Impl::match(const std::string& text, bool best) const
     const CompiledRule& r = rules[id];
     auto it = label_index.find(r.label);
     if (it != label_index.end() && !best) continue;
-    if (!replay(nfa, r, norm.text, counted, replayed)) continue;
+    if (!replay(nfa, char_runs, r, norm.text, counted, replayed)) continue;
     Found f{id, std::move(replayed)};
     if (it == label_index.end()) {
       label_index.emplace(r.label, found.size());
@@ -299,7 +299,7 @@ std::vector<Match> Script::Impl::search(const std::string& text) const {
     for (int id : accepts) {
       const CompiledRule& r = rules[id];
       if (seen.count(r.label)) continue;
-      if (!replay(nfa, r, span, counted, replayed)) continue;
+      if (!replay(nfa, char_runs, r, span, counted, replayed)) continue;
       seen.insert(r.label);
       for (Event& e : replayed.events) e.pos += static_cast<int>(i);
       out.push_back(build_match(nfa, r, replayed, text, norm, norm.begin[i], norm.end[end - 1]));

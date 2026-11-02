@@ -14,7 +14,8 @@ namespace {
 class PikeVm {
  public:
   // A rule's states occupy the contiguous id range [first, last).
-  PikeVm(const Nfa& nfa, int first, int last) : nfa_(nfa), first_(first), s_(scratch()) {
+  PikeVm(const Nfa& nfa, const CharRuns& runs, int first, int last)
+      : nfa_(nfa), runs_(runs), first_(first), s_(scratch()) {
     const std::size_t size = static_cast<std::size_t>(last - first);
     if (s_.mark.size() < size) s_.mark.resize(size, 0);
     s_.log.clear();
@@ -30,38 +31,30 @@ class PikeVm {
     std::vector<Thread>& next = s_.next;
     current.clear();
     next_generation();
+    look_ahead(text, counted, 0);
     add(current, start, -1, 0, 0, 0);
     std::size_t compact_at = kMinCompact;
     for (std::size_t i = 0; i < text.size() && !current.empty(); ++i) {
       next.clear();
       next_generation();
-      const char32_t c = text[i];
-      const int pos = static_cast<int>(i) + 1;
-      const int wild = i < counted ? 1 : 0;  // what a wildcard taking c adds
-      for (const Thread& t : current) {
-        if (t.begin < 0) continue;
-        const std::vector<Edge>& edges = nfa_.states[t.state].edges;
-        for (int k = t.begin; k < t.end; ++k) {
-          const Edge& e = edges[k];
-          if (nfa_.matches(e, c)) add(next, e.to, t.log, pos, c, t.wild + (e.wildcard ? wild : 0));
-        }
-      }
+      look_ahead(text, counted, i + 1);
+      for (const Thread& t : current)
+        add(next, t.to, t.log, static_cast<int>(i) + 1, text[i], t.wild);
       std::swap(current, next);
       if (s_.log.size() >= compact_at) {
         compact(current);
         compact_at = std::max(kMinCompact, 2 * s_.log.size());
       }
     }
-    for (const Thread& t : current) {
-      if (t.begin >= 0) continue;
-      events.clear();
-      for (int k = t.log; k >= 0; k = s_.log[k].prev)
-        events.push_back({s_.log[k].action, s_.log[k].pos});
-      std::reverse(events.begin(), events.end());
-      wildcard_chars = t.wild;
-      return true;
-    }
-    return false;
+    // Once the text is consumed, the list holds only accepting threads.
+    if (current.empty()) return false;
+    const Thread& t = current.front();
+    events.clear();
+    for (int k = t.log; k >= 0; k = s_.log[k].prev)
+      events.push_back({s_.log[k].action, s_.log[k].pos});
+    std::reverse(events.begin(), events.end());
+    wildcard_chars = t.wild;
+    return true;
   }
 
  private:
@@ -72,14 +65,12 @@ class PikeVm {
     int pos;
     int prev;  // index into log, or -1
   };
-  // A state's consuming edges [begin, end) to follow, which come one after
-  // another in its edge list, or an accepting thread (begin -1).
+  // An edge that takes the next character, to state `to`, or once the text
+  // is consumed an accepting thread (`to` -1).
   struct Thread {
-    int state;
-    int begin;
-    int end;
+    int to;
     int log;   // index into log, or -1
-    int wild;  // wildcard characters so far (see run())
+    int wild;  // wildcard characters so far (see run()), the edge's included
   };
   // Where add() goes on once it has explored the edges before `edge`.
   struct Item {
@@ -109,8 +100,20 @@ class PikeVm {
   }
 
   const Nfa& nfa_;
+  const CharRuns& runs_;
   int first_;
   Scratch& s_;
+  // The next character to consume, if any: add() lists only the edges that
+  // take it. ahead_wild_ is what a wildcard taking it adds to the count.
+  bool has_ahead_ = false;
+  char32_t ahead_ = 0;
+  int ahead_wild_ = 0;
+
+  void look_ahead(const std::u32string& text, std::size_t counted, std::size_t i) {
+    has_ahead_ = i < text.size();
+    ahead_ = has_ahead_ ? text[i] : 0;
+    ahead_wild_ = i < counted ? 1 : 0;
+  }
   // The log is compacted when it reaches this many nodes, then twice the
   // nodes it kept, so the nodes of threads that died don't pile up over long
   // inputs.
@@ -143,16 +146,22 @@ class PikeVm {
       if (t.log >= 0) t.log = renumber[t.log];
   }
 
-  // Depth-first, in edge order, so threads are listed by priority. `prev` is
-  // the character consumed last, which guard edges test. A state's wildcard
-  // count is that of the first path to reach it. The first passable edge
-  // that consumes nothing is followed at once; the stack keeps where to go
-  // on in the states left behind.
+  // Depth-first, in edge order, so threads are listed by priority: each
+  // consuming edge that takes the next character, or at the end of the text
+  // each accepting state. (A thread that couldn't take the next character
+  // would die in the next step anyway.) `prev` is the character consumed
+  // last, which guard edges test. A state's wildcard count is that of the
+  // first path to reach it. The first passable edge that consumes nothing is
+  // followed at once; the stack keeps where to go on in the states left
+  // behind.
   void add(std::vector<Thread>& list, int state, int log, int pos, char32_t prev, int wild) {
     std::vector<Item>& stack = s_.stack;
     unsigned* const mark = s_.mark.data();
     const unsigned generation = s_.generation;
     stack.clear();
+    auto take = [&](const Edge& e) {
+      list.push_back({e.to, log, wild + (e.wildcard ? ahead_wild_ : 0)});
+    };
     int k = kArrived;  // the edge of `state` to go on from
     for (;;) {
       if (k == kArrived) {
@@ -166,10 +175,19 @@ class PikeVm {
         while (k < n) {
           const Edge& e = st.edges[k];
           if (e.consumes()) {
-            int end = k + 1;
-            while (end < n && st.edges[end].consumes()) ++end;
-            list.push_back({state, k, end, log, wild});
-            k = end;
+            // The state's consuming edges from k on, up to the next one that
+            // consumes nothing: in a run of Char edges (k is its begin) the
+            // edge taking the next character is looked up, elsewhere each is
+            // tested.
+            if (const CharRuns::Run* run = runs_.find(state)) {
+              const int j = has_ahead_ ? runs_.edge(*run, ahead_) : -1;
+              if (j >= 0) take(st.edges[j]);
+              k = run->end;
+              continue;
+            }
+            do {
+              if (has_ahead_ && nfa_.matches(st.edges[k], ahead_)) take(st.edges[k]);
+            } while (++k < n && st.edges[k].consumes());
             continue;
           }
           if (e.kind == Edge::Kind::Guard && !guard_holds(e.guard, prev)) {
@@ -188,7 +206,7 @@ class PikeVm {
           break;
         }
         if (k == kArrived) continue;
-        if (st.accept_rule >= 0) list.push_back({state, -1, -1, log, wild});
+        if (st.accept_rule >= 0 && !has_ahead_) list.push_back({-1, log, wild});
       }
       if (stack.empty()) return;
       const Item& item = stack.back();
@@ -203,12 +221,48 @@ class PikeVm {
 
 }  // namespace
 
-bool replay(const Nfa& nfa, const CompiledRule& rule, const std::u32string& text,
-            std::size_t counted, Replay& out) {
+CharRuns::CharRuns(const Nfa& nfa, const std::vector<CompiledRule>& rules)
+    : run_of_(nfa.states.size(), -1) {
+  // Shorter runs are as quick to test edge by edge.
+  constexpr int kMinRun = 8;
+  std::vector<char32_t> chars;
+  for (const CompiledRule& rule : rules) {
+    if (!rule.needs_vm) continue;
+    for (int s = rule.first; s < rule.last; ++s) {
+      const std::vector<Edge>& edges = nfa.states[s].edges;
+      const int n = static_cast<int>(edges.size());
+      int begin = 0;
+      while (begin < n && !edges[begin].consumes()) ++begin;
+      int end = begin;
+      while (end < n && edges[end].kind == Edge::Kind::Char) ++end;
+      if (end - begin < kMinRun) continue;
+      if (std::any_of(edges.begin() + end, edges.end(), [](const Edge& e) { return e.consumes(); }))
+        continue;  // not one run of Char edges
+      chars.clear();
+      for (int k = begin; k < end; ++k) chars.push_back(edges[k].ch);
+      std::sort(chars.begin(), chars.end());
+      if (std::adjacent_find(chars.begin(), chars.end()) != chars.end()) continue;
+      unsigned size = 1;
+      while (size < 2 * static_cast<unsigned>(end - begin)) size *= 2;
+      const Run run{begin, end, static_cast<int>(slots_.size()), size - 1};
+      slots_.resize(slots_.size() + size, Slot{0, -1});
+      for (int k = begin; k < end; ++k) {
+        unsigned h = hash(edges[k].ch) & run.mask;
+        while (slots_[run.table + h].edge >= 0) h = (h + 1) & run.mask;
+        slots_[run.table + h] = {edges[k].ch, k};
+      }
+      run_of_[s] = static_cast<int>(runs_.size());
+      runs_.push_back(run);
+    }
+  }
+}
+
+bool replay(const Nfa& nfa, const CharRuns& runs, const CompiledRule& rule,
+            const std::u32string& text, std::size_t counted, Replay& out) {
   int wildcard_chars = 0;
   out.events.clear();
-  if (rule.needs_vm &&
-      !PikeVm(nfa, rule.first, rule.last).run(rule.start, text, counted, out.events, wildcard_chars))
+  if (rule.needs_vm && !PikeVm(nfa, runs, rule.first, rule.last)
+                            .run(rule.start, text, counted, out.events, wildcard_chars))
     return false;
   const auto end = text.begin() + static_cast<std::ptrdiff_t>(counted);
   const int letters = static_cast<int>(counted - std::count(text.begin(), end, U' '));

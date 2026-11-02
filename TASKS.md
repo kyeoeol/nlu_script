@@ -495,14 +495,42 @@
         hasn't seen and 422 to 31 us per sentence it has, with identical
         output. Concurrent explain and match agree with one thread, and
         TSan passes
+- [x] Cached sentences match about 11% faster again, with identical
+      output. Counting the Pike VM's work on the demo found that per input
+      character `add()` read about 41 consuming edges only to find where
+      each state's run of them ends, and the next step tested about 39
+      against the character, of which about 3.4 took it. `add()` now tests
+      a state's consuming edges against the next character, which it knows
+      already, and lists only those that take it (a thread that couldn't
+      would die in the next step anyway), in the same order. States of
+      rules that need the Pike VM whose consuming edges are 8 or more
+      `Char` edges for different characters (the determinized grammars of
+      system entities) get a hash table, built with the script and only
+      read after (`CharRuns`), that finds the one edge taking a character.
+      A cached demo or persona sentence went from 7.9 to 7.0 us in
+      `match()` and from 8.0 to 7.1 us in `search()`, and on 4 threads from
+      2.30 to 2.06 us per match; the first pass on a fresh cache (133 us)
+      and `nlu_script_bench` (compile and match, 1,000 to 50,000 rules) are
+      unchanged. CLI output in plain, `--best`, `--search` and `--explain`
+      modes is byte-identical on the demo inputs with upper-cased, halved,
+      joined and double-spaced variants (3,912 lines), on 6,036 inputs to
+      the fuzz script that uses every feature, and from saved scripts; TSan
+      passes, also on 4 threads matching the demo
 
 ## Next
 
-- [ ] Warm matching is still about 80% Pike VM (7.7 us for a cached demo
-      sentence): per input character it visits about 20 states and tests
-      about 39 consuming edges, 57% of them in runs of more than 8 edges of
-      one state. Finding the edge by binary search where a state's character
-      edges are sorted (entity grammars) saved only 1%
+- [ ] Warm matching is still mostly the Pike VM's `add()` (about 80% of
+      samples; 7.0 us for a cached demo sentence): per input character it
+      reaches about 21 states and follows about 17 edges that consume
+      nothing. Measured so far: binary search over sorted Char edges saved
+      1%; testing edges against the next character in `add()` 5%, and with
+      hashed Char runs 11% (both kept); the hashed runs' minimum length (2,
+      4, 8 or 16 edges) makes no difference; repeating each sentence 5 times
+      in a row, so its rule's states stay in cache, is only 12% faster, so
+      cache misses between sentences aren't the main cost. Not tried yet:
+      one flat array of smaller edges, collapsing chains of edges that
+      consume nothing when compiling, skipping the VM where the DFA alone
+      decides
 - [ ] Compiling 50,000 rules: parsing is about half (an AST node per token),
       and every NFA state allocates its own edge vector
 - [ ] With `option ignore-trailing-punctuation`, lint's `best_label` can
