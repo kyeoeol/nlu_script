@@ -455,6 +455,26 @@
       - `lint.cpp`: also `Script::lint` and `LintReport::findings`
       - `script.cpp` (301 lines): compiling, `match`, `match_best`, `search`,
         `explain` and the cache options
+- [x] Two behavior decisions, a fix and a speed-up in explain():
+      - an attribute on an optional group, or on a repetition that may match
+        zero times, applies only when the group matched, as one inside an
+        alternative applies only to its branch:
+        `<card>(체크){type=DEBIT} 카드</card>` tagged `카드 분실` as
+        `type="DEBIT"`
+      - with `option ignore-trailing-punctuation`, the punctuation (and the
+        spaces between it) at the end of the input or search span doesn't
+        count towards `specificity`: `<?>+?` scored 2 on `hello?!`, as if
+        `?!` were pattern text. Saved scripts record the option (format
+        version 3)
+      - `explain("")` reports a rule that matches the empty input
+        (`complete`, `matched` 0) instead of nothing
+      - `explain()` reads the sets of NFA states from the lazy DFA cache
+        (`LazyDfa::walk`) instead of stepping a closure over the whole
+        automaton per character, so it fills the shared cache too: on the
+        652 demo and persona sentences, 428 to 168 us per sentence the cache
+        hasn't seen and 422 to 31 us per sentence it has, with identical
+        output. Concurrent explain and match agree with one thread, and
+        TSan passes
 
 ## Next
 
@@ -467,8 +487,6 @@
       about 39 consuming edges, 57% of them in runs of more than 8 edges of
       one state. Finding the edge by binary search where a state's character
       edges are sorted (entity grammars) saved only 1%
-- [ ] `explain()` computes every closure again (0.8 ms per sentence on the
-      demo); it could read the sets of the lazy DFA's states instead
 - [ ] Compiling 50,000 rules: parsing is about half (an AST node per token),
       and every NFA state allocates its own edge vector
 - [ ] With `option ignore-trailing-punctuation`, lint's `best_label` can

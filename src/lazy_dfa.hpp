@@ -113,12 +113,24 @@ class LazyDfa {
   // match a longer text. visit mustn't use the DFA.
   template <typename Visit>
   void run(const std::u32string& text, std::size_t from, Visit visit) {
+    walk(text, from, [&](std::size_t k, const std::vector<int>&, const std::vector<int>& accepts) {
+      return visit(k, accepts);
+    });
+  }
+
+  // Like run(), but calls visit(k, set, accepts), where `set` is the set of
+  // NFA states after text[from, k) (sorted, and as Closure gives them: those
+  // with consuming edges or accepting). visit runs under the shared lock (or
+  // none, for a state not added yet), so it mustn't use the DFA, and what it
+  // gets is valid only until it returns: it copies what it needs.
+  template <typename Visit>
+  void walk(const std::u32string& text, std::size_t from, Visit visit) {
     Borrowed closure(*this);
     std::shared_lock<Lock> shared(mutex_);
     std::unique_lock<Lock> exclusive(mutex_, std::defer_lock);
     int d = start_;
     touch(d);
-    if (!visit(from, states_[d].accepts)) return;
+    if (!visit(from, states_[d].set, states_[d].accepts)) return;
     // Missing transitions are computed this many at a time, doubling while
     // the state reached has no cached transition either: past one new
     // state, the next is usually new too, and each switch of locks costs.
@@ -134,7 +146,7 @@ class LazyDfa {
           batch = 1;
         }
         touch(d);
-        if (!visit(++k, states_[d].accepts)) return;
+        if (!visit(++k, states_[d].set, states_[d].accepts)) return;
         continue;
       }
       // Eviction renumbers states, so `d` stays valid only within `epoch`;
@@ -153,7 +165,8 @@ class LazyDfa {
         const std::vector<int>& last = chain.empty() ? set : chain.back().set;
         chain.push_back(make_state(closure.get().step(last, text[k])));
         ++k;
-        done = !visit(k, chain.back().accepts) || chain.back().set.empty() || k == text.size();
+        const NewState& reached = chain.back();
+        done = !visit(k, reached.set, reached.accepts) || reached.set.empty() || k == text.size();
       }
       exclusive.lock();
       if (epoch != epoch_) d = -1;

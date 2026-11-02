@@ -147,15 +147,20 @@ std::vector<Explanation> Script::explain(const std::string& text, std::size_t li
   const NormalizedText norm = normalize(text, impl.fold_width);
   const std::vector<int>& rule_of = impl.rule_of;
 
-  // One pass over the input with every rule at once. For each rule, keep
-  // the furthest position where it was still alive and its states there.
+  // One pass of the DFA over the input with every rule at once. For each
+  // rule, keep the furthest position where it was still alive and where its
+  // states there are in `sets`, which keeps a copy of each position's states
+  // (the DFA's are valid only during the visit).
   const std::size_t n = impl.rules.size();
   std::vector<std::size_t> furthest(n, 0);
-  std::vector<std::vector<int>> stopped(n);
+  std::vector<std::pair<std::size_t, std::size_t>> stopped(n);  // a range of `sets`
   std::vector<bool> complete(n, false);
-  Closure closure(impl.nfa);
-  std::vector<int> states = closure({impl.start}, 0);
-  for (std::size_t i = 0;; ++i) {
+  std::vector<int> sets;
+  impl.cache().walk(norm.text, 0, [&](std::size_t i, const std::vector<int>& states,
+                                      const std::vector<int>&) {
+    if (i == 0 && !norm.text.empty()) return true;  // no rule has matched anything yet
+    const std::size_t base = sets.size();
+    sets.insert(sets.end(), states.begin(), states.end());
     // `states` is sorted, so each rule's states are next to each other.
     for (std::size_t k = 0; k < states.size();) {
       const int r = rule_of[states[k]];
@@ -165,17 +170,13 @@ std::vector<Explanation> Script::explain(const std::string& text, std::size_t li
         if (i == norm.text.size())
           for (std::size_t j = k; j < end; ++j)
             if (impl.nfa.states[states[j]].accept_rule == r) complete[r] = true;
-        if (i > 0 || norm.text.empty()) {
-          furthest[r] = i;
-          stopped[r].assign(states.begin() + k, states.begin() + end);
-        }
+        furthest[r] = i;
+        stopped[r] = {base + k, base + end};
       }
       k = end;
     }
-    if (i == norm.text.size()) break;
-    states = closure.step(states, norm.text[i]);
-    if (states.empty()) break;
-  }
+    return true;
+  });
 
   std::vector<std::size_t> order;
   // A rule that matched none of the input is left out, unless the input is
@@ -191,8 +192,8 @@ std::vector<Explanation> Script::explain(const std::string& text, std::size_t li
   for (std::size_t r : order) {
     const CompiledRule& rule = impl.rules[r];
     std::set<std::string> next;
-    for (int s : stopped[r]) {
-      for (const Edge& e : impl.nfa.states[s].edges) {
+    for (std::size_t k = stopped[r].first; k < stopped[r].second; ++k) {
+      for (const Edge& e : impl.nfa.states[sets[k]].edges) {
         if (e.kind == Edge::Kind::Char) next.insert(to_utf8(std::u32string(1, e.ch)));
         if (e.kind == Edge::Kind::Space) next.insert("space");
         if (e.kind == Edge::Kind::Any) next.insert("any character");

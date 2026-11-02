@@ -167,7 +167,8 @@ In code, `Script::explain(text, limit)` returns `nlu::Explanation`s (label,
 line, file, bytes matched, whether the whole input matched, and what was
 expected next: characters, `space` or `any character`), longest match first.
 The C API has `nlu_script_explain` and Python `Script.explain`, whose
-`matched` is a character offset.
+`matched` is a character offset. Explaining runs on the same DFA cache as
+`match()`, so it fills that cache too.
 
 ## Linting scripts
 
@@ -621,10 +622,10 @@ waiting out an eviction don't keep cores busy.
 The cache is bounded (`CacheOptions`: 200,000 states and 64 MiB by
 default). When it fills up, it keeps the states used since its last
 eviction, up to half of each limit, and drops the rest, so the states most
-inputs pass through stay. `match()` and `search()` (and so `match_best()`)
-fill the same cache, and `Script::cache_stats()` reports its size and how
-often it evicted, from both; `set_cache_options()` changes the limits, or
-gives each thread its own cache (`per_thread`). A thread computing new
+inputs pass through stay. `match()`, `search()` and `explain()` (and so
+`match_best()`) fill the same cache, and `Script::cache_stats()` reports its
+size and how often it evicted, from all of them; `set_cache_options()`
+changes the limits, or gives each thread its own cache (`per_thread`). A thread computing new
 transitions borrows scratch space of 4 bytes per automaton state, which the
 cache keeps for reuse, so there is one such buffer per thread that has
 computed transitions at the same time as others.

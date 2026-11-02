@@ -289,7 +289,7 @@ class Script {
   std::size_t rule_count() const;
 
   // The state of the DFA cache (the calling thread's with per_thread), which
-  // match(), match_best() and search() all use.
+  // match(), match_best(), search() and explain() all use.
   CacheStats cache_stats() const;
   // Replaces the DFA cache with an empty one with these options. Not safe
   // while other threads match with this script.
@@ -300,7 +300,9 @@ class Script {
   // longest match first, then complete matches, then script order. Rules
   // that match none of a non-empty text are left out; a rule that matches
   // the whole text is reported even when the text is empty (`complete`,
-  // `matched` 0).
+  // `matched` 0). It reads the sets of NFA states from the DFA cache that
+  // match() uses, so it fills that cache too (and shows in cache_stats()):
+  // text the cache has seen is explained without building any states.
   std::vector<Explanation> explain(const std::string& text, std::size_t limit = 3) const;
 
   // Static checks for script authors: labels that match the same input, rules
