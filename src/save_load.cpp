@@ -23,7 +23,8 @@ namespace {
 // ending was converted still goes to load(), which says what is wrong.
 const char kMagic[] = "\x89NLU\r\n\x1a\n";
 constexpr std::size_t kSignature = 4;  // "\x89NLU"
-constexpr std::uint32_t kFormatVersion = 2;  // 2: Edge::wildcard
+// 2: Edge::wildcard; 3: `option ignore-trailing-punctuation`
+constexpr std::uint32_t kFormatVersion = 3;
 static_assert(static_cast<unsigned>(Edge::kLastKind) < 8, "edge kinds fit in 3 bits");
 static_assert(static_cast<unsigned>(kLastGuard) < 8, "guards fit in 3 bits");
 
@@ -109,6 +110,7 @@ std::string Script::save() const {
   w.out() = std::string(kMagic, sizeof kMagic - 1);
   w.u32(kFormatVersion);
   w.u8(impl.fold_width ? 1 : 0);
+  w.u8(impl.trailing_punctuation ? 1 : 0);
   w.u8(impl.nfa.has_guards ? 1 : 0);
   w.i32(impl.start);
   w.size(impl.nfa.states.size());
@@ -177,6 +179,7 @@ Script Script::load(const std::string& bytes) {
   if (r.u32() != kFormatVersion) Reader::fail("saved by another format version");
   auto impl = std::make_unique<Impl>();
   impl->fold_width = r.u8() != 0;
+  impl->trailing_punctuation = r.u8() != 0;
   impl->nfa.has_guards = r.u8() != 0;
   impl->start = r.i32();
   const std::size_t states = r.count(2);

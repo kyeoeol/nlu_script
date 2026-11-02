@@ -167,7 +167,8 @@ In code, `Script::explain(text, limit)` returns `nlu::Explanation`s (label,
 line, file, bytes matched, whether the whole input matched, and what was
 expected next: characters, `space` or `any character`), longest match first.
 The C API has `nlu_script_explain` and Python `Script.explain`, whose
-`matched` is a character offset.
+`matched` is a character offset. Explaining runs on the same DFA cache as
+`match()`, so it fills that cache too.
 
 ## Linting scripts
 
@@ -292,7 +293,8 @@ definitions:
 - `ignore-trailing-punctuation` lets every rule end with punctuation
   (`. ? ! ~ , ; : …` and their full-width forms, any number of them, after an
   optional space): `are you there` matches `are you there?!` and
-  `거기 계세요~~`. The punctuation stays outside slots.
+  `거기 계세요~~`. The punctuation stays outside slots and doesn't count
+  towards `specificity` (below).
 - `fold-width` reads full-width and half-width forms as their usual ones, in
   the input and in patterns: `ＯＴＰ` matches `OTP`, `１２` is digits, and
   half-width katakana and Hangul become full-width.
@@ -304,8 +306,11 @@ line of that rule, so you can tell which pattern produced it.
 Each result also has a **specificity**: the number of input characters, not
 counting spaces, that the rule matched with pattern text (literals, entities,
 system entities) rather than wildcards (text an excluded wildcard `\X <?>`
-takes is wildcard text too, whatever the exclusion mentions). When several
-labels match,
+takes is wildcard text too, whatever the exclusion mentions). With
+`option ignore-trailing-punctuation`, the punctuation at the end of the input
+(of the text found, for `search()`), with any spaces between, never counts,
+whatever matched it: on `hello?!`, `hello` scores 5 and `<?>+?` 0, as they do
+on `hello`. When several labels match,
 `match_best()` keeps only the labels whose most specific rule scores
 highest, and each of those results comes from that rule. Ties keep every
 such label, in script order.
@@ -586,6 +591,12 @@ transfer:send
 ```
 
 An attribute assignment applies when the token right before it matches.
+After an optional group, or a repetition that may match nothing
+(`[k]^(0,n)`), it applies only when the group matched (at least once), just
+as one inside an alternative applies only to its branch:
+`<card>(체크){type=DEBIT} 카드</card> 분실` tags `카드 분실` as
+`<card>카드</card> 분실`, and `체크 카드 분실` as
+`<card type="DEBIT">체크 카드</card> 분실`.
 `{slot.key=value}` applies to the closest earlier `<slot>`, or if there is none,
 to the next one. Unqualified assignments outside any slot are an error. Later
 assignments of the same key win. Attributes are listed in the order they were
@@ -627,10 +638,10 @@ waiting out an eviction don't keep cores busy.
 The cache is bounded (`CacheOptions`: 200,000 states and 64 MiB by
 default). When it fills up, it keeps the states used since its last
 eviction, up to half of each limit, and drops the rest, so the states most
-inputs pass through stay. `match()` and `search()` (and so `match_best()`)
-fill the same cache, and `Script::cache_stats()` reports its size and how
-often it evicted, from both; `set_cache_options()` changes the limits, or
-gives each thread its own cache (`per_thread`). A thread computing new
+inputs pass through stay. `match()`, `search()` and `explain()` (and so
+`match_best()`) fill the same cache, and `Script::cache_stats()` reports its
+size and how often it evicted, from all of them; `set_cache_options()`
+changes the limits, or gives each thread its own cache (`per_thread`). A thread computing new
 transitions borrows scratch space of 4 bytes per automaton state, which the
 cache keeps for reuse, so there is one such buffer per thread that has
 computed transitions at the same time as others.

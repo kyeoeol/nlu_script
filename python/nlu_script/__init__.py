@@ -211,8 +211,9 @@ class Match(collections.namedtuple("Match",
     is empty for a script compiled from a string); `specificity` counts the
     input characters, not counting spaces, that the rule matched with pattern
     text rather than wildcards or typos, less one for each letter a typo left
-    out; `begin` and `end` are character offsets of the
-    matched text (the whole input for match(), a span for search())."""
+    out (with `option ignore-trailing-punctuation`, the punctuation at the end
+    of the matched text never counts); `begin` and `end` are character offsets
+    of the matched text (the whole input for match(), a span for search())."""
 
     __slots__ = ()
 

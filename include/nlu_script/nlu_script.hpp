@@ -34,7 +34,9 @@ struct Match {
   int line = 0;             // 1-based script line of the rule that matched
   // Input characters, not counting spaces, that the rule matched with
   // pattern text (literals and entities) rather than wildcards or typos,
-  // less one for each letter a typo left out.
+  // less one for each letter a typo left out. With `option
+  // ignore-trailing-punctuation`, the punctuation at the end of the matched
+  // text never counts, whatever matched it.
   int specificity = 0;
   // Script file of the rule: the path given to compile_file, or an included
   // file's path; empty for a script compiled from a string.
@@ -287,16 +289,20 @@ class Script {
   std::size_t rule_count() const;
 
   // The state of the DFA cache (the calling thread's with per_thread), which
-  // match(), match_best() and search() all use.
+  // match(), match_best(), search() and explain() all use.
   CacheStats cache_stats() const;
   // Replaces the DFA cache with an empty one with these options. Not safe
   // while other threads match with this script.
   void set_cache_options(const CacheOptions& options);
   CacheOptions cache_options() const;
 
-  // For debugging rules: the `limit` rules that got furthest into `text`
-  // (rules that match none of it are left out), longest match first, then
-  // complete matches, then script order.
+  // For debugging rules: the `limit` rules that got furthest into `text`,
+  // longest match first, then complete matches, then script order. Rules
+  // that match none of a non-empty text are left out; a rule that matches
+  // the whole text is reported even when the text is empty (`complete`,
+  // `matched` 0). It reads the sets of NFA states from the DFA cache that
+  // match() uses, so it fills that cache too (and shows in cache_stats()):
+  // text the cache has seen is explained without building any states.
   std::vector<Explanation> explain(const std::string& text, std::size_t limit = 3) const;
 
   // Static checks for script authors: labels that match the same input, rules

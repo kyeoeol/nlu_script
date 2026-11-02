@@ -1,6 +1,7 @@
 #ifndef NLU_SCRIPT_COMPILER_HPP
 #define NLU_SCRIPT_COMPILER_HPP
 
+#include <cstddef>
 #include <map>
 #include <string>
 
@@ -26,6 +27,11 @@ struct Definitions {
 // ("are you there?!"). Throws CompileError.
 int compile_rule(Nfa& nfa, const Definitions& defs, const Node& pattern, int rule,
                  bool trailing_punctuation);
+
+// The length of `text` (normalized) without the run of punctuation, and
+// spaces between it, at its end: the punctuation `trailing_punctuation` lets
+// rules end with, which doesn't count towards specificity.
+std::size_t before_trailing_punctuation(const std::u32string& text);
 
 // The state inside a word of the wildcard that compile_wildcard() builds for
 // `<?>*?` or `<?>+?` from state `in`, if a space may follow the wildcard (a

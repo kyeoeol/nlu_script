@@ -104,7 +104,8 @@ NLU_SCRIPT_API size_t nlu_result_begin(const nlu_result* result, size_t match);
 NLU_SCRIPT_API size_t nlu_result_end(const nlu_result* result, size_t match);
 /* Input characters, not counting spaces, that the rule matched with pattern
  * text rather than wildcards or typos, less one for each letter a typo left
- * out. */
+ * out. With `option ignore-trailing-punctuation`, the punctuation at the end
+ * of the matched text never counts, whatever matched it. */
 NLU_SCRIPT_API int nlu_result_specificity(const nlu_result* result, size_t match);
 
 NLU_SCRIPT_API size_t nlu_result_slot_count(const nlu_result* result, size_t match);

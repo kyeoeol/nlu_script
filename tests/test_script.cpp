@@ -224,6 +224,31 @@ TEST(later_assignment_overrides_earlier_one) {
   CHECK_EQ(attribute(s.match("a b")[0].slots[0], "v"), std::string("2"));
 }
 
+TEST(a_skipped_group_sets_no_attributes) {
+  // An optional group's attributes apply only when the group matched, as an
+  // alternative's apply only to its branch.
+  nlu::Script optional = nlu::Script::compile(
+      "card:lost\n"
+      "    <card>(체크){type=DEBIT} 카드</card> 분실\n"
+      "    lost my <card>(debit){card.type=DEBIT} card</card>\n");
+  CHECK_EQ(tagged(optional, "카드 분실"), std::string("card:lost:<card>카드</card> 분실"));
+  CHECK_EQ(tagged(optional, "체크 카드 분실"),
+           std::string("card:lost:<card type=\"DEBIT\">체크 카드</card> 분실"));
+  CHECK_EQ(tagged(optional, "lost my card"), std::string("card:lost:lost my <card>card</card>"));
+  CHECK_EQ(tagged(optional, "lost my debit card"),
+           std::string("card:lost:lost my <card type=\"DEBIT\">debit card</card>"));
+  // A repetition that may match nothing sets them once it has matched at
+  // least once; one that must match always does.
+  nlu::Script repeated = nlu::Script::compile(
+      "t\n"
+      "    <s>[very]^(0,2){k=v} good</s>\n"
+      "    <s>[so]^(1,2){k=w} bad</s>\n");
+  CHECK_EQ(tagged(repeated, "good"), std::string("t:<s>good</s>"));
+  CHECK_EQ(tagged(repeated, "very good"), std::string("t:<s k=\"v\">very good</s>"));
+  CHECK_EQ(tagged(repeated, "very very good"), std::string("t:<s k=\"v\">very very good</s>"));
+  CHECK_EQ(tagged(repeated, "so bad"), std::string("t:<s k=\"w\">so bad</s>"));
+}
+
 TEST(attributes_leave_spaces_as_they_are) {
   // Text that an attribute splits is still one word.
   nlu::Script word = nlu::Script::compile("t\n    <s>ab{k=v}cd</s>\n");
@@ -536,6 +561,41 @@ TEST(option_ignore_trailing_punctuation) {
   nlu::Script slots = nlu::Script::compile(
       "option ignore-trailing-punctuation\ncall\n    call <who><?>+?</who>\n");
   CHECK_EQ(tagged(slots, "call mom!"), std::string("call:call <who>mom</who>!"));
+}
+
+TEST(trailing_punctuation_does_not_count_towards_specificity) {
+  const std::string rules =
+      "greet\n"
+      "    hello\n"
+      "ask\n"
+      "    hello \"?\" there\n"
+      "shout\n"
+      "    hello \"?!\"\n"
+      "any\n"
+      "    <?>+?\n";
+  auto scores = [](const std::vector<nlu::Match>& found) {
+    std::string out;
+    for (const nlu::Match& m : found)
+      out += (out.empty() ? "" : " ") + m.label + "=" + std::to_string(m.specificity);
+    return out;
+  };
+  // With the option, the punctuation at the end of the input never counts,
+  // whatever matched it; punctuation elsewhere still does.
+  nlu::Script lenient = nlu::Script::compile("option ignore-trailing-punctuation\n" + rules);
+  CHECK_EQ(scores(lenient.match("hello?!")), std::string("greet=5 shout=5 any=0"));
+  CHECK_EQ(scores(lenient.match("hello")), std::string("greet=5 any=0"));
+  CHECK_EQ(scores(lenient.match("hello ? !")), std::string("any=0"));
+  CHECK_EQ(scores(lenient.match("hello? there!")), std::string("ask=11 any=0"));
+  // In search(), at the end of the span found.
+  nlu::Script words = nlu::Script::compile(
+      "option ignore-trailing-punctuation\ngreet\n    hello\nshout\n    hello \"?!\"\n");
+  CHECK_EQ(scores(words.search("well, hello?! bye")), std::string("greet=5 shout=5"));
+  // A saved script keeps the option.
+  CHECK_EQ(scores(nlu::Script::load(lenient.save()).match("hello?!")),
+           std::string("greet=5 shout=5 any=0"));
+  // Without it, punctuation is pattern text like any other.
+  nlu::Script strict = nlu::Script::compile(rules);
+  CHECK_EQ(scores(strict.match("hello?!")), std::string("shout=7 any=0"));
 }
 
 TEST(option_fold_width) {

@@ -30,8 +30,11 @@ struct Replay {
 
 // Replays `rule` over `text`, which the DFA found it accepts: runs the
 // rule's Pike VM if it needs one (see needs_pike_vm()), and works out the
-// specificity. Returns false if the rule does not match after all.
-bool replay(const Nfa& nfa, const CompiledRule& rule, const std::u32string& text, Replay& out);
+// specificity over text[0, counted) (the rest is trailing punctuation that
+// doesn't count; see before_trailing_punctuation()). Returns false if the
+// rule does not match after all.
+bool replay(const Nfa& nfa, const CompiledRule& rule, const std::u32string& text,
+            std::size_t counted, Replay& out);
 
 // Whether the Pike VM can tell anything about a match of the rule with
 // states [first, last) that the DFA doesn't: without actions it records no

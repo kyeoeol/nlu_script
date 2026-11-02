@@ -110,6 +110,7 @@ std::unique_ptr<Script::Impl> compile_source(const std::string& source, const st
     throw CompileError(std::move(errors));
   }
   impl->fold_width = parsed.options.fold_width;
+  impl->trailing_punctuation = parsed.options.ignore_trailing_punctuation;
   impl->unused = unused_definitions(parsed);
   impl->files.assign(parsed.files.begin(), parsed.files.end());
   impl->lint_directives = std::move(parsed.lint_directives);
@@ -146,15 +147,20 @@ std::vector<Explanation> Script::explain(const std::string& text, std::size_t li
   const NormalizedText norm = normalize(text, impl.fold_width);
   const std::vector<int>& rule_of = impl.rule_of;
 
-  // One pass over the input with every rule at once. For each rule, keep
-  // the furthest position where it was still alive and its states there.
+  // One pass of the DFA over the input with every rule at once. For each
+  // rule, keep the furthest position where it was still alive and where its
+  // states there are in `sets`, which keeps a copy of each position's states
+  // (the DFA's are valid only during the visit).
   const std::size_t n = impl.rules.size();
   std::vector<std::size_t> furthest(n, 0);
-  std::vector<std::vector<int>> stopped(n);
+  std::vector<std::pair<std::size_t, std::size_t>> stopped(n);  // a range of `sets`
   std::vector<bool> complete(n, false);
-  Closure closure(impl.nfa);
-  std::vector<int> states = closure({impl.start}, 0);
-  for (std::size_t i = 0;; ++i) {
+  std::vector<int> sets;
+  impl.cache().walk(norm.text, 0, [&](std::size_t i, const std::vector<int>& states,
+                                      const std::vector<int>&) {
+    if (i == 0 && !norm.text.empty()) return true;  // no rule has matched anything yet
+    const std::size_t base = sets.size();
+    sets.insert(sets.end(), states.begin(), states.end());
     // `states` is sorted, so each rule's states are next to each other.
     for (std::size_t k = 0; k < states.size();) {
       const int r = rule_of[states[k]];
@@ -164,21 +170,19 @@ std::vector<Explanation> Script::explain(const std::string& text, std::size_t li
         if (i == norm.text.size())
           for (std::size_t j = k; j < end; ++j)
             if (impl.nfa.states[states[j]].accept_rule == r) complete[r] = true;
-        if (i > 0) {
-          furthest[r] = i;
-          stopped[r].assign(states.begin() + k, states.begin() + end);
-        }
+        furthest[r] = i;
+        stopped[r] = {base + k, base + end};
       }
       k = end;
     }
-    if (i == norm.text.size()) break;
-    states = closure.step(states, norm.text[i]);
-    if (states.empty()) break;
-  }
+    return true;
+  });
 
   std::vector<std::size_t> order;
+  // A rule that matched none of the input is left out, unless the input is
+  // empty and the rule matches it.
   for (std::size_t r = 0; r < n; ++r)
-    if (furthest[r] > 0) order.push_back(r);
+    if (furthest[r] > 0 || complete[r]) order.push_back(r);
   std::stable_sort(order.begin(), order.end(), [&](std::size_t a, std::size_t b) {
     return std::make_pair(furthest[a], complete[a]) > std::make_pair(furthest[b], complete[b]);
   });
@@ -188,14 +192,15 @@ std::vector<Explanation> Script::explain(const std::string& text, std::size_t li
   for (std::size_t r : order) {
     const CompiledRule& rule = impl.rules[r];
     std::set<std::string> next;
-    for (int s : stopped[r]) {
-      for (const Edge& e : impl.nfa.states[s].edges) {
+    for (std::size_t k = stopped[r].first; k < stopped[r].second; ++k) {
+      for (const Edge& e : impl.nfa.states[sets[k]].edges) {
         if (e.kind == Edge::Kind::Char) next.insert(to_utf8(std::u32string(1, e.ch)));
         if (e.kind == Edge::Kind::Space) next.insert("space");
         if (e.kind == Edge::Kind::Any) next.insert("any character");
       }
     }
-    out.push_back({rule.label, rule.line, rule.file, norm.end[furthest[r] - 1], complete[r],
+    const std::size_t matched = furthest[r] > 0 ? norm.end[furthest[r] - 1] : 0;
+    out.push_back({rule.label, rule.line, rule.file, matched, complete[r],
                    std::vector<std::string>(next.begin(), next.end())});
   }
   return out;
@@ -207,6 +212,10 @@ std::vector<Match> Script::match(const std::string& text) const {
 
 std::vector<Match> Script::match_best(const std::string& text) const {
   return impl_->match(text, true);
+}
+
+std::size_t Script::Impl::counted_length(const std::u32string& text) const {
+  return trailing_punctuation ? before_trailing_punctuation(text) : text.size();
 }
 
 // Picks one rule per matching label: its first matching rule, or with `best`
@@ -222,12 +231,13 @@ std::vector<Match> Script::Impl::match(const std::string& text, bool best) const
   };
   std::vector<Found> found;
   std::map<std::string, std::size_t> label_index;
+  const std::size_t counted = counted_length(norm.text);
   Replay replayed;
   for (int id : accepted) {
     const CompiledRule& r = rules[id];
     auto it = label_index.find(r.label);
     if (it != label_index.end() && !best) continue;
-    if (!replay(nfa, r, norm.text, replayed)) continue;
+    if (!replay(nfa, r, norm.text, counted, replayed)) continue;
     Found f{id, std::move(replayed)};
     if (it == label_index.end()) {
       label_index.emplace(r.label, found.size());
@@ -284,11 +294,12 @@ std::vector<Match> Script::Impl::search(const std::string& text) const {
       continue;
     }
     const std::u32string span = t.substr(i, end - i);
+    const std::size_t counted = counted_length(span);
     std::set<std::string> seen;
     for (int id : accepts) {
       const CompiledRule& r = rules[id];
       if (seen.count(r.label)) continue;
-      if (!replay(nfa, r, span, replayed)) continue;
+      if (!replay(nfa, r, span, counted, replayed)) continue;
       seen.insert(r.label);
       for (Event& e : replayed.events) e.pos += static_cast<int>(i);
       out.push_back(build_match(nfa, r, replayed, text, norm, norm.begin[i], norm.end[end - 1]));

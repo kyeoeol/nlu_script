@@ -22,9 +22,10 @@ class PikeVm {
 
   // Runs the rule over the text and returns the actions on the highest
   // priority accepting path, and how many characters count as wildcard text
-  // on it: those wildcards and typos consumed, and one per letter a typo left
-  // out. Returns false if the rule does not match.
-  bool run(int start, const std::u32string& text, std::vector<Event>& events, int& wildcard_chars) {
+  // on it: those wildcards and typos consumed among text[0, counted), and one
+  // per letter a typo left out. Returns false if the rule does not match.
+  bool run(int start, const std::u32string& text, std::size_t counted, std::vector<Event>& events,
+           int& wildcard_chars) {
     std::vector<Thread>& current = s_.current;
     std::vector<Thread>& next = s_.next;
     current.clear();
@@ -36,12 +37,13 @@ class PikeVm {
       next_generation();
       const char32_t c = text[i];
       const int pos = static_cast<int>(i) + 1;
+      const int wild = i < counted ? 1 : 0;  // what a wildcard taking c adds
       for (const Thread& t : current) {
         if (t.begin < 0) continue;
         const std::vector<Edge>& edges = nfa_.states[t.state].edges;
         for (int k = t.begin; k < t.end; ++k) {
           const Edge& e = edges[k];
-          if (nfa_.matches(e, c)) add(next, e.to, t.log, pos, c, t.wild + (e.wildcard ? 1 : 0));
+          if (nfa_.matches(e, c)) add(next, e.to, t.log, pos, c, t.wild + (e.wildcard ? wild : 0));
         }
       }
       std::swap(current, next);
@@ -201,13 +203,15 @@ class PikeVm {
 
 }  // namespace
 
-bool replay(const Nfa& nfa, const CompiledRule& rule, const std::u32string& text, Replay& out) {
+bool replay(const Nfa& nfa, const CompiledRule& rule, const std::u32string& text,
+            std::size_t counted, Replay& out) {
   int wildcard_chars = 0;
   out.events.clear();
   if (rule.needs_vm &&
-      !PikeVm(nfa, rule.first, rule.last).run(rule.start, text, out.events, wildcard_chars))
+      !PikeVm(nfa, rule.first, rule.last).run(rule.start, text, counted, out.events, wildcard_chars))
     return false;
-  const int letters = static_cast<int>(text.size() - std::count(text.begin(), text.end(), U' '));
+  const auto end = text.begin() + static_cast<std::ptrdiff_t>(counted);
+  const int letters = static_cast<int>(counted - std::count(text.begin(), end, U' '));
   out.specificity = letters - wildcard_chars;
   return true;
 }
