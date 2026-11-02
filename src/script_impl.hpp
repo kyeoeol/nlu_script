@@ -13,6 +13,7 @@
 #include "lazy_dfa.hpp"
 #include "nfa.hpp"
 #include "nlu_script/nlu_script.hpp"
+#include "replay.hpp"
 #include "rule.hpp"
 #include "script_source.hpp"
 
@@ -26,6 +27,7 @@ struct Script::Impl {
   bool trailing_punctuation = false;
   std::vector<detail::CompiledRule> rules;
   std::vector<int> rule_of;  // the rule owning each state, -1 for the start state
+  detail::CharRuns char_runs;  // for the Pike VM
   std::vector<UnusedDefinition> unused;
   std::vector<std::string> files;  // the main script, then included files as they are read
   std::vector<detail::LintDirective> lint_directives;  // their `file` indexes `files`
@@ -49,8 +51,12 @@ struct Script::Impl {
     return std::make_unique<detail::LazyDfa>(nfa, rule_of, start, options);
   }
 
-  // Sets rule_of from the rules' state ranges, once they are all compiled.
-  void index_rules() { rule_of = detail::rule_owners(nfa.states.size(), rules); }
+  // Sets rule_of from the rules' state ranges, and char_runs, once they are
+  // all compiled.
+  void index_rules() {
+    rule_of = detail::rule_owners(nfa.states.size(), rules);
+    char_runs = detail::CharRuns(nfa, rules);
+  }
 
   detail::LazyDfa& cache() const {
     if (!cache_options.per_thread) return *shared_dfa;
