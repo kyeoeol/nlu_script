@@ -455,6 +455,26 @@
       - `lint.cpp`: also `Script::lint` and `LintReport::findings`
       - `script.cpp` (301 lines): compiling, `match`, `match_best`, `search`,
         `explain` and the cache options
+- [x] Wider system entities and whitespace, from an audit of forms that
+      didn't match: `EN_NUMBER` takes `and` before a last part below 100
+      after a scale (`two thousand and five` 2005, `a thousand and one`),
+      still leaving it to the pattern elsewhere (`two and three`), and
+      hundreds counted past ten as a whole number (`twelve hundred` 1200,
+      `nineteen hundred and ninety` 1990, `twenty-five hundred`);
+      `KO_NUMBER` lets a space follow 천, 백 and 십 as it did 만, 억 and 조
+      (`5천 3백` 5300, `1만 5천 3백` 15300, `삼천 오백`, `3천 5백만`), with
+      the ones digit kept on its unit (`백 일` is not 101); `TELNUM` takes
+      dots in Korean numbers (`010.9876.5432`) with the same group lengths;
+      and whitespace is exactly Unicode's White_Space (thin space U+2009,
+      narrow no-break space U+202F and nine others were letters), with slot
+      offsets still on the original bytes. `one hundred and twenty` already
+      matched. First compile of a script using every entity: 25.2 to 26.7
+      ms; saved demo: 3,908,283 to 3,973,871 bytes (+1.7%)
+- [x] The library compiles free of `-Wshadow` warnings with clang: the
+      Korean number reader's two unit variables (`small_unit`, `large_unit`
+      branches) no longer share a name. CI doesn't add `-Wshadow`, since
+      gcc's version also warns about constructor parameters named like
+      members and hasn't been tried
 - [x] Two behavior decisions, a fix and a speed-up in explain():
       - an attribute on an optional group, or on a repetition that may match
         zero times, applies only when the group matched, as one inside an
@@ -478,10 +498,6 @@
 
 ## Next
 
-- [ ] `-Wshadow` warns in `src/numbers.cpp:109`: the `unit` of the
-      `large_unit` branch shadows the one of the `small_unit` branch before
-      it. Renaming it leaves the library free of `-Wshadow` warnings, which
-      CI could then turn on
 - [ ] Warm matching is still about 80% Pike VM (7.7 us for a cached demo
       sentence): per input character it visits about 20 states and tests
       about 39 consuming edges, 57% of them in runs of more than 8 edges of

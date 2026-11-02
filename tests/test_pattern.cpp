@@ -439,6 +439,38 @@ TEST(whitespace_in_input_is_normalized) {
   CHECK(matches("잔액 조회", "잔액　조회"));
 }
 
+TEST(every_unicode_white_space_character_is_a_space) {
+  // The characters with Unicode's White_Space property.
+  const std::string spaces[] = {
+      "\t",     "\n",     "\v",     "\f",     "\r",     " ",      "\xC2\x85", " ",
+      " ", " ", " ", " ", " ", " ", " ",   " ",
+      " ", " ", " ", " ", " ", " ", " ",   " ",
+      "　"};
+  const nlu::Script spaced = rule("잔액 조회");
+  const nlu::Script unspaced = rule("잔액조회");
+  for (const std::string& space : spaces) {
+    CHECK(matches(spaced, "잔액" + space + "조회"));
+    CHECK(matches(spaced, space + "잔액 " + space + "조회" + space));
+    CHECK(!matches(unspaced, "잔액" + space + "조회"));
+  }
+}
+
+TEST(slots_span_the_original_bytes_around_unicode_spaces) {
+  nlu::Script s = rule("`@{DATETIME} 전화");
+  const std::string when = "내일 오후";  // THIN SPACE
+  const std::string input = " " + when + "  전화";  // NARROW NO-BREAK SPACE
+  std::vector<nlu::Match> found = s.match(input);
+  CHECK_EQ(found.size(), 1u);
+  if (found.size() == 1 && found[0].slots.size() == 1) {
+    const nlu::Slot& slot = found[0].slots[0];
+    CHECK_EQ(slot.text, when);
+    CHECK_EQ(slot.begin, std::string(" ").size());
+    CHECK_EQ(slot.end, slot.begin + when.size());
+    CHECK_EQ(found[0].tagged, " <DATETIME day_offset=\"+1\" part_of_day=\"PM\">" + when +
+                                  "</DATETIME>  전화");
+  }
+}
+
 // Decomposed Hangul (NFD, as in text copied from macOS file names) is composed
 // before matching, in input and in patterns alike.
 TEST(decomposed_hangul_matches_composed_hangul) {
