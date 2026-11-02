@@ -28,9 +28,13 @@ struct Definitions {
 int compile_rule(Nfa& nfa, const Definitions& defs, const Node& pattern, int rule,
                  bool trailing_punctuation);
 
-// The length of `text` (normalized) without the run of punctuation, and
-// spaces between it, at its end: the punctuation `trailing_punctuation` lets
-// rules end with, which doesn't count towards specificity.
+// The punctuation `trailing_punctuation` lets rules end with, which doesn't
+// count towards specificity.
+inline constexpr char32_t kTrailingPunctuation[] =
+    U".?!~,;:\u2026\uFF0E\uFF1F\uFF01\uFF5E\u3002\u3001\uFF0C\uFF1B\uFF1A";
+
+// The length of `text` (normalized) without the run of kTrailingPunctuation,
+// and spaces between it, at its end.
 std::size_t before_trailing_punctuation(const std::u32string& text);
 
 // The state inside a word of the wildcard that compile_wildcard() builds for

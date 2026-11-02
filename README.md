@@ -207,10 +207,13 @@ counted but not listed. An unknown label or command in a `# lint:` comment is
 a finding itself; such comments never affect matching.
 
 With `--best`, overlaps that `match_best()` always resolves are left out:
-those where one label matches each shared input without wildcards and the
-other always needs one (an entity rule against a catch-all, say). The
-overlap's `best_label` names the winner. `--verbose` also lists allowed and
-resolved overlaps.
+those where one label matches each shared input with a rule that has no
+wildcards, and the other always needs one (an entity rule against a
+catch-all, say). With `option ignore-trailing-punctuation`, a wildcard that
+takes only punctuation at the end of the input doesn't count, as in
+`specificity`: `hello "?"` and `hello <?>` tie on `hello?`. The overlap's
+`best_label` names the winner. `--verbose` also lists allowed and resolved
+overlaps.
 
 The exit status is 1 when there are findings, so `--lint` can run in CI.
 In code, `Script::lint()` returns an `nlu::LintReport`, and

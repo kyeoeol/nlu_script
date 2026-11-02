@@ -466,7 +466,7 @@ class Search {
 }  // namespace
 
 RuleAnalysis analyze_rules(const Nfa& script, const std::vector<CompiledRule>& rules,
-                           std::size_t max_states) {
+                           bool trailing_punctuation, std::size_t max_states) {
   RuleAnalysis out;
   const int n = static_cast<int>(rules.size());
 
@@ -485,48 +485,24 @@ RuleAnalysis analyze_rules(const Nfa& script, const std::vector<CompiledRule>& r
     return need;
   };
 
-  // The script's automaton plus, for each rule, a copy without wildcard
-  // edges (accepting as rule n + r), which tells whether an input needs a
-  // wildcard.
-  Nfa nfa = script;
-  std::vector<int> copy_start(n);
-  std::vector<bool> wildcard_free(n, true);
-  for (int r = 0; r < n; ++r) {
-    const CompiledRule& rule = rules[r];
-    const int base = static_cast<int>(nfa.states.size());
-    for (int s = rule.first; s < rule.last; ++s) nfa.add_state();
-    for (int s = rule.first; s < rule.last; ++s) {
-      State& copy = nfa.states[base + (s - rule.first)];
-      for (Edge e : script.states[s].edges) {
-        if (e.wildcard) {
-          wildcard_free[r] = false;
-          continue;
-        }
-        e.to = base + (e.to - rule.first);
-        copy.edges.push_back(e);
-      }
-      if (script.states[s].accept_rule == r) copy.accept_rule = n + r;
-    }
-    copy_start[r] = base + (rule.start - rule.first);
-  }
-  Closure closure(nfa);
-  Covers covers(nfa, into, rules);
-  std::size_t budget = max_states;
-
   // The labels in the order of their first rules, each with its rules and,
   // built when a search needs them, the automata of its rules alone and of
-  // its rules with their wildcard-free copies.
+  // its rules with their full-specificity copies (below).
   struct Label {
     std::vector<int> rules;
     bool literal = false;   // some rule has no wildcards
     bool searched = false;  // for dead rules, fully
     std::unique_ptr<Determinizer> plain, with_copies;
   };
+  std::vector<bool> wildcard_free(n, true);
   std::vector<Label> labels;
   std::vector<int> label_of(n);
   {
     std::map<std::string, int> index;
     for (int r = 0; r < n; ++r) {
+      for (int s = rules[r].first; s < rules[r].last; ++s)
+        for (const Edge& e : script.states[s].edges)
+          wildcard_free[r] = wildcard_free[r] && !e.wildcard;
       auto it = index.emplace(rules[r].label, static_cast<int>(labels.size())).first;
       if (it->second == static_cast<int>(labels.size())) labels.emplace_back();
       labels[it->second].rules.push_back(r);
@@ -534,6 +510,74 @@ RuleAnalysis analyze_rules(const Nfa& script, const std::vector<CompiledRule>& r
       label_of[r] = it->second;
     }
   }
+  const auto literal_labels =
+      std::count_if(labels.begin(), labels.end(), [](const Label& l) { return l.literal; });
+
+  // The script's automaton plus, for each rule, a copy that accepts (as rule
+  // n + r) the inputs the rule can match at full specificity, with no
+  // wildcard text: on any other input it scores lower. That is the rule
+  // without its wildcard edges, a typo's left-out letter among them. With
+  // trailing_punctuation, the punctuation at the end of the input doesn't
+  // count, whatever takes it: there a wildcard edge that takes a punctuation
+  // character also leads into a second copy of the rule, which follows its
+  // edges on punctuation and spaces only, so the rest of the input is such
+  // punctuation. The second copy doesn't leave a letter out either, since
+  // replay() counts that anywhere, and has only the states those edges
+  // reach. Copies are only searched against another label's wildcard-free
+  // rule, so only the labels that one could beat get them.
+  Nfa nfa = script;
+  std::vector<int> copy_start(n, -1);
+  for (int r = 0; r < n; ++r) {
+    if (literal_labels == (labels[label_of[r]].literal ? 1 : 0)) continue;
+    const CompiledRule& rule = rules[r];
+    const int size = rule.last - rule.first;
+    const int base = static_cast<int>(nfa.states.size());
+    for (int s = 0; s < size; ++s) nfa.add_state();
+    // The second copy's state of each of the rule's states, once reached.
+    std::vector<int> tail(trailing_punctuation && !wildcard_free[r] ? size : 0, -1);
+    std::vector<int> todo;
+    auto tail_state = [&](int s) {
+      if (tail[s] < 0) {
+        tail[s] = nfa.add_state();
+        todo.push_back(s);
+      }
+      return tail[s];
+    };
+    auto on_punctuation = [&](int from, const Edge& e) {
+      for (const char32_t* p = kTrailingPunctuation; *p; ++p)
+        if (script.matches(e, *p))
+          nfa.add_edge(from, Edge::Kind::Char, tail_state(e.to - rule.first), *p);
+    };
+    for (int s = 0; s < size; ++s) {
+      for (Edge e : script.states[rule.first + s].edges) {
+        if (!e.wildcard) {
+          e.to = base + (e.to - rule.first);
+          nfa.states[base + s].edges.push_back(e);
+        } else if (!tail.empty() && e.consumes()) {
+          on_punctuation(base + s, e);
+        }
+      }
+      if (script.states[rule.first + s].accept_rule == r) nfa.states[base + s].accept_rule = n + r;
+    }
+    while (!todo.empty()) {
+      const int s = todo.back();
+      todo.pop_back();
+      for (Edge e : script.states[rule.first + s].edges) {
+        if (e.kind == Edge::Kind::Space || (!e.consumes() && !e.wildcard)) {
+          e.to = tail_state(e.to - rule.first);
+          nfa.states[tail[s]].edges.push_back(e);
+        } else if (e.consumes()) {
+          on_punctuation(tail[s], e);
+        }
+      }
+      if (script.states[rule.first + s].accept_rule == r) nfa.states[tail[s]].accept_rule = n + r;
+    }
+    copy_start[r] = base + (rule.start - rule.first);
+  }
+  Closure closure(nfa);
+  Covers covers(nfa, into, rules);
+  std::size_t budget = max_states;
+
   auto automaton = [&](Label& label, bool copies) {
     std::unique_ptr<Determinizer>& dfa = copies ? label.with_copies : label.plain;
     if (!dfa) {
@@ -595,10 +639,13 @@ RuleAnalysis analyze_rules(const Nfa& script, const std::vector<CompiledRule>& r
 
   // Overlaps, one pair of labels at a time: the cheapest input both match,
   // and whether one of them always wins match_best() on such inputs. A label
-  // wins one if a rule without wildcards matches it and no rule of the other
-  // label does without its wildcards, which the wildcard-free copies tell;
-  // they are only searched when that can happen. An input needs as many more
-  // characters as the label further from matching does.
+  // wins one if a rule without wildcards matches it, which scores every
+  // character, and no rule of the other label can match it at full
+  // specificity, which the copies tell; they are only searched when that can
+  // happen. (A rule whose copy matches may still score lower: match_best()
+  // scores the path a rule takes first, which may use a wildcard anyway, as
+  // `[<?>|h]ello` does on `hello`.) An input needs as many more characters as
+  // the label further from matching does.
   std::vector<std::pair<std::pair<int, int>, Overlap>> found;
   for (std::size_t a = 0; a < labels.size(); ++a) {
     for (std::size_t b = a + 1; b < labels.size(); ++b) {
@@ -663,7 +710,7 @@ using namespace detail;
 
 LintReport Script::lint(std::size_t max_states) const {
   const Impl& impl = *impl_;
-  RuleAnalysis search = analyze_rules(impl.nfa, impl.rules, max_states);
+  RuleAnalysis search = analyze_rules(impl.nfa, impl.rules, impl.trailing_punctuation, max_states);
 
   LintReport report;
   report.unused = impl.unused;

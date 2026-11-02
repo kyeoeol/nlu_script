@@ -516,17 +516,34 @@
       joined and double-spaced variants (3,912 lines), on 6,036 inputs to
       the fuzz script that uses every feature, and from saved scripts; TSan
       passes, also on 4 threads matching the demo
+- [x] With `option ignore-trailing-punctuation`, lint's `best_label` agrees
+      with `match_best()`: a wildcard that takes only the punctuation at the
+      end of the input doesn't lower `specificity`, but lint counted it as a
+      loss, so `hello "?"` against `hello <?>` was resolved for the first
+      although both score 5 on `hello?`. The other label's wildcard-free
+      copies now go on, from a wildcard edge that takes a punctuation
+      character, into a second copy of the rule that follows its edges on
+      punctuation and spaces only (not a typo's left-out letter, which
+      `replay()` counts anywhere); only the states it reaches are built. The
+      winning label still needs a rule with no wildcards at all, since a
+      rule whose copy matches may still score lower: `match_best()` scores
+      the path the rule takes first (`[<?>|h]ello` scores 4 on `hello`).
+      Copies are now built only for labels that another label's
+      wildcard-free rule could beat, so `lint()` on the demo, which has no
+      such rule, went from about 160 to 152 ms; with a wildcard-free label
+      added, from 162 to 166 ms; without the option, output and time are
+      unchanged. On 10,000 random two-label scripts with the option
+      (literals, wildcards, quoted punctuation, optional and typo groups),
+      each of the 705 `best_label`s holds on its example and on all 66,278
+      inputs of up to 5 characters that both labels match (the old lint
+      failed 67 of its 251 examples on the first 2,000 scripts). Of the 437
+      claims it no longer makes, 436 tie on some input; the other one held
+      only through the path the rule takes first. Without the option,
+      `--lint --best --verbose` is byte-identical on 3,000 random scripts.
+      The demo's lint output is unchanged: none of its labels has a rule
+      without wildcards, so none of its 406 overlaps had a `best_label`
 
 ## Next
-
-- [ ] With `option ignore-trailing-punctuation`, lint's `best_label` can
-      claim a win that `match_best()` ties: since trailing punctuation no
-      longer counts towards specificity, a rule that needs a wildcard only
-      for it (`hello <?>`) scores as high as a wildcard-free one
-      (`hello "?"`) on `hello?`, yet `--lint --best` reports the overlap as
-      resolved. The wildcard-free copies would need a second copy that
-      follows every edge, wildcards too, but only on punctuation and spaces,
-      entered on punctuation
 
 ## Open questions
 
