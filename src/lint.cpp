@@ -522,23 +522,29 @@ RuleAnalysis analyze_rules(const Nfa& script, const std::vector<CompiledRule>& r
   // character also leads into a second copy of the rule, which follows its
   // edges on punctuation and spaces only, so the rest of the input is such
   // punctuation. The second copy doesn't leave a letter out either, since
-  // replay() counts that anywhere, and has only the states those edges
-  // reach. Copies are only searched against another label's wildcard-free
-  // rule, so only the labels that one could beat get them.
+  // replay() counts that anywhere.
   Nfa nfa = script;
   std::vector<int> copy_start(n, -1);
   for (int r = 0; r < n; ++r) {
-    if (literal_labels == (labels[label_of[r]].literal ? 1 : 0)) continue;
+    // Copies are only searched against another label's wildcard-free rule.
+    const auto other_literal_labels = literal_labels - labels[label_of[r]].literal;
+    if (other_literal_labels == 0) continue;
     const CompiledRule& rule = rules[r];
     const int size = rule.last - rule.first;
+    // A copy's state of the rule's state `s`, accepting where `s` does.
+    auto copy_state = [&](int s) {
+      const int copy = nfa.add_state();
+      if (script.states[rule.first + s].accept_rule == r) nfa.states[copy].accept_rule = n + r;
+      return copy;
+    };
     const int base = static_cast<int>(nfa.states.size());
-    for (int s = 0; s < size; ++s) nfa.add_state();
+    for (int s = 0; s < size; ++s) copy_state(s);
     // The second copy's state of each of the rule's states, once reached.
-    std::vector<int> tail(trailing_punctuation && !wildcard_free[r] ? size : 0, -1);
+    std::vector<int> tail(size, -1);
     std::vector<int> todo;
     auto tail_state = [&](int s) {
       if (tail[s] < 0) {
-        tail[s] = nfa.add_state();
+        tail[s] = copy_state(s);
         todo.push_back(s);
       }
       return tail[s];
@@ -553,11 +559,10 @@ RuleAnalysis analyze_rules(const Nfa& script, const std::vector<CompiledRule>& r
         if (!e.wildcard) {
           e.to = base + (e.to - rule.first);
           nfa.states[base + s].edges.push_back(e);
-        } else if (!tail.empty() && e.consumes()) {
+        } else if (trailing_punctuation && e.consumes()) {
           on_punctuation(base + s, e);
         }
       }
-      if (script.states[rule.first + s].accept_rule == r) nfa.states[base + s].accept_rule = n + r;
     }
     while (!todo.empty()) {
       const int s = todo.back();
@@ -570,7 +575,6 @@ RuleAnalysis analyze_rules(const Nfa& script, const std::vector<CompiledRule>& r
           on_punctuation(tail[s], e);
         }
       }
-      if (script.states[rule.first + s].accept_rule == r) nfa.states[tail[s]].accept_rule = n + r;
     }
     copy_start[r] = base + (rule.start - rule.first);
   }
